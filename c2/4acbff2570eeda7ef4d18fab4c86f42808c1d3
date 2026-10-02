@@ -1,0 +1,62 @@
+prek.toml
+  s_a16a72bbb1a561::t_a22a162dd5c587 1-39
+build.rs
+  s_a16a72bbb1a561::t_85381478f4a061 1-11
+Makefile
+  s_a16a72bbb1a561::t_63b9b7dcf35c97 1-34
+src/lib.rs
+  s_a16a72bbb1a561::t_c870b95fb7837e 1-17
+Cargo.toml
+  s_a16a72bbb1a561::t_9ffcdef499310e 1-87
+scripts/smoke.sh
+  s_a16a72bbb1a561::t_63b9b7dcf35c97 1-8,10-34
+  s_a16a72bbb1a561::t_95a16c7182d0c3 9
+.cargo/config.toml
+  s_a16a72bbb1a561::t_cefd68119e9f4e 1-4
+CLAUDE.md
+  s_a16a72bbb1a561::t_9c8503dd5272c8 31-43
+  s_a16a72bbb1a561::t_6d5060a31b0580 1-30
+.github/workflows/ci.yml
+  s_a16a72bbb1a561::t_a22a162dd5c587 1-35
+.gitignore
+  s_a16a72bbb1a561::t_9ffcdef499310e 1-2
+deny.toml
+  s_a16a72bbb1a561::t_3ebaf534c13310 1-6,13-34
+  s_a16a72bbb1a561::t_50adeedec8345f 7-12
+src/server/mod.rs
+  s_a16a72bbb1a561::t_c870b95fb7837e 1-48
+tests/server.rs
+  s_a16a72bbb1a561::t_63b9b7dcf35c97 1-34
+rustfmt.toml
+  s_a16a72bbb1a561::t_63b9b7dcf35c97 1
+src/ui/shell.rs
+  s_a16a72bbb1a561::t_c870b95fb7837e 1-85
+src/main.rs
+  s_a16a72bbb1a561::t_c870b95fb7837e 1-32
+style/main.css
+  s_a16a72bbb1a561::t_c870b95fb7837e 1-75
+src/ui/mod.rs
+  s_a16a72bbb1a561::t_c870b95fb7837e 1-5
+src/server/assets.rs
+  s_a16a72bbb1a561::t_c870b95fb7837e 1-33
+Cargo.lock
+  s_a16a72bbb1a561::t_85459170082e2c 1-2868
+docs/mvp-plan.md
+  s_a16a72bbb1a561::t_f4973a044d4f9c 1-185
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c24acbff2570eeda7ef4d18fab4c86f42808c1d3",
+  "prompts": {},
+  "sessions": {
+    "s_a16a72bbb1a561": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c4825dcb-6aec-4b49-b368-aeeb721d6552",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
