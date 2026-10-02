@@ -1,0 +1,27 @@
+src/main.rs
+  s_a16a72bbb1a561::t_f082c8a16bf4c3 6-8,12,14,21-22,33-36
+CLAUDE.md
+  s_a16a72bbb1a561::t_67ef7a64c3c9cb 35
+Cargo.toml
+  s_a16a72bbb1a561::t_f082c8a16bf4c3 45-47
+src/server/mod.rs
+  s_a16a72bbb1a561::t_f082c8a16bf4c3 39-42
+scripts/smoke.sh
+  s_a16a72bbb1a561::t_007def6d5f575d 28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4b8c71a8ab7a27cb2dc308dfbac018b8b0d14008",
+  "prompts": {},
+  "sessions": {
+    "s_a16a72bbb1a561": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c4825dcb-6aec-4b49-b368-aeeb721d6552",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
