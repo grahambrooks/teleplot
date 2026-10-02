@@ -32,6 +32,7 @@ Ingestion/ETL · writing to ES (except the dev-only fixture seeder) · UI editin
 ## Development
 
 * `make dev` — `cargo leptos watch` with live reload on http://127.0.0.1:3000
+* `cargo run` — serves on :3000 using the last client bundle in `target/site` (run `cargo leptos build` first if there is none)
 * `make pre-commit` — fmt, clippy (server and WASM client), tests. Run before every commit; CI runs the same
 * `make smoke` — release build, then checks that the binary serves the whole UI from an empty directory
 * `make deny` — cargo-deny supply-chain checks

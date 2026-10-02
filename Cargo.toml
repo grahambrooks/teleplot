@@ -42,6 +42,9 @@ tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 
 [features]
+# Plain `cargo run`/`cargo test` build the server. cargo-leptos and the WASM
+# build pass --no-default-features, so this never leaks into the client.
+default = ["ssr"]
 hydrate = ["leptos/hydrate", "dep:console_error_panic_hook", "dep:wasm-bindgen"]
 ssr = [
     "dep:axum",

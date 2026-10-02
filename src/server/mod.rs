@@ -36,7 +36,10 @@ pub fn router(addr: SocketAddr) -> Router {
 /// Serves until Ctrl-C.
 pub async fn serve(addr: SocketAddr) -> std::io::Result<()> {
     if !assets::client_bundle_present(OUTPUT_NAME) {
-        tracing::warn!("client bundle not embedded; the UI will not be interactive");
+        tracing::warn!(
+            "client bundle not found; the UI will not be interactive. \
+             Build it with `cargo leptos build` (or use `make dev`)"
+        );
     }
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("Teleplot listening on http://{}", listener.local_addr()?);

@@ -25,7 +25,7 @@ for path in / /pkg/teleplot.js /pkg/teleplot.wasm /pkg/teleplot.css; do
   [ "$code" = 200 ] || status=1
 done
 
-if grep -q "client bundle not embedded" server.log; then
+if grep -q "client bundle not found" server.log; then
   echo "server reported a missing client bundle"
   status=1
 fi
