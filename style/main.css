@@ -1,0 +1,75 @@
+/* Grafana-derived theme tokens (dark default, light alternative). */
+:root,
+[data-theme="dark"] {
+  --canvas: #111217;
+  --panel: #181b1f;
+  --secondary: #22252b;
+  --text: rgb(204, 204, 220);
+  --text-muted: rgba(204, 204, 220, 0.65);
+  --border: rgba(204, 204, 220, 0.12);
+  --accent: #5794f2;
+  --series-1: #73bf69;
+  --series-2: #f2495c;
+  --series-3: #5794f2;
+  --series-4: #fade2a;
+  --series-5: #ff9830;
+  --series-6: #b877d9;
+}
+
+[data-theme="light"] {
+  --canvas: #f4f5f5;
+  --panel: #ffffff;
+  --secondary: #f4f5f5;
+  --text: rgb(36, 41, 46);
+  --text-muted: rgba(36, 41, 46, 0.75);
+  --border: rgba(36, 41, 46, 0.12);
+  --accent: #3d71d9;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--text);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 48px;
+  padding: 0 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand { font-weight: 600; letter-spacing: 0.02em; }
+.spacer { flex: 1; }
+
+.btn {
+  background: var(--secondary);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 4px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+.btn:hover { border-color: var(--accent); }
+
+.canvas { padding: 16px; }
+
+.empty {
+  max-width: 560px;
+  margin: 80px auto;
+  padding: 32px;
+  text-align: center;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+}
+.empty h1 { margin: 0 0 8px; font-size: 18px; font-weight: 500; }
+.empty p { margin: 0; color: var(--text-muted); }

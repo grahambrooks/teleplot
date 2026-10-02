@@ -1,0 +1,87 @@
+[package]
+name = "teleplot"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.88"
+license = "Apache-2.0"
+description = "Fast, Grafana-styled dashboards over Elasticsearch that render Kibana exports — one binary"
+repository = "https://github.com/grahambrooks/teleplot"
+
+# One crate, two builds: the server binary (`ssr`) and the WASM client
+# (`hydrate`, built as the cdylib). cargo-leptos drives both.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "teleplot"
+path = "src/main.rs"
+required-features = ["ssr"]
+
+[dependencies]
+leptos = "0.8"
+leptos_meta = "0.8"
+leptos_router = "0.8"
+serde = { version = "1", features = ["derive"] }
+
+# server only
+axum = { version = "0.8", optional = true }
+clap = { version = "4", features = ["derive"], optional = true }
+leptos_axum = { version = "0.8", optional = true }
+mime_guess = { version = "2", optional = true }
+rust-embed = { version = "8", optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"], optional = true }
+tracing = { version = "0.1", optional = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
+
+# client only
+console_error_panic_hook = { version = "0.1", optional = true }
+wasm-bindgen = { version = "0.2", optional = true }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+
+[features]
+hydrate = ["leptos/hydrate", "dep:console_error_panic_hook", "dep:wasm-bindgen"]
+ssr = [
+    "dep:axum",
+    "dep:clap",
+    "dep:leptos_axum",
+    "dep:mime_guess",
+    "dep:rust-embed",
+    "dep:tokio",
+    "dep:tracing",
+    "dep:tracing-subscriber",
+    "leptos/ssr",
+    "leptos_meta/ssr",
+    "leptos_router/ssr",
+]
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.release]
+lto = true
+codegen-units = 1
+
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+panic = "abort"
+
+[package.metadata.leptos]
+output-name = "teleplot"
+site-root = "target/site"
+site-pkg-dir = "pkg"
+style-file = "style/main.css"
+assets-dir = "public"
+site-addr = "127.0.0.1:3000"
+reload-port = 3001
+bin-features = ["ssr"]
+bin-default-features = false
+lib-features = ["hydrate"]
+lib-default-features = false
+lib-profile-release = "wasm-release"

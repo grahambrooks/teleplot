@@ -1,0 +1,4 @@
+# Leptos resolves client asset names at compile time from this variable, which
+# cargo-leptos sets. Setting it here makes plain `cargo` builds and tests agree.
+[env]
+LEPTOS_OUTPUT_NAME = "teleplot"

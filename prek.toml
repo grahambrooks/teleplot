@@ -1,0 +1,39 @@
+# Git hooks via `prek`. Install once with: prek install --hook-type pre-commit --hook-type pre-push
+#:schema https://www.schemastore.org/prek.json
+
+[[repos]]
+repo = "https://github.com/pre-commit/pre-commit-hooks"
+rev = "v6.0.0"
+hooks = [
+  { id = "trailing-whitespace" },
+  { id = "end-of-file-fixer" },
+  { id = "check-yaml" },
+  { id = "check-toml" },
+  { id = "check-added-large-files" }
+]
+
+[[repos]]
+repo = "https://github.com/rhysd/actionlint"
+rev = "v1.7.12"
+hooks = [{ id = "actionlint-system" }]
+
+[[repos]]
+repo = "https://github.com/gitleaks/gitleaks"
+rev = "v8.30.1"
+hooks = [
+  {
+    id = "gitleaks",
+    name = "Detect hardcoded secrets",
+    entry = "gitleaks git --pre-commit --redact --staged --verbose",
+    language = "golang",
+    pass_filenames = false
+  }
+]
+
+[[repos]]
+repo = "local"
+hooks = [
+  # Fast check on every commit; the full gate runs before push.
+  { id = "cargo-fmt", name = "cargo fmt --check", entry = "cargo fmt --check", language = "system", pass_filenames = false, types = ["rust"] },
+  { id = "make-pre-commit", name = "make pre-commit", entry = "make pre-commit", language = "system", pass_filenames = false, stages = ["pre-push"] }
+]

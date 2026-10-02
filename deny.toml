@@ -1,0 +1,34 @@
+# Supply-chain gate. Run: cargo deny check
+
+[advisories]
+version = 2
+yanked = "deny"
+# RUSTSEC advisories fail the build; add explicit, reviewed ignores here.
+ignore = [
+    # Unmaintained (not vulnerable) build-time proc-macro deps of Leptos.
+    # Revisit when upgrading leptos (0.9 is in beta).
+    { id = "RUSTSEC-2024-0436", reason = "paste: transitive via leptos macros" },
+    { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2: transitive via leptos_macro" },
+]
+
+[licenses]
+version = 2
+# Permissive licenses only; Teleplot is Apache-2.0.
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "BSL-1.0",
+    "CC0-1.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
