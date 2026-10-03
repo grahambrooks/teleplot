@@ -15,6 +15,8 @@ pub fn palette() -> &'static [&'static str] {
 pub struct ChartColors {
     pub text: String,
     pub grid: String,
+    /// The panel background, behind labels drawn over data.
+    pub panel: String,
 }
 
 /// The current theme's chart colours.
@@ -23,6 +25,7 @@ pub fn chart_colors() -> ChartColors {
     ChartColors {
         text: css_var("--text-muted", "rgba(204,204,220,0.65)"),
         grid: css_var("--border", "rgba(204,204,220,0.12)"),
+        panel: css_var("--panel", "#181b1f"),
     }
 }
 

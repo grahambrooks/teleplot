@@ -295,7 +295,10 @@ fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Probl
                 | (Encoding::Pie { .. }, ChartKind::Pie | ChartKind::Donut)
                 | (Encoding::Table { .. }, ChartKind::Table)
                 | (
-                    Encoding::Xy { .. } | Encoding::Band { .. } | Encoding::Scatter { .. },
+                    Encoding::Xy { .. }
+                        | Encoding::Band { .. }
+                        | Encoding::Scatter { .. }
+                        | Encoding::ReferenceLines { .. },
                     ChartKind::Xy
                 )
         );
@@ -310,6 +313,24 @@ fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Probl
                 format!("{at}.encoding"),
                 "scatter charts need a document layer",
             ));
+        }
+        if matches!(layer.encoding, Encoding::ReferenceLines { .. }) {
+            if layer.columns.iter().any(|c| c.op.is_bucket()) || layer.documents.is_some() {
+                problems.push(Problem::error(
+                    format!("{at}.columns"),
+                    "a reference-line layer has one value per line: no bucket columns or documents",
+                ));
+            }
+            if !chart
+                .layers
+                .iter()
+                .any(|l| !matches!(l.encoding, Encoding::ReferenceLines { .. }))
+            {
+                problems.push(Problem::error(
+                    format!("{at}.encoding"),
+                    "reference lines need a data layer to draw over",
+                ));
+            }
         }
         if matches!(layer.encoding, Encoding::Xy { .. } | Encoding::Band { .. })
             && !layer.columns.iter().any(|c| c.op.is_bucket())

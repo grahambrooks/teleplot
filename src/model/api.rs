@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use super::{PanelData, Query};
 
@@ -54,6 +55,38 @@ pub struct DataResponse {
     /// IANA zone the data was bucketed in; dates display in it.
     pub time_zone: String,
     pub panels: HashMap<String, PanelData>,
+}
+
+/// `POST /api/dashboards/{id}/panels/{panel}/inspect` (same body as `data`):
+/// how a panel's numbers were made. The searches run again, past
+/// Teleplot's response cache, so `took_ms` is current.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+pub struct Inspection {
+    pub requests: Vec<InspectedRequest>,
+    /// The panel's data, from these responses.
+    pub data: PanelData,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+pub struct InspectedRequest {
+    /// What the search is for, e.g. a layer, or a time-shifted copy of one.
+    pub description: String,
+    pub index: String,
+    /// The search body sent to Elasticsearch.
+    pub request: Value,
+    /// Elasticsearch's response, whole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// Elasticsearch's own time for the search.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub took_ms: Option<u64>,
+    /// Documents the search matched.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hits: Option<u64>,
 }
 
 /// `POST /api/dashboards/{id}/controls/{control}`: values to choose from.

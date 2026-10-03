@@ -28,7 +28,7 @@ panels:
 
 Panel `content` is one of:
 
-- `type: chart`, which has a `kind` (`xy`, `metric`, `pie`, `donut` or `table`), an optional `query` and `filters`, and `layers`.
+- `type: chart`, which has a `kind` (`xy`, `metric`, `pie`, `donut` or `table`), an optional `query` and `filters`, and `layers`. Charts converted from Kibana can also carry `warnings`, naming parts of the original that Teleplot does not draw (a Lens annotation layer, for example). The panel shows them.
 - `type: markdown` with `text`.
 
 ## Layers and columns
@@ -61,6 +61,7 @@ The `encoding` (`as:`) says how columns are drawn:
 | `table` | `columns` |
 | `band` | `x`, `low`, `mid`, `high`: a line inside a shaded band, e.g. median within p25–p75 |
 | `scatter` | `x`, `y`, `split`, `trend`, `log_scale`: needs a document layer |
+| `reference_lines` | `lines`: lines at fixed values across the chart's other layers (below) |
 
 ### Formulas
 
@@ -108,6 +109,36 @@ Where the bands appear:
 Default colours run green → blue → orange → red. Choose bands deliberately.
 DORA's 2025 report no longer publishes elite/high/medium/low levels, and
 whether a lower or a higher value is better depends on the metric.
+
+### Reference lines
+
+A layer encoded as `reference_lines` draws a line across an `xy` chart for
+each of its columns: a target, or a value computed over the whole range,
+such as a percentile. Its columns must not be buckets, so each has one value.
+
+```yaml
+- id: sle
+  data_view: { index: delivery-prs, time_field: merged_at }
+  columns:
+    - { id: target, label: Target, op: static_value, value: 24 }
+    - { id: p85, label: 85% of PRs within, op: percentile, field: cycle_time_hours, percent: 85 }
+  encoding:
+    as: reference_lines
+    lines:
+      - { column: target, color: "#73BF69", fill: below }
+      - { column: p85, style: dashed }
+```
+
+Each line can set:
+
+- `axis`: `left` (the default) or `right` for a horizontal line, `bottom` for a vertical line at an x value;
+- `color`;
+- `style`: `solid`, `dashed` or `dotted`;
+- `fill`: `above` or `below` to shade one side;
+- `show_label: false` to hide its label and value.
+
+The value axis stretches so every line is visible. Kibana's Lens
+reference-line layers convert to this.
 
 ### Document layers
 

@@ -86,6 +86,10 @@ file. Drop Kibana exports (Stack Management → Saved Objects → Export) or
 Teleplot YAML into the dashboards directory. Teleplot picks up changes
 without a restart.
 
+Each chart panel has **Inspect**, which shows the table behind the panel and
+every Elasticsearch search it sent (the request, the response, the time it
+took, and how many documents matched), and **CSV**, which downloads the data.
+
 For a quick look without a config file, use `--es` (no auth):
 
 ```sh

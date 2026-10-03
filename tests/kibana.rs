@@ -4,8 +4,8 @@
 
 use teleplot::kibana;
 use teleplot::model::{
-    ChartKind, Dashboard, Encoding, Expr, Operation, Panel, PanelContent, PlaceholderReason,
-    QueryLanguage,
+    ChartKind, Dashboard, Encoding, Expr, LineStyle, Operation, Panel, PanelContent,
+    PlaceholderReason, QueryLanguage, ReferenceAxis, ReferenceFill,
 };
 
 fn read(path: &str) -> Vec<Dashboard> {
@@ -147,6 +147,79 @@ fn formula_columns_keep_their_expression_and_hide_their_parts() {
         failures.filter.as_ref().unwrap().text,
         "result : \"failure\""
     );
+}
+
+#[test]
+fn reference_line_layers_convert_with_their_styles() {
+    for version in ["8.19", "9.5"] {
+        let dashboards = read(&format!("{version}/delivery.ndjson"));
+        let target = chart(panel(
+            dashboard(&dashboards, "teleplot-delivery-overview"),
+            "lead-target",
+        ));
+        assert_eq!(target.layers.len(), 2, "{version}");
+        let refs = &target.layers[1];
+        let Encoding::ReferenceLines { lines } = &refs.encoding else {
+            panic!("{version}: {:?}", refs.encoding)
+        };
+        let styles: Vec<_> = lines
+            .iter()
+            .map(|l| (l.column.as_str(), l.axis, l.style, l.fill, l.show_label))
+            .collect();
+        assert_eq!(
+            styles,
+            [
+                (
+                    "lg-target",
+                    ReferenceAxis::Left,
+                    LineStyle::Dashed,
+                    ReferenceFill::Below,
+                    true
+                ),
+                (
+                    "lg-avg",
+                    ReferenceAxis::Left,
+                    LineStyle::Dotted,
+                    ReferenceFill::None,
+                    true
+                ),
+            ],
+            "{version}"
+        );
+        assert_eq!(lines[0].color.as_deref(), Some("#54B399"));
+        assert_eq!(
+            refs.column("lg-target").unwrap().op,
+            Operation::StaticValue { value: 24.0 }
+        );
+        assert!(target.warnings.is_empty(), "{version}");
+    }
+}
+
+#[test]
+fn annotation_layers_are_reported_not_dropped() {
+    for version in ["8.19", "9.5"] {
+        let dashboards = read(&format!("{version}/sample-data.ndjson"));
+        let warned: Vec<&str> = dashboards
+            .iter()
+            .flat_map(|d| &d.panels)
+            .filter_map(|p| match &p.content {
+                PanelContent::Chart(c) if !c.warnings.is_empty() => {
+                    assert!(c.warnings[0].contains("annotation"), "{:?}", c.warnings);
+                    p.title.as_deref()
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            warned,
+            [
+                "[eCommerce] Promotion Tracking",
+                "[Flights] Delays & Cancellations",
+                "[Logs] Response Codes Over Time + Annotations"
+            ],
+            "{version}"
+        );
+    }
 }
 
 #[test]

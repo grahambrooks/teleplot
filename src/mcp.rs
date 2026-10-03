@@ -24,7 +24,8 @@ use serde_json::{Value, json};
 
 use crate::engine::Request;
 use crate::lint::{self, Problem};
-use crate::model::{Cell, Dashboard, Operation, PanelContent, TimeRange};
+use crate::model::table::layer_table;
+use crate::model::{Cell, Dashboard, PanelContent, TimeRange};
 use crate::server::{Source, Teleplot};
 
 const SCHEMA_URI: &str = "teleplot://schema/dashboard";
@@ -98,6 +99,10 @@ pub struct PreviewParams {
     /// Rows shown per layer (default 20, at most 200). Summaries cover all rows.
     #[serde(default)]
     pub max_rows: Option<usize>,
+    /// Also return each panel's Elasticsearch searches (DSL, time taken,
+    /// documents matched), to trace a number to its query.
+    #[serde(default)]
+    pub inspect: bool,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -208,6 +213,24 @@ pub struct PanelPreview {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
     pub layers: Vec<LayerPreview>,
+    /// With `inspect`: the searches behind the numbers.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub searches: Vec<SearchPreview>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct SearchPreview {
+    pub description: String,
+    pub index: String,
+    /// The search body (Elasticsearch DSL).
+    pub request: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub took_ms: Option<u64>,
+    /// Documents the search matched.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hits: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -537,7 +560,7 @@ impl TeleplotMcp {
 
     #[tool(
         name = "teleplot_preview",
-        description = "Run a dashboard (or one panel) without saving it and return its data: the first rows of each layer and min/max/last per numeric column. Use it to check the numbers answer the question before saving.",
+        description = "Run a dashboard (or one panel) without saving it and return its data: the first rows of each layer and min/max/last per numeric column. Use it to check the numbers answer the question before saving. With inspect: true, also returns each panel's Elasticsearch searches.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn preview(
@@ -612,29 +635,18 @@ impl TeleplotMcp {
                 .iter()
                 .zip(&pd.layers)
                 .map(|(layer, ld)| {
-                    let is_date = |id: &str| match layer.column(id).map(|c| &c.op) {
-                        Some(Operation::DateHistogram { .. }) => true,
-                        Some(Operation::Value { field }) => {
-                            layer.data_view.time_field.as_ref() == Some(field)
-                        }
-                        _ => false,
-                    };
-                    let columns = ld
-                        .columns
+                    let table = layer_table(layer, ld);
+                    let rows = table
+                        .rows
                         .iter()
-                        .map(|s| {
-                            layer
-                                .column(&s.id)
-                                .and_then(|c| c.label.clone())
-                                .unwrap_or_else(|| s.id.clone())
-                        })
-                        .collect();
-                    let rows = (0..ld.rows.min(max_rows))
-                        .map(|r| {
-                            ld.columns
+                        .take(max_rows)
+                        .map(|row| {
+                            table
+                                .columns
                                 .iter()
-                                .map(|s| match &s.values[r] {
-                                    Cell::Number(n) if is_date(&s.id) => json!(iso(*n)),
+                                .zip(row)
+                                .map(|(c, cell)| match cell {
+                                    Cell::Number(n) if c.date => json!(iso(*n)),
                                     Cell::Number(n) => json!(n),
                                     Cell::Text(t) => json!(t),
                                     Cell::Null => Value::Null,
@@ -642,29 +654,27 @@ impl TeleplotMcp {
                                 .collect()
                         })
                         .collect();
-                    let summary = ld
+                    let summary = table
                         .columns
                         .iter()
-                        .filter(|s| {
-                            !is_date(&s.id) && s.values.iter().any(|v| matches!(v, Cell::Number(_)))
+                        .enumerate()
+                        .filter(|(i, c)| {
+                            !c.date && table.rows.iter().any(|r| matches!(r[*i], Cell::Number(_)))
                         })
-                        .map(|s| {
+                        .map(|(i, c)| {
                             let numbers: Vec<f64> =
-                                s.values.iter().filter_map(Cell::number).collect();
+                                table.rows.iter().filter_map(|r| r[i].number()).collect();
                             ColumnSummary {
-                                column: layer
-                                    .column(&s.id)
-                                    .and_then(|c| c.label.clone())
-                                    .unwrap_or_else(|| s.id.clone()),
+                                column: c.label.clone(),
                                 min: numbers.iter().copied().reduce(f64::min),
                                 max: numbers.iter().copied().reduce(f64::max),
-                                last: s.values.iter().rev().find_map(Cell::number),
+                                last: table.rows.iter().rev().find_map(|r| r[i].number()),
                                 non_empty: numbers.len(),
                             }
                         })
                         .collect();
                     LayerPreview {
-                        columns,
+                        columns: table.columns.iter().map(|c| c.label.clone()).collect(),
                         rows,
                         total_rows: ld.rows,
                         summary,
@@ -672,11 +682,31 @@ impl TeleplotMcp {
                     }
                 })
                 .collect();
+            let searches = if p.inspect {
+                engine
+                    .inspect_panel(&d, &panel.id, &request, now)
+                    .await
+                    .map_err(internal)?
+                    .requests
+                    .into_iter()
+                    .map(|r| SearchPreview {
+                        description: r.description,
+                        index: r.index,
+                        request: r.request,
+                        took_ms: r.took_ms,
+                        hits: r.hits,
+                        error: r.error,
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
             panels.push(PanelPreview {
                 id: panel.id.clone(),
                 title: panel.title.clone(),
                 warnings: pd.warnings.clone(),
                 layers,
+                searches,
             });
         }
         Ok(Json(Preview {

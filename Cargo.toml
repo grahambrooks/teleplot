@@ -47,7 +47,7 @@ console_error_panic_hook = { version = "0.1", optional = true }
 gloo-net = { version = "0.6", default-features = false, features = ["http", "json"], optional = true }
 js-sys = { version = "0.3", optional = true }
 wasm-bindgen = { version = "0.2", optional = true }
-web-sys = { version = "0.3", features = ["CanvasRenderingContext2d", "DomTokenList", "HtmlAnchorElement", "HtmlCanvasElement", "NodeList", "TextMetrics", "CssStyleDeclaration", "Document", "Element", "HtmlElement", "ResizeObserver", "Window"], optional = true }
+web-sys = { version = "0.3", features = ["Blob", "BlobPropertyBag", "CanvasRenderingContext2d", "DomTokenList", "HtmlAnchorElement", "HtmlCanvasElement", "NodeList", "TextMetrics", "Url", "CssStyleDeclaration", "Document", "Element", "HtmlElement", "ResizeObserver", "Window"], optional = true }
 
 # Server only, and never compiled for WASM. Keeps reqwest's TLS stack, and the
 # bundled-roots fallback it uses on unknown platforms (CDLA-licensed), out of

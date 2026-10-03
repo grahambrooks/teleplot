@@ -5,6 +5,7 @@ mod clock;
 mod dashboard;
 mod export;
 pub mod format;
+mod inspector;
 mod panels;
 pub mod series;
 mod shell;

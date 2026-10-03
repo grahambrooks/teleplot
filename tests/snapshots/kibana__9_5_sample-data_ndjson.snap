@@ -138,6 +138,8 @@ panels:
         x: 1b199cb1-b47f-48e6-b209-74eb81b303f5
         y:
         - 985e05c0-3a0b-4e55-84bb-1f02128388a9
+    warnings:
+    - 'Not shown: a Lens annotation layer (1 annotation). Teleplot does not draw Lens annotations yet.'
 - id: '7'
   title: Sold Products per Day
   grid:
@@ -661,6 +663,8 @@ panels:
         x: 6944431b-f90a-4dab-a282-0961cb97edd1
         y:
         - b9d6187b-8a7e-4c49-bffd-7a60cc075a4a
+    warnings:
+    - 'Not shown: a Lens annotation layer (1 annotation). Teleplot does not draw Lens annotations yet.'
 - id: '10'
   title: '[Flights] Delay Buckets'
   grid:
@@ -1267,6 +1271,8 @@ panels:
         y:
         - 896c5eb2-81c5-44f1-a4a1-57344161ea62
         split: 43f5bb0f-c6da-43a0-8a0a-50e9838ed34b
+    warnings:
+    - 'Not shown: a Lens annotation layer (1 annotation). Teleplot does not draw Lens annotations yet.'
 - id: 343f0bef-0b19-452e-b1c8-59beb18b6f0c
   grid:
     x: 0

@@ -214,3 +214,29 @@ fn only_metrics_are_normalized_by_unit() {
     d["panels"][p]["content"]["layers"][0]["columns"][c + 1]["per"] = json!("week");
     assert_eq!(problems(d), []);
 }
+
+#[test]
+fn reference_lines_need_single_values_and_a_chart_to_cross() {
+    // The cycle-time scatter (panel 7) has an SLE reference-line layer.
+    let mut d = reference();
+    let panel = d["panels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|p| p["id"] == "cycle-scatter")
+        .unwrap();
+    let layers = &mut d["panels"][panel]["content"]["layers"];
+    assert_eq!(layers[1]["encoding"]["as"], json!("reference_lines"));
+    layers[1]["columns"].as_array_mut().unwrap().insert(
+        0,
+        json!({ "id": "t", "op": "terms", "fields": ["team"], "size": 3 }),
+    );
+    let p = problems(d.clone());
+    assert!(only(&p).message.contains("no bucket columns"), "{p:?}");
+
+    let layers = &mut d["panels"][panel]["content"]["layers"];
+    layers.as_array_mut().unwrap().remove(0);
+    layers[0]["columns"].as_array_mut().unwrap().remove(0);
+    let p = problems(d);
+    assert!(only(&p).message.contains("need a data layer"), "{p:?}");
+}

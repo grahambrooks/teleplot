@@ -11,7 +11,8 @@ use super::objects::{
 use super::{broken, out_of_scope, search, unparseable};
 use crate::model::{
     Chart, ChartKind, Column, DataView, Encoding, Expr, Format, FormatKind, Interval, Layer,
-    NamedQuery, Operation, OverallFunction, PerUnit, Placeholder, Range, SeriesType, TermsOrder,
+    LineStyle, NamedQuery, Operation, OverallFunction, PerUnit, Placeholder, Range, ReferenceAxis,
+    ReferenceFill, ReferenceLine, SeriesType, TermsOrder,
 };
 
 /// Converts Lens saved-object attributes. `refs` are the references visible
@@ -63,7 +64,7 @@ pub fn convert(export: &Export, attrs: &Value, refs: &[Reference]) -> Result<Cha
         ad_hoc: as_object(&state["adHocDataViews"]),
     };
 
-    let encodings = encodings(kind, vis).map_err(|e| unparseable(&kind_name, e))?;
+    let (encodings, warnings) = encodings(kind, vis).map_err(|e| unparseable(&kind_name, e))?;
     let mut layers = Vec::new();
     for (layer_id, encoding) in encodings {
         let Some(source) = datasource_layers.get(&layer_id) else {
@@ -96,6 +97,7 @@ pub fn convert(export: &Export, attrs: &Value, refs: &[Reference]) -> Result<Cha
         query: search::query(&state["query"]),
         filters: search::filters(&state["filters"]),
         layers,
+        warnings,
     })
 }
 
@@ -118,8 +120,11 @@ impl DataViews<'_> {
     }
 }
 
-/// Data layers and how each is drawn, from the visualization state.
-fn encodings(kind: ChartKind, vis: &Value) -> Result<Vec<(String, Encoding)>, String> {
+/// Data layers and how each is drawn, from the visualization state, and
+/// warnings for the layers Teleplot does not draw.
+type Encodings = (Vec<(String, Encoding)>, Vec<String>);
+
+fn encodings(kind: ChartKind, vis: &Value) -> Result<Encodings, String> {
     let s = |v: &Value, k: &str| str_field(v, k).map(String::from);
     let ids = |v: &Value| -> Vec<String> {
         v.as_array()
@@ -132,13 +137,29 @@ fn encodings(kind: ChartKind, vis: &Value) -> Result<Vec<(String, Encoding)>, St
     };
     let layer_id = |v: &Value| s(v, "layerId").ok_or("layer without layerId");
 
-    Ok(match kind {
+    let mut warnings = Vec::new();
+    let layers = match kind {
         ChartKind::Xy => {
             let mut out = Vec::new();
             for layer in vis["layers"].as_array().ok_or("XY without layers")? {
-                // Annotation and reference-line layers draw no data series.
-                if str_field(layer, "layerType").unwrap_or("data") != "data" {
-                    continue;
+                match str_field(layer, "layerType").unwrap_or("data") {
+                    "data" => {}
+                    "referenceLine" => {
+                        out.push((layer_id(layer)?, reference_lines(layer)));
+                        continue;
+                    }
+                    "annotations" => {
+                        let n = layer["annotations"].as_array().map_or(0, Vec::len);
+                        warnings.push(format!(
+                            "Not shown: a Lens annotation layer ({n} annotation{}). Teleplot does not draw Lens annotations yet.",
+                            if n == 1 { "" } else { "s" }
+                        ));
+                        continue;
+                    }
+                    other => {
+                        warnings.push(format!("Not shown: a Lens {other} layer."));
+                        continue;
+                    }
                 }
                 let series_name = s(layer, "seriesType").or_else(|| s(vis, "preferredSeriesType"));
                 let series = series_type(series_name.as_deref().unwrap_or("bar_stacked"))?;
@@ -154,15 +175,20 @@ fn encodings(kind: ChartKind, vis: &Value) -> Result<Vec<(String, Encoding)>, St
             }
             out
         }
-        ChartKind::Metric => vec![(
-            layer_id(vis)?,
-            Encoding::Metric {
-                value: s(vis, "metricAccessor").ok_or("metric without metricAccessor")?,
-                secondary: s(vis, "secondaryMetricAccessor"),
-                max: s(vis, "maxAccessor"),
-                breakdown: s(vis, "breakdownByAccessor"),
-            },
-        )],
+        ChartKind::Metric => {
+            if s(vis, "trendlineLayerId").is_some() {
+                warnings.push("Not shown: the metric's background trend line.".into());
+            }
+            vec![(
+                layer_id(vis)?,
+                Encoding::Metric {
+                    value: s(vis, "metricAccessor").ok_or("metric without metricAccessor")?,
+                    secondary: s(vis, "secondaryMetricAccessor"),
+                    max: s(vis, "maxAccessor"),
+                    breakdown: s(vis, "breakdownByAccessor"),
+                },
+            )]
+        }
         ChartKind::Pie | ChartKind::Donut => {
             let layer = vis["layers"].get(0).ok_or("pie without layers")?;
             let mut values = ids(&layer["metrics"]);
@@ -183,7 +209,48 @@ fn encodings(kind: ChartKind, vis: &Value) -> Result<Vec<(String, Encoding)>, St
                 .collect();
             vec![(layer_id(vis)?, Encoding::Table { columns })]
         }
-    })
+    };
+    Ok((layers, warnings))
+}
+
+/// A Lens reference-line layer: one line per accessor, styled by its `yConfig`.
+fn reference_lines(layer: &Value) -> Encoding {
+    let configs = layer["yConfig"].as_array().cloned().unwrap_or_default();
+    let lines = layer["accessors"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(|column| {
+            let config = configs
+                .iter()
+                .find(|c| str_field(c, "forAccessor") == Some(column))
+                .cloned()
+                .unwrap_or_default();
+            ReferenceLine {
+                column: column.to_string(),
+                axis: match str_field(&config, "axisMode") {
+                    Some("right") => ReferenceAxis::Right,
+                    Some("bottom" | "x") => ReferenceAxis::Bottom,
+                    _ => ReferenceAxis::Left,
+                },
+                color: str_field(&config, "color").map(String::from),
+                style: match str_field(&config, "lineStyle") {
+                    Some("dashed") => LineStyle::Dashed,
+                    Some("dotted") => LineStyle::Dotted,
+                    _ => LineStyle::Solid,
+                },
+                fill: match str_field(&config, "fill") {
+                    Some("above") => ReferenceFill::Above,
+                    Some("below") => ReferenceFill::Below,
+                    _ => ReferenceFill::None,
+                },
+                // Kibana hides the label unless it is asked for.
+                show_label: bool_field(&config, "textVisibility"),
+            }
+        })
+        .collect();
+    Encoding::ReferenceLines { lines }
 }
 
 fn series_type(name: &str) -> Result<SeriesType, String> {

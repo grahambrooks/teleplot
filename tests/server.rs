@@ -81,6 +81,22 @@ async fn data_requests_explain_why_they_cannot_run() {
 }
 
 #[tokio::test]
+async fn inspecting_needs_a_real_panel_and_a_cluster() {
+    let inspect = |panel: &str| {
+        Request::post(format!(
+            "/api/dashboards/teleplot-pr-flow/panels/{panel}/inspect"
+        ))
+        .header("content-type", "application/json")
+        .body(Body::from("{}"))
+        .unwrap()
+    };
+    assert_eq!(send(inspect("nope")).await.0, 404);
+    let (status, body) = send(inspect("throughput")).await;
+    assert_eq!(status, 503);
+    assert!(body.contains("no Elasticsearch configured"), "{body}");
+}
+
+#[tokio::test]
 async fn unknown_paths_are_not_found() {
     let (status, _) = get("/pkg/does-not-exist.js").await;
     assert_eq!(status, 404);

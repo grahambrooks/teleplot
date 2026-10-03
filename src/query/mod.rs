@@ -137,6 +137,10 @@ pub fn read_stats(response: &Value) -> Option<(f64, f64)> {
     ))
 }
 
+/// Stands in for the response to a group that needs no search.
+static NO_SEARCH: std::sync::LazyLock<Result<Value, String>> =
+    std::sync::LazyLock::new(|| Ok(json!({ "aggregations": { "root": {} } })));
+
 /// The searches for one chart, and how to turn their responses into data.
 #[derive(Debug)]
 pub struct Plan {
@@ -189,7 +193,9 @@ struct ShiftGroup {
     /// Milliseconds the searched range lies before the main range.
     shift_ms: i64,
     metrics: Vec<MetricSpec>,
-    search: Search,
+    /// `None` when nothing needs Elasticsearch: no buckets, and only
+    /// constants (a static reference line).
+    search: Option<Search>,
 }
 
 #[derive(Debug)]
@@ -216,7 +222,28 @@ impl Plan {
         self.layers
             .iter()
             .filter_map(|l| l.built.as_ref().ok())
-            .flat_map(|b| b.groups.iter().map(|g| g.search.clone()))
+            .flat_map(|b| b.groups.iter().filter_map(|g| g.search.clone()))
+            .collect()
+    }
+
+    /// [`Plan::searches`], each with what it is for (for the inspector).
+    pub fn described_searches(&self) -> Vec<(String, Search)> {
+        self.layers
+            .iter()
+            .filter_map(|l| Some((&l.layer, l.built.as_ref().ok()?)))
+            .flat_map(|(layer, b)| {
+                b.groups.iter().filter_map(move |g| {
+                    let search = g.search.clone()?;
+                    let mut what = format!("Layer {}", layer.id);
+                    if b.documents.is_some() {
+                        what.push_str(", documents");
+                    }
+                    if g.shift_ms != 0 {
+                        what.push_str(&format!(", shifted {} earlier", duration(g.shift_ms)));
+                    }
+                    Some((what, search))
+                })
+            })
             .collect()
     }
 
@@ -239,7 +266,14 @@ impl Plan {
                     continue;
                 }
             };
-            let group_responses: Vec<_> = built.groups.iter().map(|_| responses.next()).collect();
+            let group_responses: Vec<_> = built
+                .groups
+                .iter()
+                .map(|g| match g.search {
+                    Some(_) => responses.next(),
+                    None => Some(&*NO_SEARCH),
+                })
+                .collect();
             let layer = match evaluate_layer(plan, built, &group_responses) {
                 Ok(layer) => layer,
                 Err(e) => LayerData {
@@ -256,7 +290,7 @@ impl Plan {
 
 /// Plans the searches for a chart.
 pub fn plan(chart: &Chart, ctx: &Context) -> Plan {
-    let mut warnings = Vec::new();
+    let mut warnings = chart.warnings.clone();
     let layers = chart
         .layers
         .iter()
@@ -353,20 +387,28 @@ fn build_layer(
             tree = json!({ format!("b{i}"): agg });
         }
 
-        let query = base_query(chart, layer, ctx, range)?;
-        let body = json!({
-            "size": 0,
-            "track_total_hits": false,
-            "query": query,
-            "aggs": { "root": { "filter": { "match_all": {} }, "aggs": tree } }
-        });
+        let constant = buckets.is_empty()
+            && !metrics.is_empty()
+            && metrics.iter().all(|m| matches!(m.read, Read::Constant(_)));
+        let search = if constant {
+            None
+        } else {
+            let query = base_query(chart, layer, ctx, range)?;
+            let body = json!({
+                "size": 0,
+                "track_total_hits": false,
+                "query": query,
+                "aggs": { "root": { "filter": { "match_all": {} }, "aggs": tree } }
+            });
+            Some(Search {
+                index: layer.data_view.index.clone(),
+                body,
+            })
+        };
         groups.push(ShiftGroup {
             shift_ms: shift,
             metrics,
-            search: Search {
-                index: layer.data_view.index.clone(),
-                body,
-            },
+            search,
         });
     }
     Ok(Built {
@@ -438,10 +480,10 @@ fn build_documents(
         groups: vec![ShiftGroup {
             shift_ms: 0,
             metrics: Vec::new(),
-            search: Search {
+            search: Some(Search {
                 index: layer.data_view.index.clone(),
                 body,
-            },
+            }),
         }],
         documents: Some(doc_fields),
         range: ctx.range,
@@ -1081,6 +1123,21 @@ fn read(bucket: &Value, agg: &Value, how: &Read) -> Cell {
             other => read(agg, &agg["v"], other),
         },
     }
+}
+
+/// Milliseconds as the largest whole unit, e.g. `30d` or `90m`.
+fn duration(ms: i64) -> String {
+    for (unit, size) in [
+        ("d", 86_400_000),
+        ("h", 3_600_000),
+        ("m", 60_000),
+        ("s", 1_000),
+    ] {
+        if ms % size == 0 {
+            return format!("{}{unit}", ms / size);
+        }
+    }
+    format!("{ms}ms")
 }
 
 #[cfg(test)]

@@ -108,6 +108,31 @@ pub async fn data(
     }
 }
 
+pub async fn inspect(
+    State(state): State<AppState>,
+    Path((id, panel)): Path<(String, String)>,
+    Json(body): Json<DataRequest>,
+) -> Response {
+    let Some(d) = state.app.catalog.get(&id) else {
+        return error(StatusCode::NOT_FOUND, format!("no dashboard {id}"));
+    };
+    if !d.panels.iter().any(|p| p.id == panel) {
+        return error(StatusCode::NOT_FOUND, format!("no panel {panel}"));
+    }
+    let engine = match &state.app.engine {
+        Ok(e) => e,
+        Err(problem) => return error(StatusCode::SERVICE_UNAVAILABLE, problem.clone()),
+    };
+    let request = engine_request(&d, body);
+    match engine
+        .inspect_panel(&d, &panel, &request, cache_friendly_now())
+        .await
+    {
+        Ok(inspection) => Json(inspection).into_response(),
+        Err(e) => error(StatusCode::BAD_GATEWAY, e),
+    }
+}
+
 pub async fn control_values(
     State(state): State<AppState>,
     Path((id, control)): Path<(String, String)>,

@@ -4,7 +4,7 @@ Status: decided, 2026-10-03. The research behind this plan was carried out the
 same day, and sources are linked inline. It sits alongside `docs/mcp-plan.md`
 and does not repeat items that plan owns: the query inspector (gap 2),
 annotations (gap 3), ES|QL (gap 4) and baseline comparison/BubbleUp (gap 6).
-A2 is done. The remaining items are ordered, with the mcp-plan gaps, in
+A1 and A2 are done. The remaining items are ordered, with the mcp-plan gaps, in
 [`roadmap.md`](roadmap.md).
 
 ## Context

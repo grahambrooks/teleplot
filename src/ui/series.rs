@@ -1,8 +1,8 @@
 //! Turning layer tables into chart series.
 
 use crate::model::{
-    Cell, Chart, Column, Encoding, Format, Layer, LayerData, Operation, PanelData, SeriesType,
-    Threshold,
+    Cell, Chart, Column, Encoding, Format, Layer, LayerData, LineStyle, Operation, PanelData,
+    ReferenceAxis, ReferenceFill, SeriesType, Threshold,
 };
 
 /// What an XY chart draws.
@@ -17,6 +17,19 @@ pub struct Xy {
     /// A filled band between two series (indices into `series`).
     pub band: Option<(usize, usize)>,
     pub log_scale: bool,
+    pub reference_lines: Vec<RefLine>,
+}
+
+/// A reference line with its value resolved.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RefLine {
+    pub value: f64,
+    pub label: Option<String>,
+    pub axis: ReferenceAxis,
+    pub color: Option<String>,
+    pub style: LineStyle,
+    pub fill: ReferenceFill,
+    pub format: Option<Format>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -259,6 +272,7 @@ pub fn xy(chart: &Chart, data: &PanelData, min_samples: Option<u32>) -> Xy {
         })
         .map(|c| c.thresholds.clone())
         .unwrap_or_default();
+    let reference_lines = reference_lines(chart, data, &series);
     Xy {
         x,
         series,
@@ -266,7 +280,47 @@ pub fn xy(chart: &Chart, data: &PanelData, min_samples: Option<u32>) -> Xy {
         low_sample,
         band: None,
         log_scale: false,
+        reference_lines,
     }
+}
+
+/// The reference lines of every reference-line layer, with their values.
+/// Lines whose value is missing (no data, a failed query) are left out. A
+/// line without a format of its own takes the chart's (as in Lens).
+pub fn reference_lines(chart: &Chart, data: &PanelData, series: &[XySeries]) -> Vec<RefLine> {
+    let fallback = series.iter().find_map(|s| s.format.clone());
+    let mut out = Vec::new();
+    for (layer, d) in chart.layers.iter().zip(&data.layers) {
+        let Encoding::ReferenceLines { lines } = &layer.encoding else {
+            continue;
+        };
+        for line in lines {
+            let Some(value) = first(d, &line.column).and_then(|c| c.number()) else {
+                continue;
+            };
+            let column = layer.column(&line.column);
+            out.push(RefLine {
+                value,
+                label: line.show_label.then(|| label(column, &line.column)),
+                axis: line.axis,
+                color: line.color.clone(),
+                style: line.style,
+                fill: line.fill,
+                format: column
+                    .and_then(|c| c.display_format())
+                    .or_else(|| fallback.clone()),
+            });
+        }
+    }
+    out
+}
+
+/// The layer that decides how a chart is drawn: the first that draws data.
+pub fn main_layer(chart: &Chart) -> Option<&Layer> {
+    chart
+        .layers
+        .iter()
+        .find(|l| !matches!(l.encoding, Encoding::ReferenceLines { .. }))
 }
 
 fn label(column: Option<&Column>, fallback: &str) -> String {
@@ -284,7 +338,7 @@ fn numbers(layer: &LayerData, id: &str) -> Vec<Option<f64>> {
 
 /// A median line inside a shaded low–high band, e.g. p25–p75.
 pub fn band(chart: &Chart, data: &PanelData, min_samples: Option<u32>) -> Xy {
-    let (Some(layer), Some(d)) = (chart.layers.first(), data.layers.first()) else {
+    let Some((layer, d)) = main_layer_data(chart, data) else {
         return empty();
     };
     let Encoding::Band { x, low, mid, high } = &layer.encoding else {
@@ -308,7 +362,7 @@ pub fn band(chart: &Chart, data: &PanelData, min_samples: Option<u32>) -> Xy {
         Some(min) => d.counts.iter().map(|n| *n < min as f64).collect(),
         None => vec![false; xs.len()],
     };
-    Xy {
+    let mut xy = Xy {
         x: XAxis::Time(xs),
         series: vec![
             series(low, Style::BandEdge),
@@ -322,13 +376,16 @@ pub fn band(chart: &Chart, data: &PanelData, min_samples: Option<u32>) -> Xy {
         low_sample,
         band: Some((0, 2)),
         log_scale: false,
-    }
+        reference_lines: Vec::new(),
+    };
+    xy.reference_lines = reference_lines(chart, data, &xy.series);
+    xy
 }
 
 /// One point per document, with an optional trend line. Points are split
 /// into one series per `split` value when given.
 pub fn scatter(chart: &Chart, data: &PanelData) -> Xy {
-    let (Some(layer), Some(d)) = (chart.layers.first(), data.layers.first()) else {
+    let Some((layer, d)) = main_layer_data(chart, data) else {
         return empty();
     };
     let Encoding::Scatter {
@@ -380,7 +437,7 @@ pub fn scatter(chart: &Chart, data: &PanelData) -> Xy {
     }
     let time = matches!(layer.column(x).map(|c| &c.op), Some(Operation::Value { field }) if layer.data_view.time_field.as_ref() == Some(field));
     let n = xs.len();
-    Xy {
+    let mut xy = Xy {
         x: if time {
             XAxis::Time(xs)
         } else {
@@ -391,7 +448,21 @@ pub fn scatter(chart: &Chart, data: &PanelData) -> Xy {
         low_sample: vec![false; n],
         band: None,
         log_scale: *log_scale,
-    }
+        reference_lines: Vec::new(),
+    };
+    xy.reference_lines = reference_lines(chart, data, &xy.series);
+    xy
+}
+
+fn main_layer_data<'a>(
+    chart: &'a Chart,
+    data: &'a PanelData,
+) -> Option<(&'a Layer, &'a LayerData)> {
+    chart
+        .layers
+        .iter()
+        .zip(&data.layers)
+        .find(|(l, _)| !matches!(l.encoding, Encoding::ReferenceLines { .. }))
 }
 
 fn empty() -> Xy {
@@ -402,17 +473,13 @@ fn empty() -> Xy {
         low_sample: Vec::new(),
         band: None,
         log_scale: false,
+        reference_lines: Vec::new(),
     }
 }
 
 /// The benchmark band a value falls in.
 pub fn threshold_for(thresholds: &[Threshold], v: f64) -> Option<(usize, &Threshold)> {
     thresholds.iter().enumerate().find(|(_, t)| t.contains(v))
-}
-
-/// The layer a chart is drawn from, for single-layer panels.
-pub fn first_layer(chart: &Chart) -> Option<&Layer> {
-    chart.layers.first()
 }
 
 /// Values as drawn: stacked series accumulate (in order), percentage
@@ -520,6 +587,7 @@ mod tests {
                 },
                 documents: None,
             }],
+            warnings: vec![],
         }
     }
 

@@ -133,6 +133,7 @@ fn convert(export: &Export, vis: Vis, refs: &[Reference]) -> Result<PanelContent
             encoding,
             documents: None,
         }],
+        warnings: Vec::new(),
     }))
 }
 

@@ -506,6 +506,126 @@ panels:
       encoding:
         as: metric
         value: pt-n
+- id: lead-target
+  title: Lead time against target (weekly median)
+  grid:
+    x: 0
+    y: 61
+    w: 24
+    h: 12
+  content:
+    type: chart
+    kind: xy
+    query:
+      language: kql
+      text: 'is_rework : false'
+    layers:
+    - id: layer-lead-target
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      columns:
+      - id: lg-x
+        label: deployed_at
+        op: date_histogram
+        field: deployed_at
+        interval: 1w
+        include_empty: true
+      - id: lg-y
+        label: Median lead time
+        op: median
+        field: change_lead_time_hours
+        format:
+          kind: number
+          decimals: 1
+          suffix: ' h'
+      encoding:
+        as: xy
+        series: line
+        x: lg-x
+        y:
+        - lg-y
+    - id: ref-lead-target
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      columns:
+      - id: lg-target
+        label: 'Target: one day'
+        op: static_value
+        value: 24.0
+      - id: lg-avg
+        label: Average over the range
+        op: average
+        field: change_lead_time_hours
+      encoding:
+        as: reference_lines
+        lines:
+        - column: lg-target
+          color: '#54B399'
+          style: dashed
+          fill: below
+        - column: lg-avg
+          color: '#D6BF57'
+          style: dotted
+- id: team-target
+  title: Median lead time by team against target
+  grid:
+    x: 24
+    y: 61
+    w: 24
+    h: 12
+  content:
+    type: chart
+    kind: xy
+    query:
+      language: kql
+      text: 'is_rework : false'
+    layers:
+    - id: layer-team-target
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      columns:
+      - id: tg-team
+        label: Top 10 values of team
+        op: terms
+        fields:
+        - team
+        size: 10
+        order:
+          by: column
+          column: tg-y
+          ascending: false
+        other_bucket: true
+      - id: tg-y
+        label: Median lead time
+        op: median
+        field: change_lead_time_hours
+        format:
+          kind: number
+          decimals: 1
+          suffix: ' h'
+      encoding:
+        as: xy
+        series: bar_horizontal
+        x: tg-team
+        y:
+        - tg-y
+    - id: ref-team-target
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      columns:
+      - id: tg-target
+        label: One day
+        op: static_value
+        value: 24.0
+      encoding:
+        as: reference_lines
+        lines:
+        - column: tg-target
+          color: '#E7664C'
 ---
 id: teleplot-pr-flow
 title: '[Delivery] PR flow'

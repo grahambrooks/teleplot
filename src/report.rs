@@ -51,14 +51,23 @@ pub fn check(dashboards: &[Dashboard]) -> (String, Counts) {
         let _ = writeln!(out, "  {} ({} panels)", d.title, c.panels);
         let _ = writeln!(out, "    {}", summary(c));
         for panel in &d.panels {
-            if let PanelContent::Placeholder(p) = &panel.content {
-                let reason = match p.reason {
-                    PlaceholderReason::OutOfScope => "not supported",
-                    PlaceholderReason::BrokenReference => "broken reference",
-                    PlaceholderReason::Unparseable => "COULD NOT CONVERT",
-                };
-                let title = panel.title.as_deref().unwrap_or("(untitled)");
-                let _ = writeln!(out, "    - {title} [{}] {reason}: {}", p.kind, p.detail);
+            let title = panel.title.as_deref().unwrap_or("(untitled)");
+            match &panel.content {
+                PanelContent::Placeholder(p) => {
+                    let reason = match p.reason {
+                        PlaceholderReason::OutOfScope => "not supported",
+                        PlaceholderReason::BrokenReference => "broken reference",
+                        PlaceholderReason::Unparseable => "COULD NOT CONVERT",
+                    };
+                    let _ = writeln!(out, "    - {title} [{}] {reason}: {}", p.kind, p.detail);
+                }
+                // Renders, but without part of the source.
+                PanelContent::Chart(chart) => {
+                    for w in &chart.warnings {
+                        let _ = writeln!(out, "    - {title} renders partly: {w}");
+                    }
+                }
+                PanelContent::Markdown { .. } => {}
             }
         }
     }

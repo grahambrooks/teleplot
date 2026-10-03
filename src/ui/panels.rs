@@ -6,8 +6,8 @@ use super::format;
 use super::series::{self, XAxis, cell_text, threshold_for};
 use super::theme::{palette, threshold_color};
 use crate::model::{
-    Cell, Chart, ChartKind, Column, Encoding, Layer, Operation, Panel, PanelContent, PanelData,
-    Placeholder, PlaceholderReason,
+    Cell, Chart, ChartKind, Column, Encoding, Layer, LineStyle, Operation, Panel, PanelContent,
+    PanelData, Placeholder, PlaceholderReason, ReferenceAxis,
 };
 
 /// Things every panel on a dashboard shares. Some are only read by the
@@ -27,6 +27,8 @@ pub struct PanelContext {
     /// focuses the dashboard on it.
     pub drill_fields: Vec<String>,
     pub drill: Callback<(String, String)>,
+    /// Opens the inspector on a panel (by id).
+    pub inspect: Callback<String>,
 }
 
 impl PanelContext {
@@ -78,13 +80,30 @@ pub fn PanelView(
         g.y + 1,
         g.h
     );
-    let warnings = move || {
-        data.get()
-            .map(|d| d.warnings.join("\n"))
-            .filter(|w| !w.is_empty())
+    // A chart's own warnings (from conversion) show before its data arrives.
+    let own_warnings = match &panel.content {
+        PanelContent::Chart(c) => c.warnings.clone(),
+        _ => Vec::new(),
     };
-    let title = panel.title.clone();
+    let warnings = move || {
+        let mut all = own_warnings.clone();
+        for w in data.get().map(|d| d.warnings).unwrap_or_default() {
+            if !all.contains(&w) {
+                all.push(w);
+            }
+        }
+        (!all.is_empty()).then(|| all.join("\n"))
+    };
+    let is_chart = matches!(panel.content, PanelContent::Chart(_));
+    // Chart panels always get a header: it carries their CSV and Inspect actions.
+    let title = panel.title.clone().or_else(|| is_chart.then(String::new));
     let exportable = drawn_on_canvas(&panel.content);
+    let csv_chart = match &panel.content {
+        PanelContent::Chart(c) => Some(c.clone()),
+        _ => None,
+    };
+    let inspect = ctx.inspect;
+    let panel_id = panel.id.clone();
     let section = NodeRef::<leptos::html::Section>::new();
     let body = match panel.content.clone() {
         PanelContent::Chart(chart) => view! { <ChartBody chart data ctx/> }.into_any(),
@@ -102,6 +121,23 @@ pub fn PanelView(
                         <span>{t}</span>
                         {move || warnings().map(|w| view! { <span class="panel-warning" title=w>"!"</span> })}
                         <span class="spacer"></span>
+                        {csv_chart.map(|chart| {
+                            let name = name.clone();
+                            view! {
+                                <button class="panel-action" title="Download the data as CSV" on:click=move |_| {
+                                    if let Some(d) = data.get_untracked() {
+                                        super::inspector::download_csv(&chart, &d, &name);
+                                    }
+                                }>"CSV"</button>
+                            }
+                        })}
+                        {is_chart.then(|| {
+                            let id = panel_id.clone();
+                            view! {
+                                <button class="panel-action" title="Inspect the data and the Elasticsearch queries"
+                                    on:click=move |_| inspect.run(id.clone())>"Inspect"</button>
+                            }
+                        })}
                         {exportable.then(|| view! {
                             <button class="panel-action" title="Save as PNG" on:click=move |_| {
                                 #[cfg(feature = "hydrate")]
@@ -166,7 +202,7 @@ fn ChartBody(chart: Chart, data: Signal<Option<PanelData>>, ctx: PanelContext) -
         }
         let c = chart.get_value();
         let min = ctx.min_samples;
-        match (c.kind, c.layers.first().map(|l| &l.encoding)) {
+        match (c.kind, series::main_layer(&c).map(|l| &l.encoding)) {
             (ChartKind::Metric, _) => {
                 view! { <MetricTiles chart=c data=d ctx=ctx.clone()/> }.into_any()
             }
@@ -188,7 +224,7 @@ fn ChartBody(chart: Chart, data: Signal<Option<PanelData>>, ctx: PanelContext) -
                 let xy = series::xy(&c, &d, min);
                 match xy.x {
                     XAxis::Category(_) => {
-                        let drill = c.layers.first().and_then(|l| match &l.encoding {
+                        let drill = series::main_layer(&c).and_then(|l| match &l.encoding {
                             Encoding::Xy { x: Some(x), .. } => ctx.drill_field(l.column(x)),
                             _ => None,
                         });
@@ -634,7 +670,18 @@ fn CategoryBars(xy: series::Xy, drill_field: Option<String>, ctx: PanelContext) 
                     .fold(0.0, f64::max)
             }
         })
-        .fold(0.0, f64::max)
+        .fold(0.0, f64::max);
+    // Horizontal reference lines run across the bars; the axis stretches to show them.
+    let lines: Vec<series::RefLine> = xy
+        .reference_lines
+        .iter()
+        .filter(|l| l.axis != ReferenceAxis::Bottom && l.value >= 0.0)
+        .cloned()
+        .collect();
+    let max = lines
+        .iter()
+        .map(|l| l.value)
+        .fold(max, f64::max)
         .max(f64::MIN_POSITIVE);
     let rows: Vec<_> = labels
         .iter()
@@ -673,11 +720,36 @@ fn CategoryBars(xy: series::Xy, drill_field: Option<String>, ctx: PanelContext) 
             };
             let click = drill_field.clone().map(|f| (f, label.clone()));
             let on_drill = ctx.drill;
+            let marks: Vec<_> = lines
+                .iter()
+                .map(|l| {
+                    let side = if horizontal { "left" } else { "bottom" };
+                    let border = match l.style {
+                        LineStyle::Solid => "solid",
+                        LineStyle::Dashed => "dashed",
+                        LineStyle::Dotted => "dotted",
+                    };
+                    let color = l.color.clone().unwrap_or_else(|| "var(--text)".into());
+                    let style = format!(
+                        "{side}:{:.2}%;border-color:{color};border-style:{border}",
+                        l.value / max * 100.0
+                    );
+                    let title = format!(
+                        "{}{}",
+                        l.label
+                            .as_deref()
+                            .map(|t| format!("{t}: "))
+                            .unwrap_or_default(),
+                        format::value(l.value, l.format.as_ref())
+                    );
+                    view! { <div class="cat-ref" style=style title=title></div> }
+                })
+                .collect();
             view! {
                 <div class="cat-row" class:drillable=click.is_some()
                     on:click=move |_| if let Some((f, v)) = click.clone() { on_drill.run((f, v)) }>
                     <span class="cat-label" title=label.clone()>{label.clone()}</span>
-                    <div class=track>{bars}</div>
+                    <div class=track>{bars}{marks}</div>
                     {horizontal.then(|| view! { <span class="cat-value">{value}</span> })}
                 </div>
             }
@@ -688,7 +760,20 @@ fn CategoryBars(xy: series::Xy, drill_field: Option<String>, ctx: PanelContext) 
     } else {
         "cat-chart vertical"
     };
-    view! { <div class=class>{rows}</div> }.into_any()
+    let key: Vec<_> = lines
+        .iter()
+        .filter_map(|l| {
+            let label = l.label.clone()?;
+            let style = format!(
+                "border-color:{}",
+                l.color.clone().unwrap_or_else(|| "var(--text)".into())
+            );
+            Some(view! {
+                <span class="cat-ref-key"><span class="swatch" style=style></span>{label} " " {format::value(l.value, l.format.as_ref())}</span>
+            })
+        })
+        .collect();
+    view! { <div class=class>{rows}</div>{(!key.is_empty()).then(|| view! { <div class="chart-note ref-key">{key}</div> })} }.into_any()
 }
 
 /// Time and numeric x axes, drawn by uPlot in the browser.

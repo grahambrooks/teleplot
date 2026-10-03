@@ -27,7 +27,7 @@ pub fn slug(title: &str) -> String {
 }
 
 #[cfg(feature = "hydrate")]
-pub use browser::{png, print};
+pub use browser::{download, png, print};
 
 #[cfg(feature = "hydrate")]
 mod browser {
@@ -129,6 +129,30 @@ mod browser {
         a.set_href(&url);
         a.set_download(&format!("{}.png", super::slug(title)));
         a.click();
+        Ok(())
+    }
+
+    /// Saves `text` as a file called `name`.
+    pub fn download(name: &str, mime: &str, text: &str) -> Result<(), String> {
+        let document = web_sys::window()
+            .and_then(|w| w.document())
+            .ok_or("no document")?;
+        let parts = js_sys::Array::of1(&text.into());
+        let options = web_sys::BlobPropertyBag::new();
+        options.set_type(mime);
+        let blob = web_sys::Blob::new_with_str_sequence_and_options(&parts, &options)
+            .map_err(|_| "could not make the file")?;
+        let url = web_sys::Url::create_object_url_with_blob(&blob)
+            .map_err(|_| "could not make the file")?;
+        let a: HtmlAnchorElement = document
+            .create_element("a")
+            .map_err(|_| "anchor")?
+            .dyn_into()
+            .map_err(|_| "anchor")?;
+        a.set_href(&url);
+        a.set_download(name);
+        a.click();
+        let _ = web_sys::Url::revoke_object_url(&url);
         Ok(())
     }
 

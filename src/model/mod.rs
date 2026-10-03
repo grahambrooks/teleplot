@@ -7,6 +7,7 @@
 pub mod api;
 mod data;
 mod interval;
+pub mod table;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -177,6 +178,10 @@ pub struct Chart {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<Filter>,
     pub layers: Vec<Layer>,
+    /// Parts of the source Teleplot does not draw, e.g. a Lens annotation
+    /// layer. Shown on the panel and by `teleplot check`, never dropped silently.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -267,6 +272,71 @@ pub enum Encoding {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         log_scale: bool,
     },
+    /// Lines at fixed values across an XY chart, e.g. a target or a
+    /// percentile. Each value is one of this layer's unbucketed columns.
+    ReferenceLines {
+        lines: Vec<ReferenceLine>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+pub struct ReferenceLine {
+    /// The column holding the value (a metric, static value or formula).
+    pub column: String,
+    /// `left` and `right` are value axes (a horizontal line); `bottom` is
+    /// the x axis (a vertical line).
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub axis: ReferenceAxis,
+    /// CSS colour; the theme's text colour otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub style: LineStyle,
+    /// Shade the area above or below the line.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub fill: ReferenceFill,
+    /// Show the column's label beside the line.
+    #[serde(default = "yes", skip_serializing_if = "Clone::clone")]
+    pub show_label: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+fn is_default<T: Default + PartialEq>(v: &T) -> bool {
+    *v == T::default()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum ReferenceAxis {
+    #[default]
+    Left,
+    Right,
+    Bottom,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum LineStyle {
+    #[default]
+    Solid,
+    Dashed,
+    Dotted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum ReferenceFill {
+    #[default]
+    None,
+    Above,
+    Below,
 }
 
 impl Encoding {
@@ -305,6 +375,9 @@ impl Encoding {
             } => {
                 ids.extend([x.as_str(), y.as_str()]);
                 ids.extend([split, trend].into_iter().flatten().map(String::as_str));
+            }
+            Encoding::ReferenceLines { lines } => {
+                ids.extend(lines.iter().map(|l| l.column.as_str()))
             }
         }
         ids

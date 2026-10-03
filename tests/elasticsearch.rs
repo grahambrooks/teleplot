@@ -160,6 +160,19 @@ async fn dora_overview_matches_kibana() {
         }
         // Without a date histogram: the whole range (184 days).
         assert_shown(number(&data, "per-day", "pt-n"), 6.033, 3, "per day");
+
+        // Reference lines come from their own layer: a static target, and a
+        // quick function over the whole range, which Kibana draws just under
+        // the 100 h gridline (Elasticsearch's own avg: 95.71).
+        let line = |panel: &str, id: &str| {
+            let layer = &data[panel].layers[1];
+            assert_eq!(layer.error, None, "{version} {panel}");
+            layer.series(id).unwrap().values[0].number().unwrap()
+        };
+        assert_eq!(line("lead-target", "lg-target"), 24.0, "{version}");
+        assert_shown(line("lead-target", "lg-avg"), 95.7, 1, "average lead time");
+        assert_eq!(line("team-target", "tg-target"), 24.0, "{version}");
+        assert!(data["lead-target"].warnings.is_empty(), "{version}");
     }
 }
 

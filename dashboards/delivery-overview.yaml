@@ -225,6 +225,14 @@ panels:
                 - { label: Needs focus, from: 161, color: "#F2495C" }
             - { id: trend, label: Rolling median (50 PRs), op: rolling_median, of: hours, window: 50, format: { kind: number, decimals: 1, suffix: " h" } }
           encoding: { as: scatter, x: merged, y: hours, trend: trend, log_scale: true }
+        # A service-level expectation: the cycle time 85% of PRs stay within.
+        - id: sle
+          data_view: { index: delivery-prs, time_field: merged_at }
+          columns:
+            - { id: p85, label: 85% of PRs within, op: percentile, field: cycle_time_hours, percent: 85.0, format: { kind: number, decimals: 1, suffix: " h" } }
+          encoding:
+            as: reference_lines
+            lines: [{ column: p85, style: dashed }]
 
   # ---------------------------------------------------------------- throughput and investment
   - id: throughput

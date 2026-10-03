@@ -12,6 +12,7 @@ use leptos_router::hooks::{use_navigate, use_params_map, use_query_map};
 use leptos_router::params::ParamsMap;
 
 use super::api::{self, encode};
+use super::inspector::Inspector;
 use super::panels::{PanelContext, PanelView};
 use crate::model::api::{Catalog, ControlValues, DataRequest, DataResponse};
 use crate::model::{Control, Dashboard, Query, QueryLanguage};
@@ -205,7 +206,9 @@ fn DashboardView(dashboard: Dashboard) -> impl IntoView {
         }
     });
     let min_samples = dashboard.with_value(|d| d.min_samples);
+    let inspecting = RwSignal::new(None::<String>);
     let ctx = PanelContext {
+        inspect: Callback::new(move |panel: String| inspecting.set(Some(panel))),
         time_zone,
         sync_key: id.clone(),
         on_zoom,
@@ -311,6 +314,16 @@ fn DashboardView(dashboard: Dashboard) -> impl IntoView {
                     view! { <PanelView panel data=panel_data ctx=ctx.clone()/> }
                 }).collect_view()}
             </div>
+            {move || {
+                let panel = inspecting
+                    .get()
+                    .and_then(|pid| dashboard.with_value(|d| d.panels.iter().find(|p| p.id == pid).cloned()))?;
+                let id = dashboard.with_value(|d| d.id.clone());
+                Some(view! {
+                    <Inspector dashboard=id panel request=request.into()
+                        on_close=Callback::new(move |_| inspecting.set(None))/>
+                })
+            }}
         </div>
     }
 }

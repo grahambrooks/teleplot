@@ -21,8 +21,10 @@ build() {
 
   cargo run -q --example seed -- --es "http://localhost:$es" --end "$END"
 
+  # Kibana 9.5 restricts this internal API to requests that say they are Kibana's own.
   for set in ecommerce flights logs; do
-    curl -sf -X POST "localhost:$kibana/api/sample_data/$set" -H 'kbn-xsrf: true' >/dev/null
+    curl -sf -X POST "localhost:$kibana/api/sample_data/$set" -H 'kbn-xsrf: true' \
+      -H 'x-elastic-internal-origin: kibana' >/dev/null
   done
   curl -sf -X POST "localhost:$kibana/api/saved_objects/_export" \
     -H 'kbn-xsrf: true' -H 'content-type: application/json' \

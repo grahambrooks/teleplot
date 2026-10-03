@@ -78,6 +78,10 @@ pub fn router(addr: SocketAddr, app: Arc<Teleplot>) -> Router {
         .route("/api/dashboards/{id}", get(api::dashboard))
         .route("/api/dashboards/{id}/data", post(api::data))
         .route(
+            "/api/dashboards/{id}/panels/{panel}/inspect",
+            post(api::inspect),
+        )
+        .route(
             "/api/dashboards/{id}/controls/{control}",
             post(api::control_values),
         )

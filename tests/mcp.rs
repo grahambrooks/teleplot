@@ -514,6 +514,24 @@ async fn an_agent_can_discover_check_preview_and_save() {
     let rate = layer["rows"][0][2].as_f64().unwrap();
     assert_eq!((rate * 1000.0).round() / 10.0, 4.3);
 
+    // With inspect, the preview traces the numbers to their search.
+    let inspected = call(
+        &server,
+        "teleplot_preview",
+        json!({ "dashboard": cfr_by_team("cfr"), "inspect": true, "max_rows": 1 }),
+    )
+    .await;
+    let search = &inspected["panels"][0]["searches"][0];
+    assert_eq!(search["description"], json!("Layer l"), "{search}");
+    assert_eq!(search["index"], json!("delivery-deployments"));
+    assert_eq!(
+        search["hits"],
+        json!(1004),
+        "non-rework deployments in range"
+    );
+    assert!(search["took_ms"].is_u64(), "{search}");
+    assert!(search["request"]["aggs"].is_object(), "{search}");
+
     let saved = call(
         &server,
         "teleplot_save_dashboard",
@@ -535,4 +553,23 @@ async fn an_agent_can_discover_check_preview_and_save() {
         json!(8),
         "the saved dashboard serves real data"
     );
+
+    // The browser's inspector: the searches behind a panel, and its data.
+    let inspection: Value = reqwest::Client::new()
+        .post(
+            server
+                .url
+                .replace("/mcp", "/api/dashboards/cfr/panels/cfr/inspect"),
+        )
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let request = &inspection["requests"][0];
+    assert_eq!(request["hits"], json!(1004), "{request}");
+    assert!(request["response"]["aggregations"].is_object(), "{request}");
+    assert_eq!(inspection["data"]["layers"][0]["rows"], json!(8));
 }

@@ -284,6 +284,47 @@ impl Dashboard {
         }));
     }
 
+    /// Adds a reference-line layer to the Lens XY panel added last: one line
+    /// per `(column id, column, yConfig)`, over the panel's data view.
+    fn reference_lines(&mut self, index: &str, lines: Vec<(&str, Value, Value)>) {
+        let layer = format!("ref-{index}");
+        let panel = self.panels.last_mut().expect("a panel");
+        let attributes = &mut panel["embeddableConfig"]["attributes"];
+        let data_view = attributes["references"][0]["id"].clone();
+        let reference = json!({
+            "type": "index-pattern", "id": data_view,
+            "name": format!("indexpattern-datasource-layer-{layer}")
+        });
+        attributes["references"]
+            .as_array_mut()
+            .unwrap()
+            .push(reference.clone());
+        self.references.push(json!({
+            "type": "index-pattern", "id": data_view,
+            "name": format!("{index}:indexpattern-datasource-layer-{layer}")
+        }));
+        let state = &mut attributes["state"];
+        let mut columns = serde_json::Map::new();
+        let mut order = Vec::new();
+        let mut y_config = Vec::new();
+        for (id, column, mut config) in lines {
+            columns.insert(id.to_string(), column);
+            order.push(id.to_string());
+            config["forAccessor"] = json!(id);
+            y_config.push(config);
+        }
+        state["datasourceStates"]["formBased"]["layers"][&layer] = json!({
+            "columns": columns, "columnOrder": order, "incompleteColumns": {}
+        });
+        state["visualization"]["layers"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({
+                "layerId": layer, "layerType": "referenceLine",
+                "accessors": order, "yConfig": y_config
+            }));
+    }
+
     /// A panel that references a saved object (Lens or legacy visualization).
     fn by_ref(&mut self, index: &str, grid: Grid, kind: &str, id: &str) {
         let name = format!("panel_{index}");
@@ -368,6 +409,15 @@ fn xy(layer: &str, series: &str, x: &str, ys: &[&str], split: Option<&str>) -> V
         "preferredSeriesType": series,
         "axisTitlesVisibilitySettings": { "x": false, "yLeft": true, "yRight": true },
         "layers": [layer_spec]
+    })
+}
+
+/// A Lens static value (reference lines use these).
+fn static_value(value: f64, label: &str) -> Value {
+    json!({
+        "label": label, "dataType": "number", "operationType": "static_value",
+        "isStaticValue": true, "isBucketed": false, "scale": "ratio",
+        "params": { "value": value.to_string() }, "references": [], "customLabel": true
     })
 }
 
@@ -706,6 +756,73 @@ fn delivery_overview() -> Value {
         )],
         metric_vis(&l, "pt-n", None),
         "",
+    );
+
+    // Reference lines: a fixed target (shaded below) and a quick function
+    // computed over the whole range.
+    let l = layer_of("lead-target");
+    d.lens(
+        "lead-target",
+        Grid(0, 61, 24, 12),
+        "Lead time against target (weekly median)",
+        "lnsXY",
+        DV_DEPLOYS,
+        vec![
+            col("lg-x", date_histogram("deployed_at", "1w")),
+            col(
+                "lg-y",
+                with_format(
+                    metric("median", "change_lead_time_hours", "Median lead time"),
+                    hours_format(),
+                ),
+            ),
+        ],
+        xy(&l, "line", "lg-x", &["lg-y"], None),
+        "is_rework : false",
+    );
+    d.reference_lines(
+        "lead-target",
+        vec![
+            (
+                "lg-target",
+                static_value(24.0, "Target: one day"),
+                json!({ "axisMode": "left", "color": "#54B399", "lineStyle": "dashed", "lineWidth": 2, "fill": "below", "textVisibility": true }),
+            ),
+            (
+                "lg-avg",
+                metric("average", "change_lead_time_hours", "Average over the range"),
+                json!({ "axisMode": "left", "color": "#D6BF57", "lineStyle": "dotted", "lineWidth": 2, "fill": "none", "textVisibility": true }),
+            ),
+        ],
+    );
+
+    let l = layer_of("team-target");
+    d.lens(
+        "team-target",
+        Grid(24, 61, 24, 12),
+        "Median lead time by team against target",
+        "lnsXY",
+        DV_DEPLOYS,
+        vec![
+            col("tg-team", terms("team", 10, "tg-y")),
+            col(
+                "tg-y",
+                with_format(
+                    metric("median", "change_lead_time_hours", "Median lead time"),
+                    hours_format(),
+                ),
+            ),
+        ],
+        xy(&l, "bar_horizontal", "tg-team", &["tg-y"], None),
+        "is_rework : false",
+    );
+    d.reference_lines(
+        "team-target",
+        vec![(
+            "tg-target",
+            static_value(24.0, "One day"),
+            json!({ "axisMode": "left", "color": "#E7664C", "lineStyle": "solid", "lineWidth": 2, "fill": "none", "textVisibility": true }),
+        )],
     );
 
     dashboard_object(

@@ -19,9 +19,11 @@ Versions: `8.19` is Kibana 8.19.22, `9.5` is Kibana 9.5.3.
   - Chart types: XY (line, bar, stacked bar, percentage bar, stacked area, horizontal bar), metric (including a time-shifted secondary metric), pie/donut and datatable.
   - Operations: count, sum, average, median, percentile, unique_count, last_value, date_histogram, terms, filters, range (histogram), formula (with its expanded `math`/`tinymathAst` helper columns), moving_average, cumulative_sum and differences.
   - Per-column KQL and Lucene filters, `timeShift`, and `timeScale` (normalize by unit: a monthly table and a whole-range tile).
+  - Reference-line layers: a static target shaded below, and an average over the whole range (line chart); a static line across horizontal bars.
 - **Lens, by reference:** one panel in the delivery set and one in the sample set.
 - **Legacy visualizations:** line, pie, table and metric by reference; markdown by value and by reference.
 - **Dashboard-level settings:** KQL query, a negated phrase filter, `timeRestore`, refresh interval, and an options-list control (`controlGroupInput`).
+- **Lens annotation layers** (in the sample data), which Teleplot reports as a warning on the panel.
 - **Panels outside the MVP, which must render as placeholders:** Vega, Maps, saved searches, and Lens ES|QL (`textBased`) in the 9.5 sample data.
 
 ## Data

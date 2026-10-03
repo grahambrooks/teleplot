@@ -16,6 +16,7 @@ use serde_json::Value;
 use crate::config::Config;
 use crate::es::{Client, Search};
 use crate::kql::Field;
+use crate::model::api::{InspectedRequest, Inspection};
 use crate::model::{Control, Dashboard, PanelContent, PanelData, Query, TimeRange};
 use crate::query::{self, Context, Settings};
 use crate::time;
@@ -28,6 +29,13 @@ pub struct Engine {
     settings: Settings,
     field_caps: Cache<String, Arc<Vec<Field>>>,
     responses: Cache<String, Arc<Value>>,
+}
+
+/// Planned panels, ready to search.
+struct Prepared {
+    plans: Vec<(String, query::Plan)>,
+    /// The min/max pre-pass: what each search was for, and its response.
+    stats: Vec<(String, Search, Result<Value, String>)>,
 }
 
 /// What the viewer asked for.
@@ -80,20 +88,91 @@ impl Engine {
         request: &Request,
         now: Timestamp,
     ) -> Result<HashMap<String, PanelData>, String> {
-        let default_time = TimeRange {
-            from: "now-15m".into(),
-            to: "now".into(),
+        let prepared = self.prepare(dashboard, request, now, None).await?;
+        let searches: Vec<Search> = prepared
+            .plans
+            .iter()
+            .flat_map(|(_, p)| p.searches())
+            .collect();
+        let mut responses = self.search(&searches).await?.into_iter();
+
+        let mut out = HashMap::new();
+        for (id, plan) in prepared.plans {
+            let mine: Vec<_> = responses.by_ref().take(plan.searches().len()).collect();
+            out.insert(id, plan.evaluate(&mine));
+        }
+        Ok(out)
+    }
+
+    /// How one panel's numbers are made: every search it sends (the
+    /// automatic-interval pre-pass included), with Elasticsearch's whole
+    /// responses. Runs past the response cache, so timings are current.
+    pub async fn inspect_panel(
+        &self,
+        dashboard: &Dashboard,
+        panel: &str,
+        request: &Request,
+        now: Timestamp,
+    ) -> Result<Inspection, String> {
+        let prepared = self.prepare(dashboard, request, now, Some(panel)).await?;
+        let Some((_, plan)) = prepared.plans.first() else {
+            return Err(format!("no chart panel {panel}"));
         };
-        let time = request
-            .time
-            .as_ref()
-            .or(dashboard.time.as_ref())
-            .unwrap_or(&default_time);
-        let dashboard_range = time::resolve(&time.from, &time.to, now, &self.time_zone)?;
+        let described = plan.described_searches();
+        let searches: Vec<Search> = described.iter().map(|(_, s)| s.clone()).collect();
+        let responses = self.client.msearch_full(&searches).await?;
+        let data = plan.evaluate(&responses);
+
+        let inspected = |description: String, search: &Search, response: Result<Value, String>| {
+            let (response, error) = match response {
+                Ok(r) => (Some(r), None),
+                Err(e) => (None, Some(e)),
+            };
+            let hits = response.as_ref().and_then(|r| {
+                r["aggregations"]["root"]["doc_count"]
+                    .as_u64()
+                    .or_else(|| r["hits"]["total"]["value"].as_u64())
+                    .or_else(|| r["hits"]["hits"].as_array().map(|h| h.len() as u64))
+            });
+            InspectedRequest {
+                description,
+                index: search.index.clone(),
+                request: search.body.clone(),
+                took_ms: response.as_ref().and_then(|r| r["took"].as_u64()),
+                hits,
+                response,
+                error,
+            }
+        };
+        let mut requests: Vec<InspectedRequest> = prepared
+            .stats
+            .into_iter()
+            .map(|(description, search, response)| inspected(description, &search, response))
+            .collect();
+        requests.extend(
+            described
+                .into_iter()
+                .zip(responses)
+                .map(|((description, search), response)| inspected(description, &search, response)),
+        );
+        Ok(Inspection { requests, data })
+    }
+
+    /// Plans the chart panels (all, or `only` one): field caps, time ranges,
+    /// and the min/max pre-pass that automatic histogram intervals need.
+    async fn prepare(
+        &self,
+        dashboard: &Dashboard,
+        request: &Request,
+        now: Timestamp,
+        only: Option<&str>,
+    ) -> Result<Prepared, String> {
+        let dashboard_range = self.range(dashboard, request, now)?;
 
         let charts: Vec<_> = dashboard
             .panels
             .iter()
+            .filter(|p| only.is_none_or(|id| p.id == id))
             .filter_map(|p| match &p.content {
                 PanelContent::Chart(c) => Some((p, c)),
                 _ => None,
@@ -147,17 +226,23 @@ impl Engine {
                 stat_searches.push(search);
             }
         }
+        let stat_responses = self.search(&stat_searches).await?;
         let mut stats = HashMap::new();
-        for (key, response) in stat_keys
-            .into_iter()
-            .zip(self.search(&stat_searches).await?)
+        let mut described = Vec::new();
+        for (((layer, column), search), response) in
+            stat_keys.into_iter().zip(stat_searches).zip(stat_responses)
         {
-            if let Some(minmax) = response.ok().as_ref().and_then(query::read_stats) {
-                stats.insert(key, minmax);
+            if let Some(minmax) = response.as_ref().ok().and_then(query::read_stats) {
+                stats.insert((layer.clone(), column.clone()), minmax);
             }
+            described.push((
+                format!("Layer {layer}, min and max for column {column}'s automatic interval"),
+                search,
+                response,
+            ));
         }
 
-        let plans: Vec<_> = charts
+        let plans = charts
             .iter()
             .zip(&ranges)
             .map(|((panel, chart), range)| {
@@ -167,15 +252,10 @@ impl Engine {
                 )
             })
             .collect();
-        let searches: Vec<Search> = plans.iter().flat_map(|(_, p)| p.searches()).collect();
-        let mut responses = self.search(&searches).await?.into_iter();
-
-        let mut out = HashMap::new();
-        for (id, plan) in plans {
-            let mine: Vec<_> = responses.by_ref().take(plan.searches().len()).collect();
-            out.insert(id, plan.evaluate(&mine));
-        }
-        Ok(out)
+        Ok(Prepared {
+            plans,
+            stats: described,
+        })
     }
 
     pub fn client(&self) -> &Client {

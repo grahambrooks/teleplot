@@ -4,8 +4,8 @@ Status: current as of 2026-10-03. This is the one place that orders the work.
 The research and rationale stay in the source plans:
 
 - [`mvp-plan.md`](mvp-plan.md): M0–M5 and M6 parts 1–2 (export, performance) are done.
-- [`mcp-plan.md`](mcp-plan.md): Part 1 (MCP endpoint) and gap 1 (lint/schema) are done.
-- [`charting-plan.md`](charting-plan.md): A2 (`timeScale` → `per`) is done.
+- [`mcp-plan.md`](mcp-plan.md): Part 1 (MCP endpoint) and gaps 1 (lint/schema) and 2 (inspector, CSV) are done.
+- [`charting-plan.md`](charting-plan.md): A1 (reference lines) and A2 (`timeScale` → `per`) are done.
 
 Items carry their source IDs (`mcp gap 2`, `charting A1`). A phase starts once
 the one before it is done. Items inside a phase can go in parallel. Every item
@@ -16,11 +16,12 @@ also follows the [verification rules](#verification-rules) below.
 - **Vault entity page.** Write `wiki/entities/teleplot.md` in `~/knowledge-base` with the scope decisions from mvp-plan and the decisions recorded in mcp-plan and charting-plan. It goes through the `claude-obsidian` `save` transaction, then the index is rebuilt and `claude-obsidian checkpoint` is run.
 - *Done when:* the page exists, links to the related conventions pages, and `retrieve.py "teleplot"` finds it. Written as operation `save-20261003-teleplot-entity` and checkpointed.
 
-## Phase 1: trust and honesty
+## Phase 1: trust and honesty (done 2026-10-03)
 
 - **`charting A1`: reference lines** (`Xy.reference_lines`), drawn by a uPlot hook beside `shade_background` in `src/ui/uplot.rs`. In the same change, Lens annotation layers produce a visible warning instead of being skipped without a word (`src/kibana/lens.rs`, the `layerType != "data"` skip).
 - **`mcp gap 2`: query inspector and per-panel CSV**: generated DSL, response, `took`, hit count, download. Shares code with `preview_panel` (`src/mcp.rs`) and `Engine::dashboard_data` (`src/engine.rs`).
 - *Done when:* Lens reference lines from the 8.19 and 9.5 fixtures render with parity, no Lens layer is dropped silently, and every panel's numbers can be traced to its query and downloaded as CSV.
+- *Result:* the delivery fixtures gained two reference-line panels, exported from Kibana 8.19 and 9.5, with parity tests (`tests/elasticsearch.rs`). Annotation and other non-data Lens layers become chart `warnings`, shown on the panel and by `teleplot check`. **Inspect** shows each panel's table and its searches (`POST /api/dashboards/{id}/panels/{panel}/inspect`), and **CSV** downloads it. MCP `teleplot_preview` takes `inspect: true`. A layer holding only static values sends no search.
 
 ## Phase 2: cause and effect
 
