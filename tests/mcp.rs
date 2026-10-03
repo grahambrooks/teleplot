@@ -79,7 +79,7 @@ async fn rpc(server: &Server, method: &str, name: Option<&str>, mut params: Valu
     value["result"].clone()
 }
 
-/// Calls a tool and returns its structured result.
+/// Calls a tool and returns its structured result, checked against its output schema.
 async fn call(server: &Server, tool: &str, arguments: Value) -> Value {
     let result = rpc(
         server,
@@ -89,7 +89,27 @@ async fn call(server: &Server, tool: &str, arguments: Value) -> Value {
     )
     .await;
     assert_eq!(result["isError"], json!(false), "{tool}: {result}");
-    result["structuredContent"].clone()
+    // Clients such as Claude Code reject results that don't match the
+    // declared output schema, so every call checks it.
+    let tools = rpc(server, "tools/list", None, json!({})).await;
+    let schema = tools["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == tool)
+        .unwrap()["outputSchema"]
+        .clone();
+    let validator = jsonschema::validator_for(&schema).unwrap();
+    let content = result["structuredContent"].clone();
+    let errors: Vec<String> = validator
+        .iter_errors(&content)
+        .map(|e| format!("{e} at {}", e.instance_path()))
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "{tool} result does not match its output schema: {errors:?}"
+    );
+    content
 }
 
 fn reference() -> Value {
@@ -218,6 +238,11 @@ async fn resources_carry_the_format() {
     .await;
     let text = schema["contents"][0]["text"].as_str().unwrap();
     assert!(text.contains("\"panels\""), "{text}");
+    // 2026-07-28 clients (e.g. Claude Code) require cache hints on resource results.
+    assert!(
+        schema["ttlMs"].is_number() && list["ttlMs"].is_number(),
+        "{schema}"
+    );
     let docs = rpc(
         &server,
         "resources/read",

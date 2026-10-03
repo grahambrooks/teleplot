@@ -159,3 +159,33 @@ fn document_layers_fetch_raw_documents_newest_first() {
     assert!(filters.contains(&json!({ "exists": { "field": "cycle_time_hours" } })));
     assert!(body.get("aggs").is_none());
 }
+
+#[test]
+fn ordering_terms_by_a_formula_falls_back_to_document_count() {
+    let mut d = native();
+    let PanelContent::Chart(chart) = &mut d
+        .panels
+        .iter_mut()
+        .find(|p| p.id == "teams")
+        .unwrap()
+        .content
+    else {
+        panic!()
+    };
+    if let teleplot::model::Operation::Terms { order, .. } = &mut chart.layers[0].columns[0].op {
+        *order = teleplot::model::TermsOrder::Column {
+            column: "cfr".into(),
+            ascending: false,
+        };
+    }
+    let s = searches(&d, &HashMap::new());
+    let terms = &s["teams"][0]["body"]["aggs"]["root"]["aggs"]["b0"]["terms"];
+    assert_eq!(terms["order"], json!({ "_count": "desc" }), "{terms}");
+    let problems = teleplot::lint::check(&d, None);
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.path.ends_with(".order") && p.message.contains("document count")),
+        "{problems:?}"
+    );
+}

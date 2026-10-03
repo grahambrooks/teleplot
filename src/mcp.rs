@@ -13,9 +13,9 @@ use std::sync::Arc;
 
 use rmcp::handler::server::wrapper::{Json, Parameters};
 use rmcp::model::{
-    Implementation, ListResourcesResult, PaginatedRequestParams, ReadResourceRequestParams,
-    ReadResourceResponse, ReadResourceResult, Resource, ResourceContents, ServerCapabilities,
-    ServerConfig,
+    CacheScope, Implementation, ListResourcesResult, PaginatedRequestParams,
+    ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult, Resource,
+    ResourceContents, ServerCapabilities, ServerConfig,
 };
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer, ServerHandler, schemars, tool, tool_handler, tool_router};
@@ -137,7 +137,7 @@ pub struct FieldInfo {
     /// Whether terms/unique_count/controls can use it (not full text).
     pub aggregatable: bool,
     /// Most common values with document counts (keyword and boolean fields).
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub top_values: Vec<(String, u64)>,
 }
 
@@ -166,7 +166,7 @@ pub struct DashboardDetail {
     pub hash: String,
     pub panels: Vec<PanelSummary>,
     /// The whole dashboard, with format=full.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dashboard: Option<Value>,
 }
 
@@ -187,7 +187,7 @@ pub struct Validation {
     pub valid: bool,
     pub problems: Vec<Problem>,
     /// Set when fields could not be checked against Elasticsearch.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
 }
 
@@ -196,7 +196,7 @@ pub struct Preview {
     /// Errors stop the preview; fix them and try again.
     pub problems: Vec<Problem>,
     /// The range that was queried.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub range: Option<(String, String)>,
     pub panels: Vec<PanelPreview>,
 }
@@ -205,7 +205,7 @@ pub struct Preview {
 pub struct PanelPreview {
     pub id: String,
     pub title: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
     pub layers: Vec<LayerPreview>,
 }
@@ -218,7 +218,7 @@ pub struct LayerPreview {
     pub total_rows: usize,
     /// Per numeric column, over all rows.
     pub summary: Vec<ColumnSummary>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
 
@@ -236,11 +236,11 @@ pub struct SaveResult {
     pub saved: bool,
     /// Why not, when not saved: errors to fix, or a hash/ownership conflict.
     pub problems: Vec<Problem>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hash: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created: Option<bool>,
 }
 
@@ -763,9 +763,13 @@ impl ServerHandler for TeleplotMcp {
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, ErrorData> {
         Ok(ListResourcesResult::with_all_items(vec![
-            Resource::new(SCHEMA_URI, "Dashboard JSON Schema"),
-            Resource::new(DOCS_URI, "Dashboard format (docs/dashboards.md)"),
-        ]))
+            Resource::new(SCHEMA_URI, "Dashboard JSON Schema")
+                .with_mime_type("application/schema+json"),
+            Resource::new(DOCS_URI, "Dashboard format (docs/dashboards.md)")
+                .with_mime_type("text/markdown"),
+        ])
+        .with_ttl_ms(3_600_000)
+        .with_cache_scope(CacheScope::Public))
     }
 
     async fn read_resource(
@@ -785,7 +789,13 @@ impl ServerHandler for TeleplotMcp {
                 ));
             }
         };
-        Ok(ReadResourceResult::new(vec![ResourceContents::text(text, request.uri)]).into())
+        // The schema and docs are compiled in: fresh for the life of the server.
+        Ok(
+            ReadResourceResult::new(vec![ResourceContents::text(text, request.uri)])
+                .with_ttl_ms(3_600_000)
+                .with_cache_scope(CacheScope::Public)
+                .into(),
+        )
     }
 }
 

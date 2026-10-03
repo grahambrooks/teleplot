@@ -648,7 +648,11 @@ fn CategoryBars(xy: series::Xy, drill_field: Option<String>, ctx: PanelContext) 
                     let v = series.values[i]?;
                     let size = v / max * 100.0;
                     let dim = if horizontal { "width" } else { "height" };
-                    let style = format!("{dim}:{size:.2}%;background:{}", colors[s % colors.len()]);
+                    // With benchmark bands, a bar takes the colour of the band its value is in.
+                    let color = threshold_for(&xy.thresholds, v)
+                        .map(|(i, t)| threshold_color(t, i))
+                        .unwrap_or_else(|| colors[s % colors.len()].to_string());
+                    let style = format!("{dim}:{size:.2}%;background:{color}");
                     let title = format!(
                         "{}: {}",
                         series.label,

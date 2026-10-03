@@ -221,6 +221,20 @@ fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Probl
             if let Operation::Formula { expr, .. } = &column.op {
                 functions(expr, &at, problems);
             }
+            if let Operation::Terms {
+                order: crate::model::TermsOrder::Column { column: by, .. },
+                ..
+            } = &column.op
+                && layer.column(by).is_some_and(|c| !c.op.inputs().is_empty())
+            {
+                problems.push(Problem::warning(
+                    format!("{at}.order"),
+                    format!(
+                        "{by:?} is computed from other columns, so buckets are ordered by document count instead; \
+                         order by a plain metric (count, sum, median, …) to rank by value"
+                    ),
+                ));
+            }
             if let Some((name, need)) = needs(&column.op) {
                 field(fields, index, name, need, &format!("{at}.field"), problems);
             }

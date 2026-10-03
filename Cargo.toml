@@ -61,6 +61,7 @@ reqwest = { version = "0.13", features = ["json"], optional = true }
 [dev-dependencies]
 http-body-util = "0.1"
 insta = { version = "1", features = ["json", "yaml"] }
+jsonschema = { version = "0.58", default-features = false }
 rand = "0.10"
 rand_chacha = "0.10"
 rand_distr = "0.6"

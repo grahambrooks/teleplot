@@ -128,6 +128,22 @@ src/store.rs    # atomic save into dashboards/agents, history, hash checks
 - The saved dashboard renders in the browser with the parity numbers.
 - A deliberately broken request is caught by `validate_dashboard`, and the agent fixes it from the error message.
 
+### Acceptance results (2026-10-03)
+
+**Status: Part 1 is done.**
+
+| Run | Request | Tools used | Result |
+|---|---|---|---|
+| HTTP, first attempt | Change fail rate by team for last quarter, with benchmark bands | All seven | Saved and correct, but `preview` and `describe_index` failed the client's output-schema check (fields omitted when empty were declared required). The agent fell back to the shell. A table ordered by a formula column also failed at query time |
+| HTTP, after fixes (MCP tools only) | Same | list_indices, describe_index, get_dashboard, validate, preview ×2, save | Saved in 10 turns; per-team rates correct (checkout 3.1% … data 27.3%). One client error on `resources/read` (missing `ttlMs`), now fixed |
+| stdio (MCP tools only) | Director dashboard: weekly deployments by team, lead-time median within p25–p75, team table | All seven | Saved in 11 turns, zero tool errors; band chart, team control and drill-down table; observations match the data |
+
+Fixes that came out of these runs:
+- **Output schemas are honest:** optional fields are no longer declared required, and every MCP test now validates results against the tool's declared output schema.
+- **Ordering by a formula works:** terms ordered by a computed column fall back to document count, and lint warns about it.
+- **Resources carry cache hints,** as 2026-07-28 clients require.
+- **Categorical bars take benchmark band colours.**
+
 ## Part 2: feature gaps for technical users
 
 Teleplot already treats dashboards as code. The highest-value gaps are the

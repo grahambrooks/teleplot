@@ -660,6 +660,12 @@ fn terms_order(
             let Some(target) = layer.column(by) else {
                 return Ok(Some((json!({ "_count": "desc" }), None)));
             };
+            // Elasticsearch can only order buckets by an aggregation. Kibana
+            // orders by formulas and pipeline columns in the browser; here
+            // they fall back to document count (lint warns about it).
+            if !target.op.inputs().is_empty() {
+                return Ok(Some((json!({ "_count": dir(*ascending) }), None)));
+            }
             match (&target.op, &target.filter) {
                 (Operation::Count { field: None }, None) => {
                     (json!({ "_count": dir(*ascending) }), None)
