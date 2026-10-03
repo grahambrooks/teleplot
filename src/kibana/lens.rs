@@ -10,9 +10,10 @@ use super::objects::{
 };
 use super::{broken, out_of_scope, search, unparseable};
 use crate::model::{
-    Annotation, AnnotationEvent, Chart, ChartKind, Column, DataView, Encoding, Esql, Expr, Format,
-    FormatKind, Interval, Layer, LineStyle, NamedQuery, Operation, OverallFunction, PerUnit,
-    Placeholder, Range, ReferenceAxis, ReferenceFill, ReferenceLine, SeriesType, TermsOrder,
+    Annotation, AnnotationEvent, BadgeShow, Better, Chart, ChartKind, ColorByValue, ColorMode,
+    ColorStop, Column, ColumnStyle, DataView, Encoding, Esql, Expr, Format, FormatKind, Interval,
+    Layer, LineStyle, NamedQuery, Operation, OverallFunction, PerUnit, Placeholder, Range,
+    ReferenceAxis, ReferenceFill, ReferenceLine, SeriesType, Summary, TermsOrder, TrendBadge,
 };
 
 /// Converts Lens saved-object attributes. `refs` are the references visible
@@ -100,7 +101,26 @@ pub fn convert(export: &Export, attrs: &Value, refs: &[Reference]) -> Result<Cha
                 format!("data view for layer {layer_id} is not in this export"),
             )
         })?;
-        let columns = columns(source, &encoding).map_err(|e| unparseable(&kind_name, e))?;
+        let mut columns = columns(source, &encoding).map_err(|e| unparseable(&kind_name, e))?;
+        // Lens labels the secondary metric itself: `secondaryLabel`, or
+        // "Difference" when a trend badge compares it with the primary.
+        if let Encoding::Metric {
+            secondary: Some(id),
+            badge,
+            ..
+        } = &encoding
+        {
+            let label = match vis.get("secondaryLabel").and_then(Value::as_str) {
+                Some(label) => Some(label.to_string()),
+                None if badge.as_ref().is_some_and(|b| b.baseline.is_none()) => {
+                    Some("Difference".into())
+                }
+                None => None,
+            };
+            if let (Some(label), Some(c)) = (label, columns.iter_mut().find(|c| &c.id == id)) {
+                c.label = Some(label);
+            }
+        }
         layers.push(Layer {
             id: layer_id,
             data_view,
@@ -287,18 +307,36 @@ fn encodings(kind: ChartKind, vis: &Value) -> Result<Encodings, String> {
             out
         }
         ChartKind::Metric => {
-            if s(vis, "trendlineLayerId").is_some() {
-                warnings.push("Not shown: the metric's background trend line.".into());
-            }
-            vec![(
+            let mut layers = vec![(
                 layer_id(vis)?,
                 Encoding::Metric {
                     value: s(vis, "metricAccessor").ok_or("metric without metricAccessor")?,
                     secondary: s(vis, "secondaryMetricAccessor"),
                     max: s(vis, "maxAccessor"),
                     breakdown: s(vis, "breakdownByAccessor"),
+                    progress: bool_field(vis, "showBar") && s(vis, "maxAccessor").is_some(),
+                    progress_direction: match str_field(vis, "progressDirection") {
+                        Some("horizontal") => crate::model::ProgressDirection::Horizontal,
+                        _ => crate::model::ProgressDirection::Vertical,
+                    },
+                    badge: trend_badge(&vis["secondaryTrend"]),
                 },
-            )]
+            )];
+            // The background trend line is a layer of its own in Lens.
+            if let Some(trend) = s(vis, "trendlineLayerId") {
+                match (s(vis, "trendlineTimeAccessor"), s(vis, "trendlineMetricAccessor")) {
+                    (Some(x), Some(y)) => layers.push((
+                        trend,
+                        Encoding::Sparkline {
+                            x,
+                            y,
+                            by: s(vis, "trendlineBreakdownByAccessor"),
+                        },
+                    )),
+                    _ => warnings.push("Not shown: the metric's background trend line, which has no time or value.".into()),
+                }
+            }
+            layers
         }
         ChartKind::Pie | ChartKind::Donut => {
             let layer = vis["layers"].get(0).ok_or("pie without layers")?;
@@ -318,7 +356,21 @@ fn encodings(kind: ChartKind, vis: &Value) -> Result<Encodings, String> {
                 .filter(|c| !bool_field(c, "hidden"))
                 .filter_map(|c| s(c, "columnId"))
                 .collect();
-            vec![(layer_id(vis)?, Encoding::Table { columns })]
+            let styles = vis["columns"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|c| !bool_field(c, "hidden"))
+                .filter_map(column_style)
+                .collect();
+            vec![(
+                layer_id(vis)?,
+                Encoding::Table {
+                    columns,
+                    styles,
+                    sparkline: None,
+                },
+            )]
         }
         // Teleplot colours cells with its own sequential scale; a Lens
         // palette changes colours only, never which cells are drawn.
@@ -416,6 +468,97 @@ fn annotation_layer(
         out.push(annotation);
     }
     out
+}
+
+/// Lens 9.x's `secondaryTrend`: a dynamic trend becomes a badge. Its palette
+/// says which direction is good: `compare_to` is green when rising,
+/// `temperature` red when rising; `reversed` swaps them.
+fn trend_badge(trend: &Value) -> Option<TrendBadge> {
+    if str_field(trend, "type") != Some("dynamic") {
+        return None;
+    }
+    let reversed = bool_field(trend, "reversed");
+    let better = match (str_field(trend, "paletteId"), reversed) {
+        (Some("compare_to") | None, false) | (Some("temperature"), true) => Better::Up,
+        (Some("compare_to") | None, true) | (Some("temperature"), false) => Better::Down,
+        _ => Better::Neither,
+    };
+    Some(TrendBadge {
+        better,
+        baseline: number(&trend["baselineValue"]),
+        show: match str_field(trend, "visuals") {
+            Some("icon") => BadgeShow::Icon,
+            Some("value") => BadgeShow::Value,
+            _ => BadgeShow::Both,
+        },
+    })
+}
+
+/// A Lens datatable column's colour by value and summary row.
+fn column_style(c: &Value) -> Option<ColumnStyle> {
+    let column = str_field(c, "columnId")?.to_string();
+    let color = match str_field(c, "colorMode") {
+        Some(mode @ ("cell" | "text" | "badge")) => {
+            palette(&c["palette"]["params"]).map(|mut p| {
+                p.mode = match mode {
+                    "text" => ColorMode::Text,
+                    "badge" => ColorMode::Badge,
+                    _ => ColorMode::Cell,
+                };
+                p
+            })
+        }
+        _ => None,
+    };
+    let summary = match str_field(c, "summaryRow") {
+        Some("sum") => Some(Summary::Sum),
+        Some("avg") => Some(Summary::Avg),
+        Some("count") => Some(Summary::Count),
+        Some("min") => Some(Summary::Min),
+        Some("max") => Some(Summary::Max),
+        _ => None,
+    };
+    (color.is_some() || summary.is_some()).then(|| ColumnStyle {
+        column,
+        color,
+        summary,
+        summary_label: summary.and(str_field(c, "summaryLabel").map(String::from)),
+    })
+}
+
+/// Kibana's custom palette params: `colorStops` are where each colour
+/// starts (or `stops`, when there are none); `rangeType: percent` makes them
+/// shares of the column's range; `continuity` extends the first and last.
+fn palette(params: &Value) -> Option<ColorByValue> {
+    let stops = |key: &str| -> Vec<ColorStop> {
+        params[key]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|s| {
+                Some(ColorStop {
+                    from: number(&s["stop"])?,
+                    color: str_field(s, "color")?.to_string(),
+                })
+            })
+            .collect()
+    };
+    let mut from = stops("colorStops");
+    if from.is_empty() {
+        from = stops("stops");
+    }
+    if from.is_empty() {
+        return None;
+    }
+    let continuity = str_field(params, "continuity").unwrap_or("above");
+    Some(ColorByValue {
+        mode: ColorMode::Cell,
+        stops: from,
+        percent: str_field(params, "rangeType") == Some("percent"),
+        extend_below: matches!(continuity, "below" | "all"),
+        extend_above: matches!(continuity, "above" | "all"),
+        to: number(&params["rangeMax"]),
+    })
 }
 
 /// A Lens reference-line layer: one line per accessor, styled by its `yConfig`.

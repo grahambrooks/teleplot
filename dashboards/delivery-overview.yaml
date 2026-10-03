@@ -72,7 +72,16 @@ panels:
               text: "count(shift=previous) / (time_range() / 604800000)"
               expr: { call: divide, args: [n-prev, { call: divide, args: [range, 604800000.0] }] }
               format: { kind: number, decimals: 1 }
-          encoding: { as: metric, value: per-week, secondary: per-week-prev }
+            - { id: target, label: Target per week, op: static_value, value: 50 }
+          # A bar towards the target of 50 a week.
+          encoding: { as: metric, value: per-week, secondary: per-week-prev, max: target, progress: true }
+        # The background trend: deployments each week.
+        - id: weekly
+          data_view: { index: delivery-deployments, time_field: deployed_at }
+          columns:
+            - { id: week, op: date_histogram, field: deployed_at, interval: 1w }
+            - { id: n, op: count }
+          encoding: { as: sparkline, x: week, y: n }
 
   - id: lead-time
     title: Change lead time
@@ -96,12 +105,19 @@ panels:
                 - { label: Medium, from: 168, to: 720, color: "#FF9830" }
                 - { label: Low, from: 720, color: "#F2495C" }
             - id: median-prev
-              label: Previous period
+              label: Change on previous period
               op: median
               field: change_lead_time_hours
               time_shift: previous
               format: { kind: number, decimals: 1, suffix: " h" }
-          encoding: { as: metric, value: median, secondary: median-prev }
+          # A trend badge: lower lead time is better, so a fall is green.
+          encoding: { as: metric, value: median, secondary: median-prev, badge: { better: down } }
+        - id: weekly
+          data_view: { index: delivery-deployments, time_field: deployed_at }
+          columns:
+            - { id: week, op: date_histogram, field: deployed_at, interval: 1w }
+            - { id: median, op: median, field: change_lead_time_hours }
+          encoding: { as: sparkline, x: week, y: median }
 
   - id: change-fail-rate
     title: Change fail rate
@@ -368,7 +384,37 @@ panels:
               text: "count(kql='result : failure') / count()"
               expr: { call: divide, args: [failed, n] }
               format: { kind: percent, decimals: 1 }
-          encoding: { as: table, columns: [team, n, per-week, lead, cfr] }
+          encoding:
+            as: table
+            columns: [team, n, per-week, lead, cfr]
+            styles:
+              - { column: n, summary: sum, summary_label: Total }
+              - column: lead
+                summary: avg
+                # Coloured by the same bands as the lead-time tile.
+                color:
+                  mode: cell
+                  stops:
+                    - { from: 0, color: "#73BF69" }
+                    - { from: 24, color: "#5794F2" }
+                    - { from: 168, color: "#FF9830" }
+                    - { from: 720, color: "#F2495C" }
+              - column: cfr
+                color:
+                  mode: text
+                  stops:
+                    - { from: 0, color: "#73BF69" }
+                    - { from: 0.10, color: "#FF9830" }
+                    - { from: 0.15, color: "#F2495C" }
+            sparkline: { layer: weekly, label: Deployments per week }
+        # Each team's deployments per week, for the sparkline column.
+        - id: weekly
+          data_view: { index: delivery-deployments, time_field: deployed_at }
+          columns:
+            - { id: team, op: terms, fields: [team], size: 25 }
+            - { id: week, op: date_histogram, field: deployed_at, interval: 1w }
+            - { id: n, op: count }
+          encoding: { as: sparkline, x: week, y: n, by: team }
 
   # ---------------------------------------------------------------- ES|QL
   # A comparison the query DSL can't express in one search: each team's

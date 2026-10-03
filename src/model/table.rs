@@ -147,6 +147,8 @@ mod tests {
             ],
             encoding: Encoding::Table {
                 columns: vec!["x".into(), "team".into(), "n".into()],
+                styles: Vec::new(),
+                sparkline: None,
             },
             documents: None,
             esql: None,

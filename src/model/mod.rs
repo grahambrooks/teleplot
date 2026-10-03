@@ -363,6 +363,25 @@ pub enum Encoding {
         max: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         breakdown: Option<String>,
+        /// Draw a bar of the value against `max` (Kibana's progress bar).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        progress: bool,
+        /// `vertical` (up the tile's left edge, Kibana's default) or `horizontal`.
+        #[serde(default, skip_serializing_if = "is_default")]
+        progress_direction: ProgressDirection,
+        /// Show `secondary` as a trend badge (Kibana 9.x "secondary trend").
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        badge: Option<TrendBadge>,
+    },
+    /// A small line over time, drawn inside another layer's tiles or table
+    /// rows rather than on its own: behind a metric tile (matched by
+    /// `by` to the tile's breakdown), or in a table's sparkline column
+    /// (matched to each row's first column).
+    Sparkline {
+        x: String,
+        y: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        by: Option<String>,
     },
     Pie {
         groups: Vec<String>,
@@ -370,6 +389,12 @@ pub enum Encoding {
     },
     Table {
         columns: Vec<String>,
+        /// Per-column colour by value and summary row.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        styles: Vec<ColumnStyle>,
+        /// A last column of sparklines, from this chart's sparkline layer.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sparkline: Option<TableSparkline>,
     },
     /// A middle line with a shaded band between two other columns, e.g.
     /// median cycle time inside its 25th–75th percentile band.
@@ -405,9 +430,189 @@ pub enum Encoding {
     },
     /// Lines at fixed values across an XY chart, e.g. a target or a
     /// percentile. Each value is one of this layer's unbucketed columns.
-    ReferenceLines {
-        lines: Vec<ReferenceLine>,
-    },
+    ReferenceLines { lines: Vec<ReferenceLine> },
+}
+
+/// How a metric's secondary value is shown as a trend: an arrow (and the
+/// difference) coloured by whether the change is good.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+pub struct TrendBadge {
+    /// Which direction is good: `up` (green when rising), `down` (green
+    /// when falling, e.g. lead time) or `neither` (no colour).
+    #[serde(default)]
+    pub better: Better,
+    /// A fixed number to compare the secondary value with. Without one,
+    /// it is compared with the primary value, and the badge shows primary
+    /// − secondary, signed (e.g. this period against the previous one).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub baseline: Option<f64>,
+    /// `icon`, `value` or `both` (the default).
+    #[serde(default)]
+    pub show: BadgeShow,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum Better {
+    #[default]
+    Up,
+    Down,
+    Neither,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum ProgressDirection {
+    #[default]
+    Vertical,
+    Horizontal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum BadgeShow {
+    Icon,
+    Value,
+    #[default]
+    Both,
+}
+
+/// A table column's colour by value and summary row.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+pub struct ColumnStyle {
+    pub column: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<ColorByValue>,
+    /// A summary row value: `sum`, `avg`, `count`, `min` or `max` of the
+    /// column's non-empty values.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<Summary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary_label: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum Summary {
+    Sum,
+    Avg,
+    Count,
+    Min,
+    Max,
+}
+
+/// Colour cells by their value: each stop's colour applies from its `from`
+/// up to the next stop (Kibana's palette stops).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+pub struct ColorByValue {
+    /// `cell` (background), `text` or `badge`.
+    #[serde(default)]
+    pub mode: ColorMode,
+    pub stops: Vec<ColorStop>,
+    /// Stops are percentages of the column's range (min to max over the
+    /// rows) rather than values.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub percent: bool,
+    /// Values below the first stop take its colour (otherwise none).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub extend_below: bool,
+    /// Values above the last band's end (`to`) take the last colour.
+    #[serde(default = "yes", skip_serializing_if = "Clone::clone")]
+    pub extend_above: bool,
+    /// Where the last band ends, when `extend_above` is false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+pub struct ColorStop {
+    pub from: f64,
+    pub color: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum ColorMode {
+    #[default]
+    Cell,
+    Text,
+    Badge,
+}
+
+impl ColorByValue {
+    /// The colour for `v`, given the column's range (for percent stops).
+    pub fn color_for(&self, v: f64, min: f64, max: f64) -> Option<&str> {
+        let at = |stop: f64| {
+            if self.percent {
+                min + (max - min) * stop / 100.0
+            } else {
+                stop
+            }
+        };
+        let first = self.stops.first()?;
+        if v < at(first.from) {
+            return self.extend_below.then_some(first.color.as_str());
+        }
+        if !self.extend_above
+            && let Some(to) = self.to
+            && v > at(to)
+        {
+            return None;
+        }
+        self.stops
+            .iter()
+            .rev()
+            .find(|s| v >= at(s.from))
+            .map(|s| s.color.as_str())
+    }
+}
+
+impl Summary {
+    /// Kibana's summary row: over the non-empty values; `None` when there
+    /// are none (and for min/max/avg of nothing).
+    pub fn of(self, values: &[f64]) -> Option<f64> {
+        if values.is_empty() {
+            return (self == Summary::Count).then_some(0.0);
+        }
+        let sum: f64 = values.iter().sum();
+        Some(match self {
+            Summary::Sum => sum,
+            Summary::Avg => sum / values.len() as f64,
+            Summary::Count => values.len() as f64,
+            Summary::Min => values.iter().copied().fold(f64::INFINITY, f64::min),
+            Summary::Max => values.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+        })
+    }
+
+    /// Kibana's default label.
+    pub fn label(self) -> &'static str {
+        match self {
+            Summary::Sum => "Sum",
+            Summary::Avg => "Average",
+            Summary::Count => "Value count",
+            Summary::Min => "Minimum",
+            Summary::Max => "Maximum",
+        }
+    }
+}
+
+/// A sparkline column in a table.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+pub struct TableSparkline {
+    /// The chart's sparkline layer.
+    pub layer: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -538,6 +743,7 @@ impl Encoding {
                 secondary,
                 max,
                 breakdown,
+                ..
             } => {
                 ids.push(value);
                 ids.extend(
@@ -550,7 +756,11 @@ impl Encoding {
             Encoding::Pie { groups, values } => {
                 ids.extend(groups.iter().chain(values).map(String::as_str))
             }
-            Encoding::Table { columns } => ids.extend(columns.iter().map(String::as_str)),
+            Encoding::Table { columns, .. } => ids.extend(columns.iter().map(String::as_str)),
+            Encoding::Sparkline { x, y, by } => {
+                ids.extend([x.as_str(), y.as_str()]);
+                ids.extend(by.as_deref());
+            }
             Encoding::Band { x, low, mid, high } => {
                 ids.extend([x, low, mid, high].map(String::as_str))
             }
@@ -971,5 +1181,72 @@ mod tests {
         assert!(log_bounds(0.0, 10.0, 3).is_empty());
         assert!(log_bounds(5.0, 5.0, 3).is_empty());
         assert!(log_bounds(-1.0, 10.0, 3).is_empty());
+    }
+
+    use super::{ColorByValue, ColorMode, ColorStop, Summary};
+
+    fn palette(percent: bool, below: bool, above: bool, to: Option<f64>) -> ColorByValue {
+        ColorByValue {
+            mode: ColorMode::Cell,
+            stops: vec![
+                ColorStop {
+                    from: 24.0,
+                    color: "green".into(),
+                },
+                ColorStop {
+                    from: 168.0,
+                    color: "orange".into(),
+                },
+                ColorStop {
+                    from: 720.0,
+                    color: "red".into(),
+                },
+            ],
+            percent,
+            extend_below: below,
+            extend_above: above,
+            to,
+        }
+    }
+
+    #[test]
+    fn colours_by_value_follow_the_stops() {
+        let p = palette(false, false, true, None);
+        assert_eq!(p.color_for(10.0, 0.0, 0.0), None, "below the first stop");
+        assert_eq!(p.color_for(24.0, 0.0, 0.0), Some("green"));
+        assert_eq!(p.color_for(500.0, 0.0, 0.0), Some("orange"));
+        assert_eq!(p.color_for(5000.0, 0.0, 0.0), Some("red"));
+        let p = palette(false, true, false, Some(1000.0));
+        assert_eq!(p.color_for(10.0, 0.0, 0.0), Some("green"), "extends below");
+        assert_eq!(p.color_for(5000.0, 0.0, 0.0), None, "past the end");
+    }
+
+    #[test]
+    fn percent_stops_are_shares_of_the_columns_range() {
+        let mut p = palette(true, false, true, None);
+        p.stops = vec![
+            ColorStop {
+                from: 0.0,
+                color: "low".into(),
+            },
+            ColorStop {
+                from: 50.0,
+                color: "high".into(),
+            },
+        ];
+        assert_eq!(p.color_for(10.0, 0.0, 200.0), Some("low"));
+        assert_eq!(p.color_for(100.0, 0.0, 200.0), Some("high"), "50% of 0–200");
+    }
+
+    #[test]
+    fn summaries_cover_the_non_empty_values() {
+        let values = [3.0, 1.0, 2.0];
+        assert_eq!(Summary::Sum.of(&values), Some(6.0));
+        assert_eq!(Summary::Avg.of(&values), Some(2.0));
+        assert_eq!(Summary::Count.of(&values), Some(3.0));
+        assert_eq!(Summary::Min.of(&values), Some(1.0));
+        assert_eq!(Summary::Max.of(&values), Some(3.0));
+        assert_eq!(Summary::Avg.of(&[]), None);
+        assert_eq!(Summary::Count.of(&[]), Some(0.0));
     }
 }

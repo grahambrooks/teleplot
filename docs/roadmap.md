@@ -5,7 +5,7 @@ The research and rationale stay in the source plans:
 
 - [`mvp-plan.md`](mvp-plan.md): M0–M5 and M6 parts 1–2 (export, performance) are done.
 - [`mcp-plan.md`](mcp-plan.md): Part 1 (MCP endpoint) and gaps 1–6 (lint/schema, inspector and CSV, annotations, ES|QL panels, chained and ad-hoc variables, BubbleUp) are done.
-- [`charting-plan.md`](charting-plan.md): A1 (reference lines), A2 (`timeScale` → `per`), A5 (heatmap) and B1–B3 (the distribution charts) are done.
+- [`charting-plan.md`](charting-plan.md): A1 (reference lines), A2 (`timeScale` → `per`), A3 (metric chart), A5 (heatmap), A8 (datatable) and B1–B3 (the distribution charts) are done.
 
 Items carry their source IDs (`mcp gap 2`, `charting A1`). A phase starts once
 the one before it is done. Items inside a phase can go in parallel. Every item
@@ -70,10 +70,16 @@ also follows the [verification rules](#verification-rules) below.
   - **Chained controls.** Controls chain left to right, as Kibana's hierarchical chaining does: each control's options honour only the controls before it, and changing one clears the ones after it. `chain_controls: false`, or Kibana's `chainingSystem: NONE`, turns it off.
   - **Ad-hoc filters.** **+ Filter** adds "field is (not) value" pills, kept in the URL, with values suggested under the other filters. A pill applies only to indexes that have its field. Fields about people are never offered or applied: no per-engineer views.
 
-## Phase 6: the sparkline family
+## Phase 6: the sparkline family (done 2026-10-03)
 
 - **`charting A3`: metric chart, 9.x parity.** Background trend, progress bar to `max`, trend badge.
 - **`charting A8`: datatable.** Colour by value, summary row, sparkline cells.
+- *Result:*
+  - **Sparkline layers.** A `sparkline` layer encoding (date `x`, value `y`, optional `by`) is drawn inside another layer's tiles or rows, not on its own. Lens's separate trend-line layer converts to it. Sparklines are small inline SVG, not uPlot instances: they're static and there's one per tile or row.
+  - **Metric tiles.** A background trend; `progress: true` for a bar to `max` (vertical by default, as in Kibana; `progress_direction`); and a 9.x trend `badge`. The badge follows Kibana's rules: primary − secondary when comparing with the primary, ↑/↓/=, and green or red by `better: up | down | neither`. It is labelled "Difference" when Lens would be. Lens `trendlineLayerId`, `showBar`/`progressDirection` and `secondaryTrend` convert, replacing the "trend line not shown" warning.
+  - **Tables.** Per-column `styles` for colour by value (Kibana palette stops, number or percent, cell/text/badge; text contrast chosen by WCAG) and a summary row (sum/avg/count/min/max over non-empty values, as Kibana computes it). A `sparkline` column from a sparkline layer keyed by the row's first column. Lens `colorMode` + palette and `summaryRow`/`summaryLabel` convert.
+  - **Fixtures.** Three panels exported from Kibana 8.19 and 9.5: a lead-time metric with trend line and "Difference" badge, a deployments metric with a progress bar to a target, and a datatable coloured by DORA band with a total and average. Parity tests check Kibana's 20.6 h and 0.9 h, 1,004 of 1,200, the total and average, and every cell's colour. The sample data's datatable palettes now convert too.
+  - **Reference dashboard.** The deployment-frequency tile has a trend and a progress bar to 50 a week. The lead-time tile has a trend and a badge. The team table is coloured by band, has a total, and has a deployments-per-week sparkline for each team.
 
 ## Phase 7: remaining parity and polish
 

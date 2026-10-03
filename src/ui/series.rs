@@ -386,10 +386,152 @@ pub fn reference_lines(chart: &Chart, data: &PanelData, series: &[XySeries]) -> 
 
 /// The layer that decides how a chart is drawn: the first that draws data.
 pub fn main_layer(chart: &Chart) -> Option<&Layer> {
-    chart
-        .layers
+    chart.layers.iter().find(|l| draws_itself(l))
+}
+
+/// Reference lines and sparklines are drawn inside another layer's chart.
+fn draws_itself(layer: &Layer) -> bool {
+    !matches!(
+        layer.encoding,
+        Encoding::ReferenceLines { .. } | Encoding::Sparkline { .. }
+    )
+}
+
+/// A chart's sparkline points, `(time, value)` oldest first, by the value
+/// of the layer's `by` column (`""` when it has none). Empty when the chart
+/// has no sparkline layer.
+pub fn sparklines(
+    chart: &Chart,
+    data: &PanelData,
+) -> std::collections::HashMap<String, Vec<(f64, f64)>> {
+    let mut out: std::collections::HashMap<String, Vec<(f64, f64)>> = Default::default();
+    for (layer, d) in chart.layers.iter().zip(&data.layers) {
+        let Encoding::Sparkline { x, y, by } = &layer.encoding else {
+            continue;
+        };
+        let (Some(xs), Some(ys)) = (d.series(x), d.series(y)) else {
+            continue;
+        };
+        let keys = by.as_deref().and_then(|b| d.series(b));
+        for row in 0..d.rows {
+            let (Some(t), Some(v)) = (xs.values[row].number(), ys.values[row].number()) else {
+                continue;
+            };
+            let key = keys.map_or(String::new(), |k| cell_text(&k.values[row]));
+            out.entry(key).or_default().push((t, v));
+        }
+    }
+    for points in out.values_mut() {
+        points.sort_by(|a, b| a.0.total_cmp(&b.0));
+    }
+    out
+}
+
+/// How a trend badge reads: the arrow, the text, and whether the change is good.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BadgeView {
+    pub arrow: Option<&'static str>,
+    pub text: Option<String>,
+    pub tone: Tone,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tone {
+    Good,
+    Bad,
+    Flat,
+}
+
+/// Kibana's secondary trend: the change is secondary − baseline, or, when
+/// compared with the primary value, primary − secondary (shown signed). Its
+/// sign picks the arrow; `better` says whether that direction is good.
+pub fn trend_badge(
+    badge: &crate::model::TrendBadge,
+    primary: Option<f64>,
+    secondary: Option<f64>,
+    format: Option<&Format>,
+) -> BadgeView {
+    use crate::model::{BadgeShow, Better};
+    let to_primary = badge.baseline.is_none();
+    let delta = match (to_primary, primary, secondary, badge.baseline) {
+        (true, Some(p), Some(s), _) => p - s,
+        (false, _, Some(s), Some(b)) => s - b,
+        _ => f64::NAN,
+    };
+    let (arrow, tone) = if delta.is_nan() {
+        (None, Tone::Flat)
+    } else if delta == 0.0 {
+        (Some("="), Tone::Flat)
+    } else {
+        let up = delta > 0.0;
+        let tone = match (badge.better, up) {
+            (Better::Neither, _) => Tone::Flat,
+            (Better::Up, true) | (Better::Down, false) => Tone::Good,
+            _ => Tone::Bad,
+        };
+        (Some(if up { "↑" } else { "↓" }), tone)
+    };
+    let text = match badge.show {
+        BadgeShow::Icon => None,
+        _ if delta.is_nan() && to_primary => Some("N/A".to_string()),
+        _ if to_primary => {
+            let shown = crate::ui::format::value(delta.abs(), format);
+            Some(format!("{}{shown}", if delta < 0.0 { "−" } else { "+" }))
+        }
+        _ => secondary.map(|s| crate::ui::format::value(s, format)),
+    };
+    BadgeView {
+        arrow: (badge.show != BadgeShow::Value).then_some(arrow).flatten(),
+        text,
+        tone,
+    }
+}
+
+/// An SVG path for a sparkline in a `width` × `height` box: the line, or
+/// the area under it when `area` is set. `None` with fewer than two points.
+pub fn sparkline_path(
+    points: &[(f64, f64)],
+    width: f64,
+    height: f64,
+    area: bool,
+) -> Option<String> {
+    if points.len() < 2 {
+        return None;
+    }
+    let (t0, t1) = (points[0].0, points[points.len() - 1].0);
+    let lo = points
         .iter()
-        .find(|l| !matches!(l.encoding, Encoding::ReferenceLines { .. }))
+        .map(|p| p.1)
+        .fold(f64::INFINITY, f64::min)
+        .min(0.0);
+    let hi = points.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max);
+    let x = |t: f64| {
+        if t1 > t0 {
+            (t - t0) / (t1 - t0) * width
+        } else {
+            0.0
+        }
+    };
+    let y = |v: f64| {
+        if hi > lo {
+            height - (v - lo) / (hi - lo) * height
+        } else {
+            height / 2.0
+        }
+    };
+    let mut d = String::new();
+    for (i, (t, v)) in points.iter().enumerate() {
+        d.push_str(&format!(
+            "{}{:.2},{:.2} ",
+            if i == 0 { "M" } else { "L" },
+            x(*t),
+            y(*v)
+        ));
+    }
+    if area {
+        d.push_str(&format!("L{width:.2},{height:.2} L0,{height:.2} Z"));
+    }
+    Some(d.trim_end().to_string())
 }
 
 fn label(column: Option<&Column>, fallback: &str) -> String {
@@ -796,7 +938,7 @@ fn main_layer_data<'a>(
         .layers
         .iter()
         .zip(&data.layers)
-        .find(|(l, _)| !matches!(l.encoding, Encoding::ReferenceLines { .. }))
+        .find(|(l, _)| draws_itself(l))
 }
 
 fn empty() -> Xy {
@@ -1115,5 +1257,63 @@ mod tests {
         let xy = xy(&c, &d, None);
         assert_eq!(xy.x, XAxis::Numeric(vec![1.0, 2.0, 50.0]));
         assert_eq!(xy.bin_ends, [2.0, 5.0, 100.0]);
+    }
+
+    #[test]
+    fn trend_badges_follow_kibana() {
+        use crate::model::{BadgeShow, Better, TrendBadge};
+        let lead_time = TrendBadge {
+            better: Better::Down,
+            baseline: None,
+            show: BadgeShow::Both,
+        };
+        // Compared with the primary: primary − secondary, signed. Lead time
+        // fell from 24 to 20: down, which is good for lead time.
+        let b = trend_badge(&lead_time, Some(20.0), Some(24.0), None);
+        assert_eq!(
+            (b.arrow, b.text.as_deref(), b.tone),
+            (Some("↓"), Some("−4"), Tone::Good)
+        );
+        let b = trend_badge(&lead_time, Some(30.0), Some(24.0), None);
+        assert_eq!((b.arrow, b.tone), (Some("↑"), Tone::Bad));
+        let b = trend_badge(&lead_time, Some(24.0), Some(24.0), None);
+        assert_eq!((b.arrow, b.tone), (Some("="), Tone::Flat));
+        let b = trend_badge(&lead_time, Some(24.0), None, None);
+        assert_eq!((b.arrow, b.text.as_deref()), (None, Some("N/A")));
+        // Against a fixed baseline the badge shows the secondary value itself.
+        let target = TrendBadge {
+            better: Better::Up,
+            baseline: Some(10.0),
+            show: BadgeShow::Value,
+        };
+        let b = trend_badge(&target, Some(1.0), Some(12.0), None);
+        assert_eq!(
+            (b.arrow, b.text.as_deref(), b.tone),
+            (None, Some("12"), Tone::Good)
+        );
+    }
+
+    #[test]
+    fn sparklines_group_by_key_and_scale_into_the_box() {
+        let mut c = chart(true);
+        c.kind = crate::model::ChartKind::Metric;
+        c.layers[0].encoding = Encoding::Sparkline {
+            x: "x".into(),
+            y: "y".into(),
+            by: Some("s".into()),
+        };
+        let d = data(vec![
+            ("s", vec![T("a".into()), T("a".into()), T("b".into())]),
+            ("x", vec![N(2.0), N(1.0), N(1.0)]),
+            ("y", vec![N(10.0), N(5.0), N(7.0)]),
+        ]);
+        let lines = sparklines(&c, &d);
+        assert_eq!(lines["a"], [(1.0, 5.0), (2.0, 10.0)], "oldest first");
+        assert_eq!(lines["b"], [(1.0, 7.0)]);
+        assert_eq!(
+            sparkline_path(&lines["a"], 100.0, 30.0, false).unwrap(),
+            "M0.00,15.00 L100.00,0.00"
+        );
+        assert_eq!(sparkline_path(&lines["b"], 100.0, 30.0, false), None);
     }
 }

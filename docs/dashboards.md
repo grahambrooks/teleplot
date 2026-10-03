@@ -58,9 +58,10 @@ The `encoding` (`as:`) says how columns are drawn:
 | `as` | Fields |
 |---|---|
 | `xy` | `series` (line, area, bar, …, `bar_percentage_stacked`), `x`, `y: [...]`, `split` |
-| `metric` | `value`, `secondary`, `breakdown` |
+| `metric` | `value`, `secondary`, `breakdown`, `max`, `progress`, `badge` (below) |
 | `pie` | `groups`, `values` |
-| `table` | `columns` |
+| `table` | `columns`, `styles`, `sparkline` (below) |
+| `sparkline` | `x` (a date histogram), `y`, `by`: a small line drawn inside the chart's metric tiles or table rows |
 | `band` | `x`, `low`, `mid`, `high`: a line inside a shaded band, e.g. median within p25–p75 |
 | `scatter` | `x`, `y`, `split`, `trend`, `log_scale`, `percentiles`: needs a document layer |
 | `heatmap` | `x`, `y`, `value`: cells coloured by `value` (for `kind: heatmap`) |
@@ -269,6 +270,65 @@ With `min_samples` set:
 Clicking a value of a field that has a control (a table row, a bar, a pie
 slice) selects it in that control. This is how drill-down works: from org to
 team to repo, using `group`, `team` and `repo` controls.
+
+### Metric tiles: trend, progress and badge
+
+A metric tile can show three more things, as Kibana 9.x's metric chart does:
+
+```yaml
+layers:
+  - id: lead
+    columns:
+      - { id: median, op: median, field: change_lead_time_hours }
+      - { id: median-prev, op: median, field: change_lead_time_hours, time_shift: previous }
+      - { id: target, op: static_value, value: 24 }
+    encoding:
+      as: metric
+      value: median
+      secondary: median-prev
+      max: target
+      progress: true              # a bar of the value against max
+      badge: { better: down }     # the secondary as a trend badge
+  - id: weekly                    # the background trend line
+    columns:
+      - { id: week, op: date_histogram, field: deployed_at, interval: 1w }
+      - { id: median, op: median, field: change_lead_time_hours }
+    encoding: { as: sparkline, x: week, y: median }
+```
+
+- **Background trend:** a `sparkline` layer in the same chart, drawn behind the tile. With a `breakdown`, give the sparkline the same column as `by` and each tile gets its own line.
+- **Progress bar:** `progress: true` draws the value as a share of `max`.
+- **Trend badge.** The badge compares the secondary value with the primary (or with a fixed `baseline`).
+  - **Against the primary:** it shows the difference, primary − secondary, signed. This suits "this period against the last".
+  - **Against a baseline:** it shows the secondary value itself.
+  - **Arrow and colour:** an arrow gives the direction. `better` says which direction is good: `up`, `down` (lead time, failure rates) or `neither`. Good is green and bad is red.
+  - **Contents:** `show` chooses `icon`, `value` or `both`.
+  - Without a badge, a time-shifted secondary shows its percentage change.
+- **Kibana:** Lens trend lines (`trendlineLayerId`), `showBar` and 9.x's `secondaryTrend` convert. The `compare_to` palette means up is good; `temperature` means up is bad; `reversed` swaps them.
+
+### Tables: colour by value, summary row and sparklines
+
+```yaml
+encoding:
+  as: table
+  columns: [team, n, lead]
+  styles:
+    - { column: n, summary: sum, summary_label: Total }
+    - column: lead
+      summary: avg
+      color:
+        mode: cell                # or text, or badge
+        stops:                    # each colour from its value up to the next
+          - { from: 0, color: "#73BF69" }
+          - { from: 24, color: "#5794F2" }
+          - { from: 168, color: "#FF9830" }
+  sparkline: { layer: weekly, label: Deployments per week }
+```
+
+- **Colour by value:** `percent: true` makes the stops percentages of the column's range. `extend_below` colours values under the first stop, and `extend_above: false` with `to` stops colouring past an end.
+- **Summary row:** `sum`, `avg`, `count`, `min` or `max` of the column's non-empty values, as Kibana computes it (a count is left unformatted).
+- **Sparkline column:** a last column of small lines, from a `sparkline` layer whose `by` matches the table's first column (for example each team's deployments per week). Kibana's datatable has no sparklines; Grafana's has.
+- **Kibana:** Lens datatable columns' `colorMode` with a custom palette, and `summaryRow` with `summaryLabel`, convert.
 
 ### Chained controls
 

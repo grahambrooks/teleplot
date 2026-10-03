@@ -348,6 +348,37 @@ impl Dashboard {
             }));
     }
 
+    /// Adds a background trend line to the Lens metric panel added last:
+    /// a linked layer with a date histogram and the metric, as Lens makes
+    /// when "trend line" is switched on.
+    fn trendline(&mut self, index: &str, time: (&str, Value), metric: (&str, Value)) {
+        let layer = format!("trend-{index}");
+        let panel = self.panels.last_mut().expect("a panel");
+        let attributes = &mut panel["embeddableConfig"]["attributes"];
+        let data_view = attributes["references"][0]["id"].clone();
+        let name = format!("indexpattern-datasource-layer-{layer}");
+        attributes["references"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({ "type": "index-pattern", "id": data_view, "name": name }));
+        self.references.push(json!({
+            "type": "index-pattern", "id": data_view, "name": format!("{index}:{name}")
+        }));
+        let state = &mut attributes["state"];
+        let main = state["visualization"]["layerId"].clone();
+        state["datasourceStates"]["formBased"]["layers"][&layer] = json!({
+            "linkToLayers": [main],
+            "columns": { time.0: time.1, metric.0: metric.1 },
+            "columnOrder": [time.0, metric.0],
+            "incompleteColumns": {}, "sampling": 1
+        });
+        let vis = &mut state["visualization"];
+        vis["trendlineLayerId"] = json!(layer);
+        vis["trendlineLayerType"] = json!("metricTrendline");
+        vis["trendlineTimeAccessor"] = json!(time.0);
+        vis["trendlineMetricAccessor"] = json!(metric.0);
+    }
+
     /// A by-value Lens ES|QL panel over `index_pattern` (an ad hoc data view
     /// with `time_field`). `columns` are `(column id, result column, type,
     /// format)`; the visualization refers to the column ids.
@@ -1031,6 +1062,104 @@ fn delivery_overview() -> Value {
             ("merged", "merged", "number", None),
         ],
         xy("layer-esql-weekly", "bar", "week", &["merged"], None),
+    );
+
+    // The metric chart, Kibana 9.x style: a background trend line, a trend
+    // badge against four weeks earlier (lower lead time is better), and a
+    // progress bar to a target.
+    let lead = || {
+        with_format(
+            metric("median", "change_lead_time_hours", "Median lead time"),
+            hours_format(),
+        )
+    };
+    let mut vis = metric_vis("layer-trend-lead", "tl-m", Some("tl-prev"));
+    vis["secondaryTrend"] = json!({
+        "type": "dynamic", "visuals": "both", "paletteId": "compare_to",
+        "reversed": true, "baselineValue": "primary"
+    });
+    d.lens(
+        "trend-lead",
+        Grid(24, 101, 12, 10),
+        "Lead time, with its trend",
+        "lnsMetric",
+        DV_DEPLOYS,
+        vec![
+            col("tl-m", lead()),
+            col(
+                "tl-prev",
+                with_time_shift(
+                    with_format(
+                        metric("median", "change_lead_time_hours", "4 weeks earlier"),
+                        hours_format(),
+                    ),
+                    "4w",
+                ),
+            ),
+        ],
+        vis,
+        "is_rework : false",
+    );
+    d.trendline(
+        "trend-lead",
+        ("tl-t", date_histogram("deployed_at", "1w")),
+        ("tl-tm", lead()),
+    );
+
+    let mut vis = metric_vis("layer-target-deploys", "td-n", None);
+    vis["maxAccessor"] = json!("td-max");
+    vis["showBar"] = json!(true);
+    d.lens(
+        "target-deploys",
+        Grid(36, 101, 12, 10),
+        "Deployments against the half-year target",
+        "lnsMetric",
+        DV_DEPLOYS,
+        vec![
+            col("td-n", count("Deployments")),
+            col("td-max", static_value(1200.0, "Target")),
+        ],
+        vis,
+        "is_rework : false",
+    );
+
+    // The datatable: lead time coloured by its band, and a summary row.
+    let palette = json!({
+        "type": "palette", "name": "custom",
+        "params": {
+            "name": "custom", "reverse": false, "rangeType": "number",
+            "rangeMin": 0, "rangeMax": null, "progression": "fixed",
+            "continuity": "above", "steps": 4, "maxSteps": 5,
+            "colorStops": [
+                { "color": "#54B399", "stop": 0 }, { "color": "#6092C0", "stop": 24 },
+                { "color": "#D6BF57", "stop": 168 }, { "color": "#E7664C", "stop": 720 }
+            ],
+            "stops": [
+                { "color": "#54B399", "stop": 24 }, { "color": "#6092C0", "stop": 168 },
+                { "color": "#D6BF57", "stop": 720 }, { "color": "#E7664C", "stop": 1000 }
+            ]
+        }
+    });
+    d.lens(
+        "styled-teams",
+        Grid(0, 108, 24, 14),
+        "Lead time by team, coloured, with totals",
+        "lnsDatatable",
+        DV_DEPLOYS,
+        vec![
+            col("st-team", terms("team", 10, "st-n")),
+            col("st-n", count("Deployments")),
+            col("st-lead", lead()),
+        ],
+        json!({
+            "layerId": "layer-styled-teams", "layerType": "data",
+            "columns": [
+                { "columnId": "st-team" },
+                { "columnId": "st-n", "summaryRow": "sum", "summaryLabel": "Total" },
+                { "columnId": "st-lead", "colorMode": "cell", "palette": palette, "summaryRow": "avg" }
+            ]
+        }),
+        "is_rework : false",
     );
 
     dashboard_object(

@@ -218,6 +218,84 @@ async fn dora_overview_matches_kibana() {
             .sum();
         assert_eq!(merged, 2724.0, "{version}");
 
+        // The metric chart, 9.x style. Kibana shows 20.6 h with a "Difference"
+        // badge of 0.9 h (up, red: lower lead time is better) and a weekly
+        // trend behind it; and 1,004 deployments against a target of 1,200.
+        let primary = number(&data, "trend-lead", "tl-m");
+        assert_shown(primary, 20.6, 1, "lead time");
+        assert_shown(
+            primary - number(&data, "trend-lead", "tl-prev"),
+            0.9,
+            1,
+            "difference",
+        );
+        let trend = &data["trend-lead"].layers[1];
+        assert_eq!(trend.error, None, "{version}");
+        assert!(trend.rows >= 26, "{version}: {} weeks", trend.rows);
+        assert_eq!(number(&data, "target-deploys", "td-n"), 1004.0, "{version}");
+        assert_eq!(
+            number(&data, "target-deploys", "td-max"),
+            1200.0,
+            "{version}"
+        );
+
+        // The datatable: a total and an average in the summary row, and lead
+        // time coloured by band, as Kibana shows them.
+        let converted = dashboards(&version);
+        let styled = converted
+            .iter()
+            .flat_map(|d| &d.panels)
+            .find(|p| p.id == "styled-teams")
+            .unwrap();
+        let PanelContent::Chart(table) = &styled.content else {
+            panic!("{version}: the styled table did not convert")
+        };
+        let teleplot::model::Encoding::Table { styles, .. } = &table.layers[0].encoding else {
+            panic!("{version}: not a table")
+        };
+        let values = |id: &str| -> Vec<f64> {
+            column(&data, "styled-teams", id)
+                .iter()
+                .filter_map(Cell::number)
+                .collect()
+        };
+        let style = |id: &str| styles.iter().find(|s| s.column == id).unwrap();
+        assert_eq!(
+            style("st-n").summary.unwrap().of(&values("st-n")),
+            Some(1004.0)
+        );
+        assert_eq!(
+            style("st-n").summary_label.as_deref(),
+            Some("Total"),
+            "{version}"
+        );
+        assert_shown(
+            style("st-lead")
+                .summary
+                .unwrap()
+                .of(&values("st-lead"))
+                .unwrap(),
+            201.3,
+            1,
+            "average lead time",
+        );
+        let colors = style("st-lead").color.as_ref().unwrap();
+        let shown: Vec<&str> = values("st-lead")
+            .iter()
+            .map(|v| colors.color_for(*v, 0.0, 0.0).unwrap())
+            .collect();
+        let teams = column(&data, "styled-teams", "st-team");
+        let expected = |team: &str| match team {
+            "checkout" => "#54B399",
+            "data" => "#D6BF57",
+            "experiments" => "#E7664C",
+            _ => "#6092C0",
+        };
+        for (team, color) in teams.iter().zip(&shown) {
+            let Cell::Text(team) = team else { panic!() };
+            assert_eq!(*color, expected(team), "{version} {team}");
+        }
+
         let annotations = &data["lead-target"].annotations;
         let labels: Vec<&str> = annotations.iter().map(|a| a.label.as_str()).collect();
         assert_eq!(

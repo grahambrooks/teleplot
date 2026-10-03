@@ -209,6 +209,7 @@ panels:
         as: metric
         value: c27bd77c-68e2-4d75-8fda-41c45d22f8d4
         max: ce816876-e92d-4b1a-bbb0-ed7637fc0eea
+        progress: true
 - id: '10'
   title: '[eCommerce] Orders'
   grid:
@@ -423,6 +424,16 @@ panels:
         - 826b2f39-b616-40b2-a222-972fdc1d7596
         - cfd45c47-fc41-430c-9e7a-b71dc0c916b0
         - bf51c1af-443e-49f4-a21f-54c87bfc5677
+        styles:
+        - column: bf51c1af-443e-49f4-a21f-54c87bfc5677
+          color:
+            mode: text
+            stops:
+            - from: -10000.0
+              color: '#D36086'
+            - from: 0.0
+              color: '#209280'
+            to: 0.0
 - id: d68e91dd-1539-48b0-9279-b43bba2054fe
   title: Top products this week
   grid:
@@ -1067,6 +1078,25 @@ panels:
         - 3dd24cb4-45ef-4dd8-b22a-d7b802cb6da0
         - 52f6f2e9-6242-4c44-be63-b799150e7e60
         - 7b9f3ece-9da3-4c27-b582-d3f8e8cc31d6
+        styles:
+        - column: 52f6f2e9-6242-4c44-be63-b799150e7e60
+          color:
+            mode: cell
+            stops:
+            - from: 0.2
+              color: '#f7e0b8'
+            - from: 0.6
+              color: '#e7664c'
+            to: 0.6
+        - column: 7b9f3ece-9da3-4c27-b582-d3f8e8cc31d6
+          color:
+            mode: cell
+            stops:
+            - from: 0.2
+              color: '#f7e0b8'
+            - from: 0.6
+              color: '#e7664c'
+            to: 0.6
 - id: 0cc42484-16f7-42ec-b38c-9bf8be69cde7
   title: '[Flights] Delay Type'
   grid:
@@ -1498,6 +1528,27 @@ panels:
         - a2760bc2-9a6e-46a1-8595-86f61573c7cf
         - 2c8bd8d5-35ff-4386-8d27-3ba882b13e43
         - defa6f97-b874-4556-8438-056fb437787b
+        styles:
+        - column: 2c8bd8d5-35ff-4386-8d27-3ba882b13e43
+          color:
+            mode: text
+            stops:
+            - from: 0.0
+              color: '#d23115'
+            - from: 1000.0
+              color: '#fcc400'
+            - from: 1500.0
+              color: '#68bc00'
+        - column: defa6f97-b874-4556-8438-056fb437787b
+          color:
+            mode: text
+            stops:
+            - from: 0.0
+              color: '#D23115'
+            - from: 10.0
+              color: '#FCC400'
+            - from: 25.0
+              color: '#68bc00'
 - id: cbca842c-b9fa-4523-9ce0-14e350866e33
   title: '[Logs] Bytes distribution'
   grid:
@@ -1655,3 +1706,22 @@ panels:
         - 791d5a5b-a7ba-4e9e-b533-51b33c7d7747
         - 611e3509-e834-4fdd-b573-44e959e95d27
         - 9f79ecca-123f-4098-a658-6b0e998da003
+        styles:
+        - column: 491285fd-0196-402c-9b7f-4660fdc1c22a
+          color:
+            mode: cell
+            stops:
+            - from: 0.05
+              color: '#fbddd6'
+            - from: 0.1
+              color: '#CC5642'
+            to: 0.1
+        - column: 07fc84ca-4147-4ba9-879e-d1b4e086e1da
+          color:
+            mode: cell
+            stops:
+            - from: 0.05
+              color: '#fbddd6'
+            - from: 0.1
+              color: '#cc5642'
+            to: 0.1

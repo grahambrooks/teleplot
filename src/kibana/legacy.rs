@@ -113,12 +113,17 @@ fn convert(export: &Export, vis: Vis, refs: &[Reference]) -> Result<PanelContent
         },
         ChartKind::Table => Encoding::Table {
             columns: splits.into_iter().chain(rows).chain(metrics).collect(),
+            styles: Vec::new(),
+            sparkline: None,
         },
         ChartKind::Metric => Encoding::Metric {
             value: metrics[0].clone(),
             secondary: None,
             max: None,
             breakdown: groups.into_iter().chain(rows).chain(splits).next(),
+            progress: false,
+            progress_direction: Default::default(),
+            badge: None,
         },
         ChartKind::Heatmap => {
             return Err(unparseable(kind_name, "legacy heatmaps are not converted"));

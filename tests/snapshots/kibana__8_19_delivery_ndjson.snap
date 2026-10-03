@@ -826,6 +826,167 @@ panels:
         x: week
         y:
         - merged
+- id: trend-lead
+  title: Lead time, with its trend
+  grid:
+    x: 24
+    y: 101
+    w: 12
+    h: 10
+  content:
+    type: chart
+    kind: metric
+    query:
+      language: kql
+      text: 'is_rework : false'
+    layers:
+    - id: layer-trend-lead
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      columns:
+      - id: tl-m
+        label: Median lead time
+        op: median
+        field: change_lead_time_hours
+        format:
+          kind: number
+          decimals: 1
+          suffix: ' h'
+      - id: tl-prev
+        label: Difference
+        op: median
+        field: change_lead_time_hours
+        time_shift: 4w
+        format:
+          kind: number
+          decimals: 1
+          suffix: ' h'
+      encoding:
+        as: metric
+        value: tl-m
+        secondary: tl-prev
+        badge:
+          better: down
+          show: both
+    - id: trend-trend-lead
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      columns:
+      - id: tl-t
+        label: deployed_at
+        op: date_histogram
+        field: deployed_at
+        interval: 1w
+        include_empty: true
+      - id: tl-tm
+        label: Median lead time
+        op: median
+        field: change_lead_time_hours
+        format:
+          kind: number
+          decimals: 1
+          suffix: ' h'
+      encoding:
+        as: sparkline
+        x: tl-t
+        y: tl-tm
+- id: target-deploys
+  title: Deployments against the half-year target
+  grid:
+    x: 36
+    y: 101
+    w: 12
+    h: 10
+  content:
+    type: chart
+    kind: metric
+    query:
+      language: kql
+      text: 'is_rework : false'
+    layers:
+    - id: layer-target-deploys
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      columns:
+      - id: td-n
+        label: Deployments
+        op: count
+      - id: td-max
+        label: Target
+        op: static_value
+        value: 1200.0
+      encoding:
+        as: metric
+        value: td-n
+        max: td-max
+        progress: true
+- id: styled-teams
+  title: Lead time by team, coloured, with totals
+  grid:
+    x: 0
+    y: 108
+    w: 24
+    h: 14
+  content:
+    type: chart
+    kind: table
+    query:
+      language: kql
+      text: 'is_rework : false'
+    layers:
+    - id: layer-styled-teams
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      columns:
+      - id: st-team
+        label: Top 10 values of team
+        op: terms
+        fields:
+        - team
+        size: 10
+        order:
+          by: column
+          column: st-n
+          ascending: false
+        other_bucket: true
+      - id: st-n
+        label: Deployments
+        op: count
+      - id: st-lead
+        label: Median lead time
+        op: median
+        field: change_lead_time_hours
+        format:
+          kind: number
+          decimals: 1
+          suffix: ' h'
+      encoding:
+        as: table
+        columns:
+        - st-team
+        - st-n
+        - st-lead
+        styles:
+        - column: st-n
+          summary: sum
+          summary_label: Total
+        - column: st-lead
+          color:
+            mode: cell
+            stops:
+            - from: 0.0
+              color: '#54B399'
+            - from: 24.0
+              color: '#6092C0'
+            - from: 168.0
+              color: '#D6BF57'
+            - from: 720.0
+              color: '#E7664C'
+          summary: avg
 ---
 id: teleplot-pr-flow
 title: '[Delivery] PR flow'

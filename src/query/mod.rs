@@ -1936,6 +1936,8 @@ mod tests {
                 },
                 encoding: Encoding::Table {
                     columns: columns.iter().map(|c| c.id.clone()).collect(),
+                    styles: Vec::new(),
+                    sparkline: None,
                 },
                 columns,
                 documents: None,

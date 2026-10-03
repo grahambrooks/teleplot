@@ -330,6 +330,7 @@ fn same_measure(a: &Column, b: &Column) -> bool {
 
 #[component]
 fn MetricTiles(chart: Chart, data: PanelData, ctx: PanelContext) -> impl IntoView {
+    let trends = series::sparklines(&chart, &data);
     let tiles: Vec<_> = chart
         .layers
         .iter()
@@ -338,8 +339,11 @@ fn MetricTiles(chart: Chart, data: PanelData, ctx: PanelContext) -> impl IntoVie
             let Encoding::Metric {
                 value,
                 secondary,
+                max,
                 breakdown,
-                ..
+                progress,
+                progress_direction,
+                badge,
             } = &layer.encoding
             else {
                 return None;
@@ -347,26 +351,45 @@ fn MetricTiles(chart: Chart, data: PanelData, ctx: PanelContext) -> impl IntoVie
             let value_col = layer.column(value)?;
             let secondary_col = secondary.as_deref().and_then(|s| layer.column(s));
             let min = ctx.min_samples;
+            let trends = &trends;
             Some((0..d.rows).map(move |row| {
-                let v = d
-                    .series(value)
-                    .and_then(|s| s.values.get(row).cloned())
-                    .unwrap_or(Cell::Null);
-                let label = breakdown
+                let cell = |id: &str| {
+                    d.series(id)
+                        .and_then(|s| s.values.get(row).cloned())
+                        .unwrap_or(Cell::Null)
+                };
+                let key = breakdown
                     .as_deref()
                     .and_then(|b| d.series(b))
-                    .map(|s| cell_text(&s.values[row]))
-                    .or_else(|| value_col.label.clone());
+                    .map(|s| cell_text(&s.values[row]));
+                let label = key.clone().or_else(|| value_col.label.clone());
                 let second = secondary_col.map(|col| {
-                    let s = d
-                        .series(&col.id)
-                        .and_then(|s| s.values.get(row).cloned())
-                        .unwrap_or(Cell::Null);
                     let comparable = shifted(layer, col) && same_measure(col, value_col);
-                    (col.clone(), s, comparable)
+                    (col.clone(), cell(&col.id), comparable)
                 });
-                let count = d.counts.get(row).copied();
-                metric_tile(label, &v, value_col, second, count, min)
+                // A breakdown's tiles each get their own trend; one tile, the only one.
+                let trend = match &key {
+                    Some(k) => trends.get(k),
+                    None => trends.get("").or_else(|| {
+                        (trends.len() == 1)
+                            .then(|| trends.values().next())
+                            .flatten()
+                    }),
+                };
+                metric_tile(Tile {
+                    label,
+                    value: cell(value),
+                    column: value_col,
+                    secondary: second,
+                    badge: badge.as_ref(),
+                    max: progress
+                        .then(|| max.as_deref().and_then(|m| cell(m).number()))
+                        .flatten(),
+                    vertical: *progress_direction == crate::model::ProgressDirection::Vertical,
+                    trend: trend.cloned(),
+                    count: d.counts.get(row).copied(),
+                    min_samples: min,
+                })
             }))
         })
         .flatten()
@@ -374,14 +397,27 @@ fn MetricTiles(chart: Chart, data: PanelData, ctx: PanelContext) -> impl IntoVie
     view! { <div class="metrics">{tiles}</div> }
 }
 
-fn metric_tile(
+struct Tile<'a> {
     label: Option<String>,
-    value: &Cell,
-    column: &Column,
+    value: Cell,
+    column: &'a Column,
+    /// The secondary column, its value, and whether it is the same measure
+    /// shifted in time (so a percentage change makes sense).
     secondary: Option<(Column, Cell, bool)>,
+    badge: Option<&'a crate::model::TrendBadge>,
+    /// Progress bar: the value against this.
+    max: Option<f64>,
+    /// The bar runs up the tile's left edge (else along its width).
+    vertical: bool,
+    /// Background trend: (time, value) points.
+    trend: Option<Vec<(f64, f64)>>,
     count: Option<f64>,
     min_samples: Option<u32>,
-) -> AnyView {
+}
+
+fn metric_tile(t: Tile) -> AnyView {
+    let value = &t.value;
+    let column = t.column;
     let main = match value {
         Cell::Number(n) => format::value(*n, column.display_format().as_ref()),
         other => cell_text(other),
@@ -389,13 +425,35 @@ fn metric_tile(
     let band = value
         .number()
         .and_then(|v| threshold_for(&column.thresholds, v))
-        .map(|(i, t)| {
-            let style = format!("background:{}", threshold_color(t, i));
-            view! { <span class="badge" style=style>{t.label.clone()}</span> }
+        .map(|(i, th)| {
+            let style = format!("background:{}", threshold_color(th, i));
+            view! { <span class="badge" style=style>{th.label.clone()}</span> }
         });
-    let compare = secondary.map(|(col, cell, comparable)| {
+    let compare = t.secondary.map(|(col, cell, comparable)| {
+        let format = col.display_format();
+        // Kibana 9.x's trend badge, or Teleplot's own change against a shifted period.
+        if let Some(badge) = t.badge {
+            let b = series::trend_badge(badge, value.number(), cell.number(), format.as_ref());
+            let class = match b.tone {
+                series::Tone::Good => "trend-badge good",
+                series::Tone::Bad => "trend-badge bad",
+                series::Tone::Flat => "trend-badge flat",
+            };
+            let text = format!(
+                "{}{}",
+                b.arrow.map(|a| format!("{a} ")).unwrap_or_default(),
+                b.text.unwrap_or_default()
+            );
+            return view! {
+                <div class="metric-secondary">
+                    <span class="muted">{col.label.unwrap_or_default()}" "</span>
+                    <span class=class>{text.trim().to_string()}</span>
+                </div>
+            }
+            .into_any();
+        }
         let shown = match &cell {
-            Cell::Number(n) => format::value(*n, col.display_format().as_ref()),
+            Cell::Number(n) => format::value(*n, format.as_ref()),
             Cell::Null => "–".to_string(),
             other => cell_text(other),
         };
@@ -413,22 +471,63 @@ fn metric_tile(
                 })}
             </div>
         }
+        .into_any()
+    });
+    let progress = t.max.zip(value.number()).map(|(max, v)| {
+        let share = if max > 0.0 {
+            (v / max).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let title = format!(
+            "{} of {}",
+            format::value(v, column.display_format().as_ref()),
+            format::value(max, column.display_format().as_ref())
+        );
+        let (class, style) = if t.vertical {
+            (
+                "metric-progress vertical",
+                format!("height:{:.1}%", share * 100.0),
+            )
+        } else {
+            ("metric-progress", format!("width:{:.1}%", share * 100.0))
+        };
+        view! {
+            <div class=class title=title>
+                <span style=style></span>
+            </div>
+        }
+    });
+    let trend = t.trend.as_deref().and_then(|points| {
+        let area = series::sparkline_path(points, 100.0, 30.0, true)?;
+        let line = series::sparkline_path(points, 100.0, 30.0, false)?;
+        Some(view! {
+            <svg class="metric-trend" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">
+                <path class="area" d=area></path>
+                <path class="line" d=line vector-effect="non-scaling-stroke"></path>
+            </svg>
+        })
     });
     // Medians and rates over a handful of documents mislead: say so.
-    let low = matches!((count, min_samples), (Some(n), Some(min)) if n < min as f64);
-    let sample = (min_samples.is_some()).then_some(count).flatten().map(|n| {
-        let text = if low {
-            format!("only {n:.0} documents: low sample")
-        } else {
-            format!("n = {}", format::plain(n))
-        };
-        view! { <div class=if low { "sample low" } else { "sample" }>{text}</div> }
-    });
+    let low = matches!((t.count, t.min_samples), (Some(n), Some(min)) if n < min as f64);
+    let sample = (t.min_samples.is_some())
+        .then_some(t.count)
+        .flatten()
+        .map(|n| {
+            let text = if low {
+                format!("only {n:.0} documents: low sample")
+            } else {
+                format!("n = {}", format::plain(n))
+            };
+            view! { <div class=if low { "sample low" } else { "sample" }>{text}</div> }
+        });
     let class = if low { "metric low-sample" } else { "metric" };
     view! {
         <div class=class>
-            <div class="metric-label">{label}{band}</div>
+            {trend}
+            <div class="metric-label">{t.label}{band}</div>
             <div class="metric-value">{main}</div>
+            {progress}
             {compare}
             {sample}
         </div>
@@ -559,17 +658,34 @@ struct TableCell {
     text: String,
     sort: Option<f64>,
     band: Option<(String, String)>,
+    /// Colour by value: how (cell, text, badge) and which colour.
+    color: Option<(crate::model::ColorMode, String)>,
 }
+
+/// A table row: its cells, the value a click drills into, whether its
+/// sample is small, and its sparkline (an SVG path), if any.
+type TableRow = (Vec<TableCell>, Option<String>, bool, Option<String>);
 
 #[component]
 fn DataTable(chart: Chart, data: PanelData, ctx: PanelContext) -> impl IntoView {
     let tz = ctx.time_zone.get_untracked();
-    let Some((layer, d)) = chart.layers.iter().zip(&data.layers).next() else {
+    let Some((layer, d)) = chart
+        .layers
+        .iter()
+        .zip(&data.layers)
+        .find(|(l, _)| !matches!(l.encoding, Encoding::Sparkline { .. }))
+    else {
         return ().into_any();
     };
     let ids: Vec<String> = match &layer.encoding {
-        Encoding::Table { columns } => columns.clone(),
+        Encoding::Table { columns, .. } => columns.clone(),
         _ => d.columns.iter().map(|s| s.id.clone()).collect(),
+    };
+    let (styles, spark) = match &layer.encoding {
+        Encoding::Table {
+            styles, sparkline, ..
+        } => (styles.clone(), sparkline.clone()),
+        _ => (Vec::new(), None),
     };
     let ids: Vec<String> = ids
         .into_iter()
@@ -596,33 +712,98 @@ fn DataTable(chart: Chart, data: PanelData, ctx: PanelContext) -> impl IntoView 
         .iter()
         .enumerate()
         .find_map(|(i, id)| ctx.drill_field(layer.column(id)).map(|f| (i, f)));
+    let style = |id: &str| styles.iter().find(|s| s.column == id);
+    // Each colour-by-value column's range, for stops in percent.
+    let range = |id: &str| -> (f64, f64) {
+        let values = d
+            .series(id)
+            .map(|s| s.values.iter().filter_map(Cell::number).collect::<Vec<_>>())
+            .unwrap_or_default();
+        (
+            values.iter().copied().fold(f64::INFINITY, f64::min),
+            values.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+        )
+    };
+    let ranges: Vec<(f64, f64)> = ids.iter().map(|id| range(id)).collect();
+    let trends = series::sparklines(&chart, &data);
     let low: Vec<bool> = (0..d.rows)
         .map(|row| matches!((d.counts.get(row), ctx.min_samples), (Some(n), Some(min)) if *n < min as f64))
         .collect();
-    let rows: Vec<(Vec<TableCell>, Option<String>, bool)> = (0..d.rows)
+    let rows: Vec<TableRow> = (0..d.rows)
         .map(|row| {
             let cells: Vec<TableCell> = ids
                 .iter()
-                .map(|id| {
+                .enumerate()
+                .map(|(i, id)| {
                     let cell = &d.series(id).unwrap().values[row];
                     let column = layer.column(id);
                     let band = column.zip(cell.number()).and_then(|(c, v)| {
                         threshold_for(&c.thresholds, v)
                             .map(|(i, t)| (t.label.clone(), threshold_color(t, i)))
                     });
+                    let color = style(id)
+                        .and_then(|s| s.color.as_ref())
+                        .zip(cell.number())
+                        .and_then(|(by, v)| {
+                            let (lo, hi) = ranges[i];
+                            by.color_for(v, lo, hi).map(|c| (by.mode, c.to_string()))
+                        });
                     TableCell {
                         text: display(cell, column, d.dates.contains(id), &tz),
                         sort: cell.number(),
                         band,
+                        color,
                     }
                 })
                 .collect();
             let drill_value = drill
                 .as_ref()
                 .map(|(i, _)| cell_text(&d.series(&ids[*i]).unwrap().values[row]));
-            (cells, drill_value, low[row])
+            // A row's sparkline: the sparkline layer's series for the row's key.
+            let key = ids
+                .first()
+                .map(|id| cell_text(&d.series(id).unwrap().values[row]));
+            let line = spark
+                .as_ref()
+                .and(key)
+                .and_then(|k| trends.get(&k))
+                .and_then(|points| series::sparkline_path(points, 80.0, 18.0, false));
+            (cells, drill_value, low[row], line)
         })
         .collect();
+    // The summary row: each styled column's sum, average, … over its values.
+    let summaries: Vec<Option<(String, String)>> = ids
+        .iter()
+        .map(|id| {
+            let s = style(id)?;
+            let how = s.summary?;
+            let values: Vec<f64> = d
+                .series(id)?
+                .values
+                .iter()
+                .filter_map(Cell::number)
+                .collect();
+            let v = how.of(&values)?;
+            // Kibana leaves a count unformatted.
+            let text = match how {
+                crate::model::Summary::Count => format::plain(v),
+                _ => format::value(
+                    v,
+                    layer.column(id).and_then(|c| c.display_format()).as_ref(),
+                ),
+            };
+            let label = s
+                .summary_label
+                .clone()
+                .unwrap_or_else(|| how.label().to_string());
+            Some((label, text))
+        })
+        .collect();
+    let has_summary = summaries.iter().any(Option::is_some);
+    let spark_label = spark
+        .as_ref()
+        .map(|s| s.label.clone().unwrap_or_else(|| "Trend".into()));
+    let has_spark = spark_label.is_some();
 
     let sort = RwSignal::new(None::<(usize, bool)>);
     let rows = StoredValue::new(rows);
@@ -664,9 +845,9 @@ fn DataTable(chart: Chart, data: PanelData, ctx: PanelContext) -> impl IntoView 
     view! {
         <div class="table-wrap">
             <table class="data-table">
-                <thead><tr>{header_cells}</tr></thead>
+                <thead><tr>{header_cells}{spark_label.clone().map(|l| view! { <th class="spark">{l}</th> })}</tr></thead>
                 <tbody>
-                    {move || sorted().into_iter().map(|(cells, drill_value, low)| {
+                    {move || sorted().into_iter().map(|(cells, drill_value, low, line)| {
                         let click = drill_field.clone().zip(drill_value);
                         let title = (low).then(|| format!("Fewer than {} documents: treat with care", min.unwrap_or_default()));
                         view! {
@@ -677,16 +858,66 @@ fn DataTable(chart: Chart, data: PanelData, ctx: PanelContext) -> impl IntoView 
                                     let dot = cell.band.map(|(label, color)| view! {
                                         <span class="band-dot" style=format!("background:{color}") title=label></span>
                                     });
-                                    view! { <td class=class>{dot}{cell.text}</td> }
+                                    use crate::model::ColorMode;
+                                    match cell.color {
+                                        Some((ColorMode::Cell, c)) => view! {
+                                            <td class=class style=format!("background:{c};color:{}", contrast(&c))>{dot}{cell.text}</td>
+                                        }.into_any(),
+                                        Some((ColorMode::Text, c)) => view! {
+                                            <td class=class style=format!("color:{c}")>{dot}{cell.text}</td>
+                                        }.into_any(),
+                                        Some((ColorMode::Badge, c)) => view! {
+                                            <td class=class>{dot}<span class="cell-badge" style=format!("background:{c};color:{}", contrast(&c))>{cell.text}</span></td>
+                                        }.into_any(),
+                                        None => view! { <td class=class>{dot}{cell.text}</td> }.into_any(),
+                                    }
                                 }).collect_view()}
+                                {has_spark.then(|| view! {
+                                    <td class="spark">{line.map(|d| view! {
+                                        <svg viewBox="0 0 80 18" width="80" height="18" aria-hidden="true"><path d=d></path></svg>
+                                    })}</td>
+                                })}
                             </tr>
                         }
                     }).collect_view()}
                 </tbody>
+                {has_summary.then(|| view! {
+                    <tfoot><tr>
+                        {summaries.iter().enumerate().map(|(i, s)| {
+                            let class = if numeric.get_value()[i] { "num" } else { "" };
+                            view! { <td class=class>{s.clone().map(|(label, text)| view! {
+                                <span class="muted small">{label}": "</span>{text}
+                            })}</td> }
+                        }).collect_view()}
+                        {has_spark.then(|| view! { <td></td> })}
+                    </tr></tfoot>
+                })}
             </table>
         </div>
     }
     .into_any()
+}
+
+/// Black or white text, whichever contrasts more with a `#rrggbb`
+/// background (WCAG relative luminance).
+fn contrast(background: &str) -> &'static str {
+    let hex = background.trim_start_matches('#');
+    let channel = |i: usize| {
+        let c =
+            u8::from_str_radix(hex.get(i..i + 2).unwrap_or("80"), 16).unwrap_or(128) as f64 / 255.0;
+        if c <= 0.03928 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    let l = 0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4);
+    // Contrast with white is 1.05 / (l + 0.05); with black, (l + 0.05) / 0.05.
+    if (l + 0.05) / 0.05 >= 1.05 / (l + 0.05) {
+        "#111"
+    } else {
+        "#fff"
+    }
 }
 
 /// Bars over categories (terms, filters, ranges), drawn with HTML.

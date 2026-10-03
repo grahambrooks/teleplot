@@ -408,6 +408,10 @@ fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Probl
                 | (Encoding::Table { .. }, ChartKind::Table)
                 | (Encoding::Heatmap { .. }, ChartKind::Heatmap)
                 | (
+                    Encoding::Sparkline { .. },
+                    ChartKind::Metric | ChartKind::Table
+                )
+                | (
                     Encoding::Xy { .. }
                         | Encoding::Band { .. }
                         | Encoding::Scatter { .. }
@@ -426,6 +430,31 @@ fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Probl
                 format!("{at}.encoding"),
                 "scatter charts need a document layer",
             ));
+        }
+        if let Encoding::Table {
+            columns,
+            styles,
+            sparkline,
+        } = &layer.encoding
+        {
+            for (i, style) in styles.iter().enumerate() {
+                if !columns.contains(&style.column) {
+                    problems.push(Problem::error(
+                        format!("{at}.encoding.styles[{i}].column"),
+                        format!("{:?} is not one of the table's columns", style.column),
+                    ));
+                }
+            }
+            if let Some(spark) = sparkline
+                && !chart.layers.iter().any(|l| {
+                    l.id == spark.layer && matches!(l.encoding, Encoding::Sparkline { .. })
+                })
+            {
+                problems.push(Problem::error(
+                    format!("{at}.encoding.sparkline.layer"),
+                    format!("no sparkline layer {:?} in this chart", spark.layer),
+                ));
+            }
         }
         if let Encoding::Heatmap { x, y, value } = &layer.encoding {
             for axis in [Some(x), y.as_ref()].into_iter().flatten() {
