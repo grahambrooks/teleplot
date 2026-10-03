@@ -1,0 +1,19 @@
+docs/roadmap.md
+  s_162499fc396429::t_50100b9de44300 14,17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ade769b689f15ca18f90443060183912ecc32ee1",
+  "prompts": {},
+  "sessions": {
+    "s_162499fc396429": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bbc8c2cc-17d0-49df-b5b0-c22e031658a5",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
