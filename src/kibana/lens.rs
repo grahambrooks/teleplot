@@ -27,6 +27,7 @@ pub fn convert(export: &Export, attrs: &Value, refs: &[Reference]) -> Result<Cha
         "lnsXY" => ChartKind::Xy,
         "lnsMetric" => ChartKind::Metric,
         "lnsDatatable" => ChartKind::Table,
+        "lnsHeatmap" => ChartKind::Heatmap,
         "lnsPie" => match str_field(vis, "shape").unwrap_or("pie") {
             "pie" => ChartKind::Pie,
             "donut" => ChartKind::Donut,
@@ -209,6 +210,16 @@ fn encodings(kind: ChartKind, vis: &Value) -> Result<Encodings, String> {
                 .collect();
             vec![(layer_id(vis)?, Encoding::Table { columns })]
         }
+        // Teleplot colours cells with its own sequential scale; a Lens
+        // palette changes colours only, never which cells are drawn.
+        ChartKind::Heatmap => vec![(
+            layer_id(vis)?,
+            Encoding::Heatmap {
+                x: s(vis, "xAccessor").ok_or("heatmap without xAccessor")?,
+                y: s(vis, "yAccessor"),
+                value: s(vis, "valueAccessor").ok_or("heatmap without valueAccessor")?,
+            },
+        )],
     };
     Ok((layers, warnings))
 }

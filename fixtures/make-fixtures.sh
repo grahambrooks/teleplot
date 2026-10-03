@@ -37,9 +37,10 @@ build() {
   # Reference screenshots come from Kibana's own reporting, which needs a
   # (local, throwaway) trial licence.
   curl -sf -X POST "localhost:$es/_license/start_trial?acknowledge=true" >/dev/null || true
-  for dashboard in delivery-overview pr-flow investment; do
-    fixtures/screenshot.sh "$kibana" "$version" "teleplot-$dashboard" \
-      "fixtures/kibana/$dir/screenshots/$dashboard.png"
+  # The overview is the longest dashboard: Kibana 9.5 needs the extra height.
+  for dashboard in delivery-overview:3000 pr-flow:2200 investment:2200; do
+    fixtures/screenshot.sh "$kibana" "$version" "teleplot-${dashboard%:*}" \
+      "fixtures/kibana/$dir/screenshots/${dashboard%:*}.png" "${dashboard#*:}"
   done
 }
 

@@ -224,20 +224,59 @@ panels:
                 - { label: Fair, from: 73, to: 161, color: "#FF9830" }
                 - { label: Needs focus, from: 161, color: "#F2495C" }
             - { id: trend, label: Rolling median (50 PRs), op: rolling_median, of: hours, window: 50, format: { kind: number, decimals: 1, suffix: " h" } }
-          encoding: { as: scatter, x: merged, y: hours, trend: trend, log_scale: true }
-        # A service-level expectation: the cycle time 85% of PRs stay within.
+          # Service-level expectations: the cycle time half, 85% and 95% of
+          # these PRs stayed within.
+          encoding: { as: scatter, x: merged, y: hours, trend: trend, log_scale: true, percentiles: [50, 85, 95] }
+
+  # Log-spaced buckets keep the long tail readable, and the percentile lines
+  # say what a team can commit to ("85% of PRs merge within …").
+  - id: cycle-distribution
+    title: PR cycle time distribution, with service-level expectations
+    grid: { x: 0, y: 20, w: 24, h: 12 }
+    content:
+      type: chart
+      kind: xy
+      layers:
+        - id: prs
+          data_view: { index: delivery-prs, time_field: merged_at }
+          columns:
+            - { id: hours, label: Cycle time, op: log_histogram, field: cycle_time_hours, min: 2, max: 2000, format: { kind: number, suffix: " h" } }
+            - { id: n, label: Merged PRs, op: count }
+          encoding: { as: xy, series: bar, x: hours, y: [n] }
         - id: sle
           data_view: { index: delivery-prs, time_field: merged_at }
           columns:
-            - { id: p85, label: 85% of PRs within, op: percentile, field: cycle_time_hours, percent: 85.0, format: { kind: number, decimals: 1, suffix: " h" } }
+            - { id: p50, label: p50, op: percentile, field: cycle_time_hours, percent: 50.0, format: { kind: number, decimals: 1, suffix: " h" } }
+            - { id: p85, label: p85, op: percentile, field: cycle_time_hours, percent: 85.0, format: { kind: number, decimals: 1, suffix: " h" } }
+            - { id: p95, label: p95, op: percentile, field: cycle_time_hours, percent: 95.0, format: { kind: number, decimals: 1, suffix: " h" } }
           encoding:
             as: reference_lines
-            lines: [{ column: p85, style: dashed }]
+            lines:
+              - { column: p50, axis: bottom, style: dashed, color: "#73BF69" }
+              - { column: p85, axis: bottom, style: dashed, color: "#FF9830" }
+              - { column: p95, axis: bottom, style: dashed, color: "#F2495C" }
+
+  # The same buckets week by week: a shifting distribution shows here
+  # before it moves the median.
+  - id: cycle-heatmap
+    title: PR cycle time by week
+    grid: { x: 24, y: 20, w: 24, h: 12 }
+    content:
+      type: chart
+      kind: heatmap
+      layers:
+        - id: prs
+          data_view: { index: delivery-prs, time_field: merged_at }
+          columns:
+            - { id: week, op: date_histogram, field: merged_at, interval: 1w }
+            - { id: hours, label: Cycle time, op: log_histogram, field: cycle_time_hours, min: 2, max: 2000, format: { kind: number, suffix: " h" } }
+            - { id: n, label: Merged PRs, op: count }
+          encoding: { as: heatmap, x: week, y: hours, value: n }
 
   # ---------------------------------------------------------------- throughput and investment
   - id: throughput
     title: Merged PRs per week, and the AI-assisted share
-    grid: { x: 0, y: 20, w: 24, h: 12 }
+    grid: { x: 0, y: 32, w: 24, h: 12 }
     content:
       type: chart
       kind: xy
@@ -264,7 +303,7 @@ panels:
 
   - id: investment
     title: Investment allocation (story points, by type of work)
-    grid: { x: 24, y: 20, w: 24, h: 12 }
+    grid: { x: 24, y: 32, w: 24, h: 12 }
     content:
       type: chart
       kind: xy
@@ -281,7 +320,7 @@ panels:
   # ---------------------------------------------------------------- teams
   - id: teams
     title: DORA by team (click a team to focus the dashboard on it)
-    grid: { x: 0, y: 32, w: 48, h: 14 }
+    grid: { x: 0, y: 44, w: 48, h: 14 }
     content:
       type: chart
       kind: table

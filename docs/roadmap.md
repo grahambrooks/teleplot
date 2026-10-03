@@ -5,7 +5,7 @@ The research and rationale stay in the source plans:
 
 - [`mvp-plan.md`](mvp-plan.md): M0–M5 and M6 parts 1–2 (export, performance) are done.
 - [`mcp-plan.md`](mcp-plan.md): Part 1 (MCP endpoint) and gaps 1 (lint/schema) and 2 (inspector, CSV) are done.
-- [`charting-plan.md`](charting-plan.md): A1 (reference lines) and A2 (`timeScale` → `per`) are done.
+- [`charting-plan.md`](charting-plan.md): A1 (reference lines), A2 (`timeScale` → `per`), A5 (heatmap) and B1–B3 (the distribution charts) are done.
 
 Items carry their source IDs (`mcp gap 2`, `charting A1`). A phase starts once
 the one before it is done. Items inside a phase can go in parallel. Every item
@@ -28,13 +28,19 @@ also follows the [verification rules](#verification-rules) below.
 - **`mcp gap 3`: event annotations.** Deploy, incident and release markers come from one extra query per dashboard and are drawn on every time series with A1's hook. Kibana annotation layers become importable, replacing the Phase 1 warning.
 - *Done when:* `delivery-overview.yaml` shows deploy markers over cycle time, and a Kibana annotation-layer fixture converts.
 
-## Phase 3: the distribution story
+## Phase 3: the distribution story (done 2026-10-03, ahead of Phase 2)
 
 - **`charting A5`: heatmap** (`lnsHeatmap`), with uPlot custom paths.
 - **`charting B1`: distribution with SLE markers** (log-spaced `Ranges`; p50/p85/p95 drawn with A1).
 - **`charting B2`: duration heatmap over time** (`date_histogram` › log `Ranges`, drawn by A5).
 - **`charting B3`: percentile lines on the scatter** (`Scatter.percentiles`, computed client-side).
 - *Done when:* the Lens heatmap fixture renders with parity, and B1–B3 appear in `delivery-overview.yaml`.
+- *Result:*
+  - **Heatmap.** `kind: heatmap` draws cells on uPlot, with a one-hue sequential scale and a colour key on the canvas, so PNG export includes the key. Lens `lnsHeatmap` panels convert. The palette is not carried over: it changes only colours.
+  - **Fixture.** The delivery fixtures gained a heatmap of deployments per month by team, exported from Kibana 8.19 and 9.5, with a cell-by-cell parity test.
+  - **`log_histogram`.** A new bucket with log-spaced, round bounds. It runs as a `range` aggregation with open-ended first and last buckets, so no document is dropped. On `xy` charts it draws as bins on a log x axis, with p50/p85/p95 as `axis: bottom` reference lines (B1). A weekly heatmap over it is B2.
+  - **Scatter percentiles.** `percentiles` on the scatter are nearest-rank and computed client-side over the points shown (B3).
+- Phase 2 (annotations) was still open when this was done; Phase 3 doesn't depend on it.
 
 ## Phase 4: ES|QL
 

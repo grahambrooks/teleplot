@@ -51,6 +51,9 @@ fn drawn_on_canvas(content: &PanelContent) -> bool {
     let PanelContent::Chart(chart) = content else {
         return false;
     };
+    if chart.kind == ChartKind::Heatmap {
+        return true;
+    }
     if chart.kind != ChartKind::Xy {
         return false;
     }
@@ -59,7 +62,11 @@ fn drawn_on_canvas(content: &PanelContent) -> bool {
         Encoding::Xy { x: Some(x), .. } => {
             matches!(
                 l.column(x).map(|c| &c.op),
-                Some(Operation::DateHistogram { .. } | Operation::Histogram { .. })
+                Some(
+                    Operation::DateHistogram { .. }
+                        | Operation::Histogram { .. }
+                        | Operation::LogHistogram { .. }
+                )
             )
         }
         _ => false,
@@ -212,13 +219,17 @@ fn ChartBody(chart: Chart, data: Signal<Option<PanelData>>, ctx: PanelContext) -
             (ChartKind::Table, _) => {
                 view! { <DataTable chart=c data=d ctx=ctx.clone()/> }.into_any()
             }
+            (ChartKind::Heatmap, _) => {
+                let drawing = Drawing::Heatmap(series::heatmap(&c, &d));
+                view! { <CanvasChart drawing ctx=ctx.clone()/> }.into_any()
+            }
             (_, Some(Encoding::Band { .. })) => {
                 let xy = series::band(&c, &d, min);
                 let note = low_sample_note(&xy, min);
-                view! { <TimeChart xy ctx=ctx.clone()/>{note} }.into_any()
+                view! { <CanvasChart drawing=Drawing::Xy(xy) ctx=ctx.clone()/>{note} }.into_any()
             }
             (_, Some(Encoding::Scatter { .. })) => {
-                view! { <TimeChart xy=series::scatter(&c, &d) ctx=ctx.clone()/> }.into_any()
+                view! { <CanvasChart drawing=Drawing::Xy(series::scatter(&c, &d)) ctx=ctx.clone()/> }.into_any()
             }
             _ => {
                 let xy = series::xy(&c, &d, min);
@@ -232,7 +243,7 @@ fn ChartBody(chart: Chart, data: Signal<Option<PanelData>>, ctx: PanelContext) -
                     }
                     _ => {
                         let note = low_sample_note(&xy, min);
-                        view! { <TimeChart xy ctx=ctx.clone()/>{note} }.into_any()
+                        view! { <CanvasChart drawing=Drawing::Xy(xy) ctx=ctx.clone()/>{note} }.into_any()
                     }
                 }
             }
@@ -776,9 +787,16 @@ fn CategoryBars(xy: series::Xy, drill_field: Option<String>, ctx: PanelContext) 
     view! { <div class=class>{rows}</div>{(!key.is_empty()).then(|| view! { <div class="chart-note ref-key">{key}</div> })} }.into_any()
 }
 
-/// Time and numeric x axes, drawn by uPlot in the browser.
+/// What a canvas chart draws.
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
+enum Drawing {
+    Xy(series::Xy),
+    Heatmap(series::Heatmap),
+}
+
+/// Time and numeric x axes, and heatmaps, drawn by uPlot in the browser.
 #[component]
-fn TimeChart(xy: series::Xy, ctx: PanelContext) -> impl IntoView {
+fn CanvasChart(drawing: Drawing, ctx: PanelContext) -> impl IntoView {
     let node = NodeRef::<leptos::html::Div>::new();
     #[cfg(feature = "hydrate")]
     {
@@ -789,10 +807,10 @@ fn TimeChart(xy: series::Xy, ctx: PanelContext) -> impl IntoView {
         let chart = StoredValue::new_local(None::<super::uplot::Chart>);
         let observer =
             StoredValue::new_local(None::<(web_sys::ResizeObserver, Closure<dyn FnMut()>)>);
-        let xy = StoredValue::new_local(xy);
+        let drawing = StoredValue::new_local(drawing);
         let ctx = ctx.clone();
         Effect::new(move |_| {
-            let _ = ctx.dark.get(); // redraw with the new theme's colours
+            let dark = ctx.dark.get(); // redraw with the new theme's colours
             let Some(el) = node.get() else { return };
             let el: web_sys::HtmlElement = el.unchecked_into();
             let size =
@@ -805,12 +823,14 @@ fn TimeChart(xy: series::Xy, ctx: PanelContext) -> impl IntoView {
                 sync_key: &ctx.sync_key,
                 time_zone: &ctx.time_zone.get_untracked(),
                 on_zoom: Some(Rc::new(move |from, to| zoom.run((from, to)))),
+                dark,
             };
             chart.set_value(None);
             el.set_inner_html("");
-            chart.set_value(Some(
-                xy.with_value(|xy| super::uplot::draw(&el, xy, options)),
-            ));
+            chart.set_value(Some(drawing.with_value(|d| match d {
+                Drawing::Xy(xy) => super::uplot::draw(&el, xy, options),
+                Drawing::Heatmap(hm) => super::uplot::heatmap(&el, hm, options),
+            })));
             // uPlot's legend has no layout until the browser's next frame;
             // fit again then, so the plot takes the space the legend leaves.
             let target = el.clone();
@@ -849,6 +869,6 @@ fn TimeChart(xy: series::Xy, ctx: PanelContext) -> impl IntoView {
         });
     }
     #[cfg(not(feature = "hydrate"))]
-    let _ = (xy, ctx);
+    let _ = (drawing, ctx);
     view! { <div class="timechart" node_ref=node></div> }
 }

@@ -20,7 +20,7 @@ use serde_json::json;
 use teleplot::config::Elasticsearch;
 use teleplot::engine::{Engine, Request};
 use teleplot::es::{Client, Search};
-use teleplot::model::{Cell, Dashboard, PanelData, TimeRange};
+use teleplot::model::{Cell, Dashboard, PanelContent, PanelData, TimeRange};
 
 /// The range Kibana's reference screenshots were rendered over, in UTC.
 fn kibana_range() -> Request {
@@ -173,6 +173,50 @@ async fn dora_overview_matches_kibana() {
         assert_shown(line("lead-target", "lg-avg"), 95.7, 1, "average lead time");
         assert_eq!(line("team-target", "tg-target"), 24.0, "{version}");
         assert!(data["lead-target"].warnings.is_empty(), "{version}");
+
+        // The Lens heatmap: deployments per month (April–September, and the
+        // one day of October) by team, rows top-down as Kibana draws them.
+        let dashboards = dashboards(&version);
+        let overview = dashboards
+            .iter()
+            .find(|d| d.id == "teleplot-delivery-overview")
+            .unwrap();
+        let panel = overview
+            .panels
+            .iter()
+            .find(|p| p.id == "team-heatmap")
+            .unwrap();
+        let PanelContent::Chart(chart) = &panel.content else {
+            panic!(
+                "{version}: the heatmap did not convert: {:?}",
+                panel.content
+            )
+        };
+        let hm = teleplot::ui::series::heatmap(chart, &data["team-heatmap"]);
+        let shown: [(&str, [f64; 7]); 8] = [
+            ("checkout", [66.0, 63.0, 77.0, 64.0, 76.0, 62.0, 5.0]),
+            ("infra", [38.0, 33.0, 46.0, 38.0, 25.0, 34.0, 1.0]),
+            ("billing", [33.0, 19.0, 22.0, 27.0, 26.0, 22.0, 0.0]),
+            ("identity", [18.0, 24.0, 17.0, 24.0, 20.0, 26.0, 1.0]),
+            ("onboarding", [12.0, 16.0, 14.0, 11.0, 14.0, 25.0, 2.0]),
+            ("data", [5.0, 9.0, 7.0, 5.0, 8.0, 15.0, 0.0]),
+            ("observability", [6.0, 10.0, 10.0, 6.0, 3.0, 7.0, 0.0]),
+            ("experiments", [6.0, 3.0, 1.0, 2.0, 3.0, 3.0, 0.0]),
+        ];
+        let top_down: Vec<&str> = hm.y.iter().rev().map(String::as_str).collect();
+        let teams: Vec<&str> = shown.iter().map(|(t, _)| *t).collect();
+        assert_eq!(top_down, teams, "{version}");
+        assert_eq!(hm.cells.len(), 7, "{version}: April to October");
+        for (row, (team, months)) in shown.iter().enumerate() {
+            let j = hm.y.len() - 1 - row;
+            for (month, n) in months.iter().enumerate() {
+                assert_eq!(
+                    hm.cells[month][j],
+                    Some(*n),
+                    "{version} {team} month {month}"
+                );
+            }
+        }
     }
 }
 

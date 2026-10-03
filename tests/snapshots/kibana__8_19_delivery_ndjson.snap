@@ -626,6 +626,47 @@ panels:
         lines:
         - column: tg-target
           color: '#E7664C'
+- id: team-heatmap
+  title: Deployments per month by team
+  grid:
+    x: 0
+    y: 73
+    w: 48
+    h: 14
+  content:
+    type: chart
+    kind: heatmap
+    layers:
+    - id: layer-team-heatmap
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      columns:
+      - id: hm-team
+        label: Top 10 values of team
+        op: terms
+        fields:
+        - team
+        size: 10
+        order:
+          by: column
+          column: hm-n
+          ascending: false
+        other_bucket: true
+      - id: hm-month
+        label: deployed_at
+        op: date_histogram
+        field: deployed_at
+        interval: 1M
+        include_empty: true
+      - id: hm-n
+        label: Deployments
+        op: count
+      encoding:
+        as: heatmap
+        x: hm-month
+        y: hm-team
+        value: hm-n
 ---
 id: teleplot-pr-flow
 title: '[Delivery] PR flow'

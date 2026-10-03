@@ -193,6 +193,8 @@ pub enum ChartKind {
     Pie,
     Donut,
     Table,
+    /// A grid of cells: one bucket column across, one down, coloured by a metric.
+    Heatmap,
 }
 
 /// One query against one data view, and how its columns are drawn.
@@ -271,6 +273,18 @@ pub enum Encoding {
         /// Log scale for y: long-tailed durations stay readable.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         log_scale: bool,
+        /// Percentiles of `y` drawn as lines, e.g. `[50, 85, 95]` for service
+        /// level expectations. Computed over the points shown (nearest rank).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        percentiles: Vec<f64>,
+    },
+    /// Cells coloured by `value`, `x` buckets across and `y` buckets up, e.g.
+    /// PR cycle time (log buckets) per week.
+    Heatmap {
+        x: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        y: Option<String>,
+        value: String,
     },
     /// Lines at fixed values across an XY chart, e.g. a target or a
     /// percentile. Each value is one of this layer's unbucketed columns.
@@ -303,6 +317,59 @@ pub struct ReferenceLine {
 
 fn yes() -> bool {
     true
+}
+
+fn three() -> u32 {
+    3
+}
+
+/// The bounds of a [`Operation::LogHistogram`], ascending: from `min` up to
+/// the first bound at or above `max`. Bucket `i` runs from bound `i` to bound
+/// `i + 1`. Empty if `min` is not positive or `max` is not above it.
+pub fn log_bounds(min: f64, max: f64, per_decade: u32) -> Vec<f64> {
+    if !(min > 0.0 && max > min && min.is_finite() && max.is_finite()) {
+        return Vec::new();
+    }
+    let per_decade = per_decade.clamp(1, 20);
+    let mantissas: Vec<f64> = match per_decade {
+        1 => vec![1.0],
+        2 => vec![1.0, 3.0],
+        3 => vec![1.0, 2.0, 5.0],
+        n => (0..n)
+            .map(|k| round_to(10f64.powf(k as f64 / n as f64), 2))
+            .collect(),
+    };
+    // Start at the largest round bound at or below `min`.
+    let mut decade = 10f64.powf(min.log10().floor());
+    let mut start = 0;
+    for (i, m) in mantissas.iter().enumerate() {
+        if m * decade <= min * (1.0 + 1e-9) {
+            start = i;
+        }
+    }
+    let mut out = Vec::new();
+    let mut i = start;
+    loop {
+        let b = round_to(mantissas[i] * decade, 12);
+        out.push(b);
+        if b >= max * (1.0 - 1e-9) || out.len() > 400 {
+            return out;
+        }
+        i += 1;
+        if i == mantissas.len() {
+            i = 0;
+            decade *= 10.0;
+        }
+    }
+}
+
+/// `v` to `digits` significant digits (keeps bounds like 0.2 exact).
+fn round_to(v: f64, digits: i32) -> f64 {
+    if v == 0.0 {
+        return 0.0;
+    }
+    let scale = 10f64.powi(digits - 1 - v.abs().log10().floor() as i32);
+    (v * scale).round() / scale
 }
 
 fn is_default<T: Default + PartialEq>(v: &T) -> bool {
@@ -378,6 +445,11 @@ impl Encoding {
             }
             Encoding::ReferenceLines { lines } => {
                 ids.extend(lines.iter().map(|l| l.column.as_str()))
+            }
+            Encoding::Heatmap { x, y, value } => {
+                ids.push(x);
+                ids.extend(y.as_deref());
+                ids.push(value);
             }
         }
         ids
@@ -591,6 +663,18 @@ pub enum Operation {
         field: String,
         ranges: Vec<Range>,
     },
+    /// Log-spaced buckets from `min` to `max`, for long-tailed durations.
+    /// Values below `min` count in the first bucket and above `max` in the
+    /// last. Keys are each bucket's lower bound; see [`log_bounds`].
+    LogHistogram {
+        field: String,
+        min: f64,
+        max: f64,
+        /// Buckets per factor of ten: 1, 2 or 3 give round bounds (1, 3 or
+        /// 1, 2, 5); more give evenly spaced ones. 3 by default.
+        #[serde(default = "three")]
+        per_decade: u32,
+    },
 
     // Computed from other columns of the same layer.
     Formula {
@@ -643,6 +727,7 @@ impl Operation {
                 | Operation::Filters { .. }
                 | Operation::Histogram { .. }
                 | Operation::Ranges { .. }
+                | Operation::LogHistogram { .. }
         )
     }
 
@@ -738,4 +823,36 @@ pub enum FormatKind {
     Bytes,
     Duration,
     Currency,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::log_bounds;
+
+    #[test]
+    fn log_bounds_are_round_for_up_to_three_per_decade() {
+        assert_eq!(
+            log_bounds(2.0, 2000.0, 3),
+            [
+                2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0
+            ]
+        );
+        assert_eq!(log_bounds(1.0, 100.0, 1), [1.0, 10.0, 100.0]);
+        assert_eq!(log_bounds(0.5, 40.0, 2), [0.3, 1.0, 3.0, 10.0, 30.0, 100.0]);
+        // `min` between round bounds starts at the one below it.
+        assert_eq!(log_bounds(3.0, 10.0, 3), [2.0, 5.0, 10.0]);
+    }
+
+    #[test]
+    fn log_bounds_with_more_per_decade_are_evenly_spaced() {
+        let b = log_bounds(1.0, 10.0, 4);
+        assert_eq!(b, [1.0, 1.8, 3.2, 5.6, 10.0]);
+    }
+
+    #[test]
+    fn log_bounds_need_a_positive_range() {
+        assert!(log_bounds(0.0, 10.0, 3).is_empty());
+        assert!(log_bounds(5.0, 5.0, 3).is_empty());
+        assert!(log_bounds(-1.0, 10.0, 3).is_empty());
+    }
 }

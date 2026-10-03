@@ -217,14 +217,9 @@ fn only_metrics_are_normalized_by_unit() {
 
 #[test]
 fn reference_lines_need_single_values_and_a_chart_to_cross() {
-    // The cycle-time scatter (panel 7) has an SLE reference-line layer.
+    // The cycle-time distribution has a reference-line layer of SLEs.
     let mut d = reference();
-    let panel = d["panels"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .position(|p| p["id"] == "cycle-scatter")
-        .unwrap();
+    let panel = panel_index(&d, "cycle-distribution");
     let layers = &mut d["panels"][panel]["content"]["layers"];
     assert_eq!(layers[1]["encoding"]["as"], json!("reference_lines"));
     layers[1]["columns"].as_array_mut().unwrap().insert(
@@ -239,4 +234,56 @@ fn reference_lines_need_single_values_and_a_chart_to_cross() {
     layers[0]["columns"].as_array_mut().unwrap().remove(0);
     let p = problems(d);
     assert!(only(&p).message.contains("need a data layer"), "{p:?}");
+}
+
+fn panel_index(d: &serde_json::Value, id: &str) -> usize {
+    d["panels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|p| p["id"] == id)
+        .unwrap()
+}
+
+#[test]
+fn heatmaps_need_bucket_axes_and_a_metric_value() {
+    let mut d = reference();
+    let panel = panel_index(&d, "cycle-heatmap");
+    d["panels"][panel]["content"]["layers"][0]["encoding"]["value"] = json!("hours");
+    let p = problems(d.clone());
+    assert!(only(&p).message.contains("must be a metric"), "{p:?}");
+
+    d["panels"][panel]["content"]["layers"][0]["encoding"] =
+        json!({ "as": "heatmap", "x": "n", "value": "n" });
+    let p = problems(d.clone());
+    assert!(
+        p.iter()
+            .any(|p| p.message.contains("must be a bucket column")),
+        "{p:?}"
+    );
+
+    d["panels"][panel]["content"]["kind"] = json!("xy");
+    d["panels"][panel]["content"]["layers"][0]["encoding"] =
+        json!({ "as": "heatmap", "x": "week", "y": "hours", "value": "n" });
+    let p = problems(d);
+    assert!(only(&p).message.contains("does not suit"), "{p:?}");
+}
+
+#[test]
+fn log_histograms_need_a_positive_range_and_percentiles_a_percent() {
+    let mut d = reference();
+    let panel = panel_index(&d, "cycle-distribution");
+    d["panels"][panel]["content"]["layers"][0]["columns"][0]["min"] = json!(0);
+    let p = problems(d);
+    assert_eq!(
+        only(&p).path,
+        format!("panels[{panel}].content.layers[0].columns[0]")
+    );
+    assert!(only(&p).message.contains("0 < min < max"), "{p:?}");
+
+    let mut d = reference();
+    let panel = panel_index(&d, "cycle-scatter");
+    d["panels"][panel]["content"]["layers"][0]["encoding"]["percentiles"] = json!([85, 150]);
+    let p = problems(d);
+    assert!(only(&p).message.contains("150"), "{p:?}");
 }

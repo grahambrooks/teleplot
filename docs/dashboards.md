@@ -28,14 +28,14 @@ panels:
 
 Panel `content` is one of:
 
-- `type: chart`, which has a `kind` (`xy`, `metric`, `pie`, `donut` or `table`), an optional `query` and `filters`, and `layers`. Charts converted from Kibana can also carry `warnings`, naming parts of the original that Teleplot does not draw (a Lens annotation layer, for example). The panel shows them.
+- `type: chart`, which has a `kind` (`xy`, `metric`, `pie`, `donut`, `table` or `heatmap`), an optional `query` and `filters`, and `layers`. Charts converted from Kibana can also carry `warnings`, naming parts of the original that Teleplot does not draw (a Lens annotation layer, for example). The panel shows them.
 - `type: markdown` with `text`.
 
 ## Layers and columns
 
 A layer queries one data view. Its columns are either:
 
-- **Buckets:** `date_histogram`, `terms`, `filters`, `histogram`, `ranges`;
+- **Buckets:** `date_histogram`, `terms`, `filters`, `histogram`, `ranges`, `log_histogram`;
 - **Metrics:** `count`, `sum`, `average`, `min`, `max`, `median`, `percentile`, `unique_count`, `last_value`, `standard_deviation`, `static_value`, `time_range`;
 - **Computed from other columns:** `formula`, `moving_average`, `cumulative_sum`, `differences`, `counter_rate`, `overall`, `rolling_median`.
 
@@ -60,7 +60,8 @@ The `encoding` (`as:`) says how columns are drawn:
 | `pie` | `groups`, `values` |
 | `table` | `columns` |
 | `band` | `x`, `low`, `mid`, `high`: a line inside a shaded band, e.g. median within p25–p75 |
-| `scatter` | `x`, `y`, `split`, `trend`, `log_scale`: needs a document layer |
+| `scatter` | `x`, `y`, `split`, `trend`, `log_scale`, `percentiles`: needs a document layer |
+| `heatmap` | `x`, `y`, `value`: cells coloured by `value` (for `kind: heatmap`) |
 | `reference_lines` | `lines`: lines at fixed values across the chart's other layers (below) |
 
 ### Formulas
@@ -139,6 +140,46 @@ Each line can set:
 
 The value axis stretches so every line is visible. Kibana's Lens
 reference-line layers convert to this.
+
+### Distributions: log histograms, percentiles and heatmaps
+
+Durations such as cycle time have long tails, so a few slow PRs squash an
+evenly bucketed histogram. A `log_histogram` buckets them on a log scale:
+
+```yaml
+- { id: hours, op: log_histogram, field: cycle_time_hours, min: 2, max: 2000, format: { kind: number, suffix: " h" } }
+```
+
+- `per_decade` sets how many buckets per factor of ten. With 1, 2 or 3 the bounds are round: 1, 3, or 1, 2, 5 (the default is 3). With more, they are evenly spaced.
+- The first and last buckets are open. Values below `min` count in the first, and values above `max` count in the last, so no document is left out.
+- The search is a `range` aggregation, so no scripts are involved.
+- On an `xy` chart, the buckets are drawn as bins on a log x axis. A `reference_lines` layer with `axis: bottom` and `percentile` columns marks service-level expectations, for example "85% of PRs merge within 254 h".
+
+A scatter's `percentiles: [50, 85, 95]` draws dashed lines at those
+percentiles of the points shown. They are computed in the browser, by
+nearest rank: the smallest value with at least that share of points at or
+below it. So they cover the document layer's `limit`, not every document.
+Use a `reference_lines` layer of `percentile` columns to cover every
+document; Elasticsearch computes those approximately.
+
+A `heatmap` chart colours one cell per pair of buckets:
+
+```yaml
+kind: heatmap
+layers:
+  - id: prs
+    data_view: { index: delivery-prs, time_field: merged_at }
+    columns:
+      - { id: week, op: date_histogram, field: merged_at, interval: 1w }
+      - { id: hours, op: log_histogram, field: cycle_time_hours, min: 2, max: 2000 }
+      - { id: n, label: Merged PRs, op: count }
+    encoding: { as: heatmap, x: week, y: hours, value: n }
+```
+
+- `x` and `y` are bucket columns, and `y` is optional.
+- Numeric rows run upwards in value order, and log-histogram rows are labelled as ranges. Other rows keep their table order from the top down, as in Kibana.
+- Colours run from light (smallest) to dark (largest) on one hue, with a key beside the chart. In the dark theme, small values are dark instead.
+- Kibana's Lens heatmaps convert to this. Their colour palette is not carried over, because it changes only the colours.
 
 ### Document layers
 

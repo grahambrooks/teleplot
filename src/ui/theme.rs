@@ -55,3 +55,22 @@ pub fn threshold_color(t: &crate::model::Threshold, index: usize) -> String {
         .clone()
         .unwrap_or_else(|| DEFAULT[index.min(DEFAULT.len() - 1)].to_string())
 }
+
+/// One-hue sequential ramp (blue, light → dark) for magnitudes: heatmap cells.
+const SEQUENTIAL: [&str; 13] = [
+    "#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec", "#5598e7", "#3987e5", "#2a78d6",
+    "#256abf", "#1c5cab", "#184f95", "#104281", "#0d366b",
+];
+
+/// The ramp's colour for `t` in 0–1. Small values recede towards the panel:
+/// light on the light theme, dark on the dark one.
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
+pub fn sequential(t: f64, dark: bool) -> &'static str {
+    let t = if t.is_finite() {
+        t.clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let t = if dark { 1.0 - t } else { t };
+    SEQUENTIAL[(t * (SEQUENTIAL.len() - 1) as f64).round() as usize]
+}

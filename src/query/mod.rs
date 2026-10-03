@@ -186,6 +186,8 @@ enum BucketKind {
     Filters(Vec<String>),
     Numeric,
     Ranges,
+    /// A log histogram: bucket `i` is keyed by its lower bound.
+    LogRanges(Vec<f64>),
 }
 
 #[derive(Debug)]
@@ -716,6 +718,38 @@ fn bucket_agg(
                 json!({ "range": { "field": field, "ranges": ranges } }),
             )
         }
+        Operation::LogHistogram {
+            field,
+            min,
+            max,
+            per_decade,
+        } => {
+            let bounds = crate::model::log_bounds(*min, *max, *per_decade);
+            if bounds.len() < 2 {
+                return Err(format!(
+                    "log histogram {}: needs 0 < min < max (got {min} and {max})",
+                    column.id
+                ));
+            }
+            // The first and last buckets are open, so no document is left out.
+            let last = bounds.len() - 2;
+            let ranges: Vec<Value> = (0..=last)
+                .map(|i| {
+                    let mut r = json!({});
+                    if i > 0 {
+                        r["from"] = json!(bounds[i]);
+                    }
+                    if i < last {
+                        r["to"] = json!(bounds[i + 1]);
+                    }
+                    r
+                })
+                .collect();
+            (
+                BucketKind::LogRanges(bounds[..=last].to_vec()),
+                json!({ "range": { "field": field, "ranges": ranges } }),
+            )
+        }
         other => return Err(format!("{other:?} is not a bucket")),
     })
 }
@@ -1070,6 +1104,10 @@ fn flatten(
                 bucket["key"].as_f64().map_or(Cell::Null, Cell::Number)
             }
             BucketKind::Filters(labels) => Cell::Text(labels.get(i).cloned().unwrap_or_default()),
+            // Elasticsearch returns ranges in ascending order, as requested.
+            BucketKind::LogRanges(starts) => {
+                starts.get(i).copied().map_or(Cell::Null, Cell::Number)
+            }
             BucketKind::Terms | BucketKind::Ranges => {
                 match (&bucket["key_as_string"], &bucket["key"]) {
                     (Value::String(s), _) => Cell::Text(s.clone()),

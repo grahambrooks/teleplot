@@ -120,6 +120,9 @@ fn convert(export: &Export, vis: Vis, refs: &[Reference]) -> Result<PanelContent
             max: None,
             breakdown: groups.into_iter().chain(rows).chain(splits).next(),
         },
+        ChartKind::Heatmap => {
+            return Err(unparseable(kind_name, "legacy heatmaps are not converted"));
+        }
     };
 
     Ok(PanelContent::Chart(Chart {
@@ -352,6 +355,7 @@ fn default_label(op: &Operation, params: &Value) -> Option<String> {
         Operation::Filters { .. } => "Filters".into(),
         Operation::Histogram { field, .. } => field.clone(),
         Operation::Ranges { field, .. } => format!("{field} ranges"),
+        Operation::LogHistogram { field, .. } => field.clone(),
         _ => return None,
     })
 }

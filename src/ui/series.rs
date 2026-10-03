@@ -18,6 +18,11 @@ pub struct Xy {
     pub band: Option<(usize, usize)>,
     pub log_scale: bool,
     pub reference_lines: Vec<RefLine>,
+    /// Log-histogram x axes: where each bucket ends (it starts at its x).
+    /// Bars are drawn as bins between the two, on a log x scale.
+    pub bin_ends: Vec<f64>,
+    /// How x values read, when they are numbers in a unit (log histograms).
+    pub x_format: Option<Format>,
 }
 
 /// A reference line with its value resolved.
@@ -139,7 +144,7 @@ pub fn xy(chart: &Chart, data: &PanelData, min_samples: Option<u32>) -> Xy {
     let x_kind = chart.layers.iter().find_map(|l| match &l.encoding {
         Encoding::Xy { x: Some(x), .. } => l.column(x).map(|c| match c.op {
             Operation::DateHistogram { .. } => 't',
-            Operation::Histogram { .. } => 'n',
+            Operation::Histogram { .. } | Operation::LogHistogram { .. } => 'n',
             _ => 'c',
         }),
         _ => None,
@@ -273,6 +278,29 @@ pub fn xy(chart: &Chart, data: &PanelData, min_samples: Option<u32>) -> Xy {
         .map(|c| c.thresholds.clone())
         .unwrap_or_default();
     let reference_lines = reference_lines(chart, data, &series);
+    let x_format = chart.layers.iter().find_map(|l| match &l.encoding {
+        Encoding::Xy { x: Some(x), .. } => l
+            .column(x)
+            .filter(|c| matches!(c.op, Operation::LogHistogram { .. }))
+            .and_then(|c| c.display_format()),
+        _ => None,
+    });
+    let bin_ends = match (&x, log_histogram(chart)) {
+        (XAxis::Numeric(keys), Some(bounds)) => keys
+            .iter()
+            .map(|k| {
+                let next = bounds.iter().position(|b| b == k).map(|i| i + 1);
+                next.and_then(|i| bounds.get(i)).copied().unwrap_or(*k)
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
+    // A bin's height is its document count: shading small ones adds nothing.
+    let low_sample = if bin_ends.is_empty() {
+        low_sample
+    } else {
+        vec![false; x.len()]
+    };
     Xy {
         x,
         series,
@@ -281,7 +309,25 @@ pub fn xy(chart: &Chart, data: &PanelData, min_samples: Option<u32>) -> Xy {
         band: None,
         log_scale: false,
         reference_lines,
+        bin_ends,
+        x_format,
     }
+}
+
+/// The bounds of the x axis's log histogram, when the chart has one.
+fn log_histogram(chart: &Chart) -> Option<Vec<f64>> {
+    chart.layers.iter().find_map(|l| match &l.encoding {
+        Encoding::Xy { x: Some(x), .. } => match l.column(x).map(|c| &c.op) {
+            Some(Operation::LogHistogram {
+                min,
+                max,
+                per_decade,
+                ..
+            }) => Some(crate::model::log_bounds(*min, *max, *per_decade)),
+            _ => None,
+        },
+        _ => None,
+    })
 }
 
 /// The reference lines of every reference-line layer, with their values.
@@ -377,6 +423,8 @@ pub fn band(chart: &Chart, data: &PanelData, min_samples: Option<u32>) -> Xy {
         band: Some((0, 2)),
         log_scale: false,
         reference_lines: Vec::new(),
+        bin_ends: Vec::new(),
+        x_format: None,
     };
     xy.reference_lines = reference_lines(chart, data, &xy.series);
     xy
@@ -394,6 +442,7 @@ pub fn scatter(chart: &Chart, data: &PanelData) -> Xy {
         split,
         trend,
         log_scale,
+        percentiles,
     } = &layer.encoding
     else {
         return empty();
@@ -449,9 +498,252 @@ pub fn scatter(chart: &Chart, data: &PanelData) -> Xy {
         band: None,
         log_scale: *log_scale,
         reference_lines: Vec::new(),
+        bin_ends: Vec::new(),
+        x_format: None,
     };
     xy.reference_lines = reference_lines(chart, data, &xy.series);
+    // Percentiles of the points shown, e.g. "85% of PRs merged within …".
+    let shown: Vec<f64> = ys.iter().flatten().copied().collect();
+    for p in percentiles {
+        if let Some(value) = percentile(&shown, *p) {
+            xy.reference_lines.push(RefLine {
+                value,
+                label: Some(format!("p{}", crate::ui::format::plain(*p))),
+                axis: ReferenceAxis::Left,
+                color: None,
+                style: LineStyle::Dashed,
+                fill: ReferenceFill::None,
+                format: format.clone(),
+            });
+        }
+    }
     xy
+}
+
+/// The nearest-rank percentile: the smallest value with at least `p`% of
+/// the values at or below it, so "85% within N" holds exactly for N.
+pub fn percentile(values: &[f64], p: f64) -> Option<f64> {
+    if values.is_empty() || !(p > 0.0 && p <= 100.0) {
+        return None;
+    }
+    let mut sorted = values.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    // Rounded first, so 85% of 20 is rank 17 and not 18 (0.85 × 20 = 17.000000000000004).
+    let rank = ((p / 100.0 * sorted.len() as f64 * 1e9).round() / 1e9).ceil() as usize;
+    Some(sorted[rank.clamp(1, sorted.len()) - 1])
+}
+
+/// What a heatmap draws: cells over two bucket axes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Heatmap {
+    /// Time buckets (starts, ascending) or categories, left to right.
+    pub x: XAxis,
+    /// When `x` is time: the end of each bucket.
+    pub x_ends: Vec<f64>,
+    /// Row labels, bottom to top.
+    pub y: Vec<String>,
+    /// `cells[x][y]`.
+    pub cells: Vec<Vec<Option<f64>>>,
+    pub label: String,
+    pub format: Option<Format>,
+}
+
+impl Heatmap {
+    /// The smallest and largest cell values.
+    pub fn extent(&self) -> Option<(f64, f64)> {
+        let values = self.cells.iter().flatten().flatten().copied();
+        values.fold(None, |acc, v| match acc {
+            None => Some((v, v)),
+            Some((lo, hi)) => Some((lo.min(v), hi.max(v))),
+        })
+    }
+}
+
+/// Distinct keys in first-seen order.
+fn distinct(keys: &[Cell]) -> Vec<Cell> {
+    let mut out: Vec<Cell> = Vec::new();
+    for k in keys {
+        if !out.contains(k) {
+            out.push(k.clone());
+        }
+    }
+    out
+}
+
+fn by_number(keys: &mut [Cell]) {
+    keys.sort_by(|a, b| {
+        a.number()
+            .unwrap_or(f64::NEG_INFINITY)
+            .total_cmp(&b.number().unwrap_or(f64::NEG_INFINITY))
+    });
+}
+
+fn is_numeric_bucket(column: Option<&Column>) -> bool {
+    matches!(
+        column.map(|c| &c.op),
+        Some(
+            Operation::DateHistogram { .. }
+                | Operation::Histogram { .. }
+                | Operation::LogHistogram { .. }
+        )
+    )
+}
+
+/// Pivots a heatmap layer. Numeric rows (histograms) run upwards in value
+/// order; categories keep table order from the top down, as in Lens.
+pub fn heatmap(chart: &Chart, data: &PanelData) -> Heatmap {
+    let mut out = Heatmap {
+        x: XAxis::Category(Vec::new()),
+        x_ends: Vec::new(),
+        y: Vec::new(),
+        cells: Vec::new(),
+        label: String::new(),
+        format: None,
+    };
+    let Some((layer, d)) = main_layer_data(chart, data) else {
+        return out;
+    };
+    let Encoding::Heatmap { x, y, value } = &layer.encoding else {
+        return out;
+    };
+    let value_column = layer.column(value);
+    out.label = label(value_column, value);
+    out.format = value_column.and_then(|c| c.display_format());
+    let keys = |id: &str| d.series(id).map(|s| s.values.clone()).unwrap_or_default();
+    let xs = keys(x);
+    let ys = y.as_deref().map(keys);
+    let values = numbers(d, value);
+
+    let x_column = layer.column(x);
+    let mut x_keys = distinct(&xs);
+    if is_numeric_bucket(x_column) {
+        by_number(&mut x_keys);
+    }
+    let y_column = y.as_deref().and_then(|id| layer.column(id));
+    let mut y_keys = ys.as_deref().map(distinct).unwrap_or_default();
+    if is_numeric_bucket(y_column) {
+        by_number(&mut y_keys);
+    } else {
+        y_keys.reverse();
+    }
+    if ys.is_none() {
+        y_keys.push(Cell::Text(out.label.clone()));
+    }
+
+    out.cells = vec![vec![None; y_keys.len()]; x_keys.len()];
+    for row in 0..d.rows {
+        let Some(i) = xs.get(row).and_then(|k| x_keys.iter().position(|x| x == k)) else {
+            continue;
+        };
+        let j = match &ys {
+            Some(ys) => match ys.get(row).and_then(|k| y_keys.iter().position(|y| y == k)) {
+                Some(j) => j,
+                None => continue,
+            },
+            None => 0,
+        };
+        out.cells[i][j] = values.get(row).copied().flatten();
+    }
+    out.y = y_keys.iter().map(|k| bucket_label(k, y_column)).collect();
+    if let Some(Operation::LogHistogram {
+        min,
+        max,
+        per_decade,
+        ..
+    }) = y_column.map(|c| &c.op)
+    {
+        let bounds = crate::model::log_bounds(*min, *max, *per_decade);
+        let format = y_column.and_then(|c| c.display_format());
+        for (label, key) in out.y.iter_mut().zip(&y_keys) {
+            if let Some(range) = key
+                .number()
+                .and_then(|k| log_range_label(k, &bounds, format.as_ref()))
+            {
+                *label = range;
+            }
+        }
+    }
+    if matches!(
+        x_column.map(|c| &c.op),
+        Some(Operation::DateHistogram { .. })
+    ) {
+        let starts: Vec<f64> = x_keys.iter().filter_map(Cell::number).collect();
+        out.x_ends = bucket_ends(&starts, x_column);
+        out.x = XAxis::Time(starts);
+    } else {
+        out.x = XAxis::Category(x_keys.iter().map(|k| bucket_label(k, x_column)).collect());
+    }
+    out
+}
+
+/// A log-histogram bucket as a range, e.g. `5–10 h`. The first and last
+/// buckets are open-ended (`< 5 h`, `≥ 1000 h`), as the search is.
+pub fn log_range_label(start: f64, bounds: &[f64], format: Option<&Format>) -> Option<String> {
+    use crate::ui::format::{plain, value};
+    let i = bounds.iter().position(|b| *b == start)?;
+    let last = bounds.len().checked_sub(2)?;
+    Some(match i {
+        0 if last == 0 => "all".into(),
+        0 => format!("< {}", value(*bounds.get(1)?, format)),
+        i if i == last => format!("≥ {}", value(start, format)),
+        i => format!("{}–{}", plain(start), value(*bounds.get(i + 1)?, format)),
+    })
+}
+
+/// A bucket key as an axis label: numbers in the column's format.
+fn bucket_label(key: &Cell, column: Option<&Column>) -> String {
+    match key {
+        Cell::Number(n) => {
+            crate::ui::format::value(*n, column.and_then(|c| c.display_format()).as_ref())
+        }
+        other => cell_text(other),
+    }
+}
+
+/// Where each time bucket ends: the next one's start, unless buckets are
+/// missing in between. A fixed interval is exact; calendar and auto
+/// intervals are capped a little above the shortest gap (months vary).
+fn bucket_ends(starts: &[f64], column: Option<&Column>) -> Vec<f64> {
+    let fixed = match column.map(|c| &c.op) {
+        Some(Operation::DateHistogram {
+            interval: crate::model::Interval::Every { count, unit },
+            ..
+        }) => fixed_ms(*count, *unit),
+        _ => None,
+    };
+    let shortest = starts
+        .windows(2)
+        .map(|w| w[1] - w[0])
+        .fold(f64::INFINITY, f64::min);
+    let shortest = if shortest.is_finite() {
+        shortest
+    } else {
+        86_400_000.0
+    };
+    let cap = fixed.unwrap_or(shortest * 1.15);
+    starts
+        .iter()
+        .enumerate()
+        .map(|(i, s)| match starts.get(i + 1) {
+            Some(next) if next - s <= cap => *next,
+            _ => s + fixed.unwrap_or(shortest),
+        })
+        .collect()
+}
+
+/// The length of a fixed interval; `None` for months and longer.
+fn fixed_ms(count: u32, unit: crate::model::IntervalUnit) -> Option<f64> {
+    use crate::model::IntervalUnit as U;
+    let ms = match unit {
+        U::Millisecond => 1.0,
+        U::Second => 1e3,
+        U::Minute => 60e3,
+        U::Hour => 3_600e3,
+        U::Day => 86_400e3,
+        U::Week => 604_800e3,
+        _ => return None,
+    };
+    Some(count as f64 * ms)
 }
 
 fn main_layer_data<'a>(
@@ -474,6 +766,8 @@ fn empty() -> Xy {
         band: None,
         log_scale: false,
         reference_lines: Vec::new(),
+        bin_ends: Vec::new(),
+        x_format: None,
     }
 }
 
@@ -640,5 +934,139 @@ mod tests {
     fn unsplit_series_use_the_column_label() {
         let d = data(vec![("x", vec![N(1.0)]), ("y", vec![N(3.0)])]);
         assert_eq!(xy(&chart(false), &d, None).series[0].label, "Y");
+    }
+
+    #[test]
+    fn percentiles_are_nearest_rank() {
+        let values: Vec<f64> = (1..=20).map(f64::from).collect();
+        assert_eq!(percentile(&values, 50.0), Some(10.0));
+        assert_eq!(percentile(&values, 85.0), Some(17.0), "17 of 20 are ≤ 17");
+        assert_eq!(percentile(&values, 95.0), Some(19.0));
+        assert_eq!(percentile(&values, 100.0), Some(20.0));
+        assert_eq!(
+            percentile(&[3.0, 1.0, 2.0], 1.0),
+            Some(1.0),
+            "unsorted input"
+        );
+        assert_eq!(percentile(&[], 50.0), None);
+        assert_eq!(percentile(&values, 0.0), None);
+    }
+
+    fn heatmap_chart(y_op: Operation) -> Chart {
+        let mut c = chart(false);
+        let layer = &mut c.layers[0];
+        layer.columns.insert(1, col("h", y_op));
+        layer.encoding = Encoding::Heatmap {
+            x: "x".into(),
+            y: Some("h".into()),
+            value: "y".into(),
+        };
+        c.kind = crate::model::ChartKind::Heatmap;
+        c
+    }
+
+    #[test]
+    fn heatmaps_pivot_rows_into_cells_with_numeric_rows_upwards() {
+        let c = heatmap_chart(Operation::LogHistogram {
+            field: "f".into(),
+            min: 1.0,
+            max: 100.0,
+            per_decade: 1,
+        });
+        let d = data(vec![
+            ("x", vec![N(2.0), N(2.0), N(1.0)]),
+            ("h", vec![N(10.0), N(1.0), N(1.0)]),
+            ("y", vec![N(4.0), N(5.0), N(6.0)]),
+        ]);
+        let hm = heatmap(&c, &d);
+        assert_eq!(hm.x, XAxis::Time(vec![1.0, 2.0]));
+        assert_eq!(
+            hm.y,
+            ["< 10", "≥ 10"],
+            "bounds 1, 10, 100: two open buckets"
+        );
+        assert_eq!(
+            hm.cells,
+            [vec![Some(6.0), None], vec![Some(5.0), Some(4.0)]]
+        );
+        assert_eq!(hm.extent(), Some((4.0, 6.0)));
+        assert_eq!(hm.label, "Y");
+    }
+
+    #[test]
+    fn heatmap_categories_keep_table_order_from_the_top() {
+        let c = heatmap_chart(Operation::Terms {
+            fields: vec!["team".into()],
+            size: 3,
+            order: TermsOrder::Count,
+            other_bucket: false,
+            missing_bucket: false,
+        });
+        let d = data(vec![
+            ("x", vec![N(1.0), N(1.0)]),
+            ("h", vec![T("big".into()), T("small".into())]),
+            ("y", vec![N(9.0), N(1.0)]),
+        ]);
+        let hm = heatmap(&c, &d);
+        assert_eq!(hm.y, ["small", "big"], "bottom to top");
+        assert_eq!(hm.cells, [vec![Some(1.0), Some(9.0)]]);
+    }
+
+    #[test]
+    fn time_buckets_end_at_the_next_or_after_one_interval() {
+        const WEEK: f64 = 604_800_000.0;
+        let weekly = col(
+            "x",
+            Operation::DateHistogram {
+                field: "t".into(),
+                interval: "1w".parse().unwrap(),
+                include_empty: false,
+            },
+        );
+        // A missing week between the second and third.
+        let starts = [0.0, WEEK, 3.0 * WEEK];
+        assert_eq!(
+            bucket_ends(&starts, Some(&weekly)),
+            [WEEK, 2.0 * WEEK, 4.0 * WEEK]
+        );
+        // Auto intervals use the shortest gap.
+        assert_eq!(bucket_ends(&starts, None), [WEEK, 2.0 * WEEK, 4.0 * WEEK]);
+    }
+
+    #[test]
+    fn log_buckets_read_as_ranges() {
+        let bounds = crate::model::log_bounds(2.0, 2000.0, 3);
+        let hours = Some(Format {
+            kind: crate::model::FormatKind::Number,
+            decimals: None,
+            suffix: Some(" h".into()),
+            compact: false,
+        });
+        let label = |k| log_range_label(k, &bounds, hours.as_ref()).unwrap();
+        assert_eq!(label(2.0), "< 5 h");
+        assert_eq!(label(5.0), "5–10 h");
+        assert_eq!(label(1000.0), "≥ 1,000 h");
+        assert_eq!(log_range_label(3.0, &bounds, None), None);
+    }
+
+    #[test]
+    fn log_histogram_bars_are_bins_to_the_next_bound() {
+        let mut c = chart(false);
+        c.layers[0].columns[0] = col(
+            "x",
+            Operation::LogHistogram {
+                field: "f".into(),
+                min: 1.0,
+                max: 100.0,
+                per_decade: 3,
+            },
+        );
+        let d = data(vec![
+            ("x", vec![N(1.0), N(2.0), N(50.0)]),
+            ("y", vec![N(1.0); 3]),
+        ]);
+        let xy = xy(&c, &d, None);
+        assert_eq!(xy.x, XAxis::Numeric(vec![1.0, 2.0, 50.0]));
+        assert_eq!(xy.bin_ends, [2.0, 5.0, 100.0]);
     }
 }

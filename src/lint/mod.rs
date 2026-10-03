@@ -294,6 +294,7 @@ fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Probl
             (Encoding::Metric { .. }, ChartKind::Metric)
                 | (Encoding::Pie { .. }, ChartKind::Pie | ChartKind::Donut)
                 | (Encoding::Table { .. }, ChartKind::Table)
+                | (Encoding::Heatmap { .. }, ChartKind::Heatmap)
                 | (
                     Encoding::Xy { .. }
                         | Encoding::Band { .. }
@@ -313,6 +314,40 @@ fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Probl
                 format!("{at}.encoding"),
                 "scatter charts need a document layer",
             ));
+        }
+        if let Encoding::Heatmap { x, y, value } = &layer.encoding {
+            for axis in [Some(x), y.as_ref()].into_iter().flatten() {
+                if layer.column(axis).is_some_and(|c| !c.op.is_bucket()) {
+                    problems.push(Problem::error(
+                        format!("{at}.encoding"),
+                        format!("heatmap axis {axis:?} must be a bucket column"),
+                    ));
+                }
+            }
+            if layer.column(value).is_some_and(|c| c.op.is_bucket()) {
+                problems.push(Problem::error(
+                    format!("{at}.encoding"),
+                    format!("heatmap value {value:?} must be a metric, not a bucket column"),
+                ));
+            }
+        }
+        if let Encoding::Scatter { percentiles, .. } = &layer.encoding
+            && let Some(p) = percentiles.iter().find(|p| !(**p > 0.0 && **p <= 100.0))
+        {
+            problems.push(Problem::error(
+                format!("{at}.encoding.percentiles"),
+                format!("percentile {p} is outside 0–100"),
+            ));
+        }
+        for (c, column) in layer.columns.iter().enumerate() {
+            if let Operation::LogHistogram { min, max, .. } = column.op
+                && !(min > 0.0 && max > min)
+            {
+                problems.push(Problem::error(
+                    format!("{at}.columns[{c}]"),
+                    format!("log_histogram needs 0 < min < max (got {min} and {max})"),
+                ));
+            }
         }
         if matches!(layer.encoding, Encoding::ReferenceLines { .. }) {
             if layer.columns.iter().any(|c| c.op.is_bucket()) || layer.documents.is_some() {
@@ -386,7 +421,8 @@ fn needs(op: &Operation) -> Option<(&str, Need)> {
         | Operation::Percentile { field, .. }
         | Operation::PercentileRank { field, .. }
         | Operation::Histogram { field, .. }
-        | Operation::Ranges { field, .. } => (field, Need::Numeric),
+        | Operation::Ranges { field, .. }
+        | Operation::LogHistogram { field, .. } => (field, Need::Numeric),
         Operation::Min { field } | Operation::Max { field } => (field, Need::Sortable),
         Operation::UniqueCount { field } => (field, Need::Aggregatable),
         Operation::LastValue { field, .. } | Operation::Value { field } => (field, Need::Any),

@@ -16,7 +16,7 @@ Versions: `8.19` is Kibana 8.19.22, `9.5` is Kibana 9.5.3.
 ## What the exports cover
 
 - **Lens, by value:**
-  - Chart types: XY (line, bar, stacked bar, percentage bar, stacked area, horizontal bar), metric (including a time-shifted secondary metric), pie/donut and datatable.
+  - Chart types: XY (line, bar, stacked bar, percentage bar, stacked area, horizontal bar), metric (including a time-shifted secondary metric), pie/donut, datatable and heatmap (deployments per month by team, with cell labels).
   - Operations: count, sum, average, median, percentile, unique_count, last_value, date_histogram, terms, filters, range (histogram), formula (with its expanded `math`/`tinymathAst` helper columns), moving_average, cumulative_sum and differences.
   - Per-column KQL and Lucene filters, `timeShift`, and `timeScale` (normalize by unit: a monthly table and a whole-range tile).
   - Reference-line layers: a static target shaded below, and an average over the whole range (line chart); a static line across horizontal bars.

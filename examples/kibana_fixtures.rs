@@ -421,6 +421,21 @@ fn static_value(value: f64, label: &str) -> Value {
     })
 }
 
+/// A Lens heatmap with Kibana's defaults (temperature palette), and cell
+/// labels on so the reference screenshot shows every number.
+fn heatmap_vis(layer: &str, x: &str, y: &str, value: &str) -> Value {
+    json!({
+        "shape": "heatmap", "layerId": layer, "layerType": "data",
+        "xAccessor": x, "yAccessor": y, "valueAccessor": value,
+        "legend": { "isVisible": true, "position": "right", "maxLines": 1, "type": "heatmap_legend" },
+        "gridConfig": {
+            "type": "heatmap_grid", "isCellLabelVisible": true,
+            "isYAxisLabelVisible": true, "isXAxisLabelVisible": true,
+            "isYAxisTitleVisible": false, "isXAxisTitleVisible": false
+        }
+    })
+}
+
 fn metric_vis(layer: &str, metric: &str, secondary: Option<&str>) -> Value {
     let mut v = json!({ "layerId": layer, "layerType": "data", "metricAccessor": metric });
     if let Some(s) = secondary {
@@ -823,6 +838,23 @@ fn delivery_overview() -> Value {
             static_value(24.0, "One day"),
             json!({ "axisMode": "left", "color": "#E7664C", "lineStyle": "solid", "lineWidth": 2, "fill": "none", "textVisibility": true }),
         )],
+    );
+
+    // A heatmap: deployments per month and team.
+    let l = layer_of("team-heatmap");
+    d.lens(
+        "team-heatmap",
+        Grid(0, 73, 48, 14),
+        "Deployments per month by team",
+        "lnsHeatmap",
+        DV_DEPLOYS,
+        vec![
+            col("hm-team", terms("team", 10, "hm-n")),
+            col("hm-month", date_histogram("deployed_at", "1M")),
+            col("hm-n", count("Deployments")),
+        ],
+        heatmap_vis(&l, "hm-month", "hm-team", "hm-n"),
+        "",
     );
 
     dashboard_object(

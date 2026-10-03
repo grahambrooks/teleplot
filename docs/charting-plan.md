@@ -4,12 +4,12 @@ Status: decided, 2026-10-03. The research behind this plan was carried out the
 same day, and sources are linked inline. It sits alongside `docs/mcp-plan.md`
 and does not repeat items that plan owns: the query inspector (gap 2),
 annotations (gap 3), ES|QL (gap 4) and baseline comparison/BubbleUp (gap 6).
-A1 and A2 are done. The remaining items are ordered, with the mcp-plan gaps, in
+A1, A2, A5 and B1–B3 are done. The remaining items are ordered, with the mcp-plan gaps, in
 [`roadmap.md`](roadmap.md).
 
 ## Context
 
-Teleplot draws five chart kinds: `xy`, `metric`, `pie`/`donut` and `table`.
+Teleplot drew five chart kinds when this plan was written: `xy`, `metric`, `pie`/`donut` and `table`.
 On `xy` it also has `band` and `scatter` encodings (`src/model/mod.rs`). The
 research looked at three things: Kibana 9.0–9.5; Grafana 12/13, the
 Prometheus 3 UI and Perses; and the delivery-analytics tools. It found two
