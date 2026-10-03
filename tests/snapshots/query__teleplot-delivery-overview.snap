@@ -424,6 +424,85 @@ expression: "searches(&d, &stats)"
       "index": "delivery-deployments"
     }
   ],
+  "per-day": [
+    {
+      "body": {
+        "aggs": {
+          "root": {
+            "aggs": {},
+            "filter": {
+              "match_all": {}
+            }
+          }
+        },
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "deployed_at": {
+                    "format": "epoch_millis",
+                    "gte": 1775001600000,
+                    "lte": 1790899200000
+                  }
+                }
+              }
+            ],
+            "must_not": []
+          }
+        },
+        "size": 0,
+        "track_total_hits": false
+      },
+      "index": "delivery-deployments"
+    }
+  ],
+  "per-day-monthly": [
+    {
+      "body": {
+        "aggs": {
+          "root": {
+            "aggs": {
+              "b0": {
+                "date_histogram": {
+                  "calendar_interval": "1M",
+                  "extended_bounds": {
+                    "max": 1790899200000,
+                    "min": 1775001600000
+                  },
+                  "field": "deployed_at",
+                  "min_doc_count": 0,
+                  "time_zone": "UTC"
+                }
+              }
+            },
+            "filter": {
+              "match_all": {}
+            }
+          }
+        },
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "deployed_at": {
+                    "format": "epoch_millis",
+                    "gte": 1775001600000,
+                    "lte": 1790899200000
+                  }
+                }
+              }
+            ],
+            "must_not": []
+          }
+        },
+        "size": 0,
+        "track_total_hits": false
+      },
+      "index": "delivery-deployments"
+    }
+  ],
   "recovery": [
     {
       "body": {

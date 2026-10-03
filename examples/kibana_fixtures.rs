@@ -127,6 +127,12 @@ fn with_time_shift(mut column: Value, shift: &str) -> Value {
     column
 }
 
+/// Lens "normalize by unit": `s`, `m`, `h` or `d`.
+fn with_time_scale(mut column: Value, unit: &str) -> Value {
+    column["timeScale"] = json!(unit);
+    column
+}
+
 fn with_format(mut column: Value, format: Value) -> Value {
     column["params"]["format"] = format;
     column
@@ -664,6 +670,42 @@ fn delivery_overview() -> Value {
         cols,
         table,
         "is_rework : false",
+    );
+
+    // Normalized by unit: calendar months of different lengths, and a last
+    // month the time range cuts short, are each divided by their own length.
+    let l = layer_of("per-day-monthly");
+    let table = json!({
+        "layerId": l, "layerType": "data",
+        "columns": [{ "columnId": "pd-x" }, { "columnId": "pd-n" }]
+    });
+    d.lens(
+        "per-day-monthly",
+        Grid(0, 49, 24, 12),
+        "Deployments per day (monthly)",
+        "lnsDatatable",
+        DV_DEPLOYS,
+        vec![
+            col("pd-x", date_histogram("deployed_at", "1M")),
+            col("pd-n", with_time_scale(count("Deployments per day"), "d")),
+        ],
+        table,
+        "",
+    );
+
+    let l = layer_of("per-day");
+    d.lens(
+        "per-day",
+        Grid(24, 49, 24, 12),
+        "Deployments per day",
+        "lnsMetric",
+        DV_DEPLOYS,
+        vec![col(
+            "pt-n",
+            with_time_scale(count("Deployments per day"), "d"),
+        )],
+        metric_vis(&l, "pt-n", None),
+        "",
     );
 
     dashboard_object(

@@ -156,6 +156,9 @@ struct Built {
     groups: Vec<ShiftGroup>,
     /// Set for document layers: which field fills which column.
     documents: Option<Vec<DocField>>,
+    /// The time range and zone, for normalizing by unit ([`Column::per`]).
+    range: Range,
+    time_zone: jiff::tz::TimeZone,
 }
 
 #[derive(Debug)]
@@ -173,7 +176,8 @@ struct BucketSpec {
 
 #[derive(Debug)]
 enum BucketKind {
-    Date,
+    /// A date histogram, with the length of one bucket.
+    Date(jiff::Span),
     Terms,
     Filters(Vec<String>),
     Numeric,
@@ -332,7 +336,7 @@ fn build_layer(
         let mut tree = Value::Object(metric_aggs);
         for (i, (spec, agg)) in buckets.iter().zip(&bucket_aggs).enumerate().rev() {
             let mut agg = agg.clone();
-            if let BucketKind::Date = spec.kind {
+            if let BucketKind::Date(_) = spec.kind {
                 agg["date_histogram"]["extended_bounds"] =
                     json!({ "min": range.from_ms, "max": range.to_ms });
             }
@@ -369,6 +373,8 @@ fn build_layer(
         buckets,
         groups,
         documents: None,
+        range: ctx.range,
+        time_zone: time_zone(ctx),
     })
 }
 
@@ -438,7 +444,55 @@ fn build_documents(
             },
         }],
         documents: Some(doc_fields),
+        range: ctx.range,
+        time_zone: time_zone(ctx),
     })
+}
+
+/// The context's zone; UTC if it is not a known IANA name.
+fn time_zone(ctx: &Context) -> jiff::tz::TimeZone {
+    jiff::tz::TimeZone::get(ctx.time_zone).unwrap_or(jiff::tz::TimeZone::UTC)
+}
+
+/// [`bucket_lengths`], when some column is normalized by unit.
+fn per_lengths(
+    plan: &LayerPlan,
+    built: &Built,
+    columns: &HashMap<String, Vec<Cell>>,
+    rows: usize,
+) -> Vec<f64> {
+    if plan.layer.columns.iter().any(|c| c.per.is_some()) {
+        bucket_lengths(built, columns, rows)
+    } else {
+        Vec::new()
+    }
+}
+
+/// The length in milliseconds of each row's time bucket, for [`Column::per`]:
+/// the date histogram bucket clipped to the time range, or the whole range
+/// when there is no date histogram (Kibana's `lens_time_scale`).
+fn bucket_lengths(built: &Built, columns: &HashMap<String, Vec<Cell>>, rows: usize) -> Vec<f64> {
+    let (from, to) = (built.range.from_ms, built.range.to_ms);
+    let date = built.buckets.iter().find_map(|b| match b.kind {
+        BucketKind::Date(span) => Some((&columns[&b.column], span)),
+        _ => None,
+    });
+    let Some((starts, span)) = date else {
+        return vec![(to - from) as f64; rows];
+    };
+    starts
+        .iter()
+        .map(|start| {
+            let Some(start) = start.number().map(|ms| ms as i64) else {
+                return f64::NAN;
+            };
+            let end = jiff::Timestamp::from_millisecond(start)
+                .ok()
+                .and_then(|t| t.to_zoned(built.time_zone.clone()).checked_add(span).ok())
+                .map_or(start, |z| z.timestamp().as_millisecond());
+            (end.min(to) - start.max(from)) as f64
+        })
+        .collect()
 }
 
 fn fields(ctx: &Context, view: &DataView) -> Vec<Field> {
@@ -543,7 +597,10 @@ fn bucket_agg(
             for (k, v) in resolved.es.as_object().unwrap() {
                 agg[k] = v.clone();
             }
-            (BucketKind::Date, json!({ "date_histogram": agg }))
+            (
+                BucketKind::Date(interval::span(&resolved.es)),
+                json!({ "date_histogram": agg }),
+            )
         }
         Operation::Terms {
             fields: terms_fields,
@@ -774,7 +831,12 @@ fn evaluate_layer(
     responses: &[Option<&Result<Value, String>>],
 ) -> Result<LayerData, String> {
     if let Some(doc_fields) = &built.documents {
-        return evaluate_documents(plan, doc_fields, responses.first().copied().flatten());
+        return evaluate_documents(
+            plan,
+            built,
+            doc_fields,
+            responses.first().copied().flatten(),
+        );
     }
     let mut tables = Vec::new();
     for (group, response) in built.groups.iter().zip(responses) {
@@ -830,7 +892,14 @@ fn evaluate_layer(
         }
     }
 
-    compute::computed_columns(&plan.layer, &built_bucket_kinds(built), n, &mut columns)?;
+    let lengths = per_lengths(plan, built, &columns, n);
+    compute::computed_columns(
+        &plan.layer,
+        &built_bucket_kinds(built),
+        n,
+        &lengths,
+        &mut columns,
+    )?;
 
     let series = plan
         .layer
@@ -853,6 +922,7 @@ fn evaluate_layer(
 
 fn evaluate_documents(
     plan: &LayerPlan,
+    built: &Built,
     doc_fields: &[DocField],
     response: Option<&Result<Value, String>>,
 ) -> Result<LayerData, String> {
@@ -880,7 +950,8 @@ fn evaluate_documents(
             .collect();
         columns.insert(d.column.clone(), values);
     }
-    compute::computed_columns(&plan.layer, &[], n, &mut columns)?;
+    let lengths = per_lengths(plan, built, &columns, n);
+    compute::computed_columns(&plan.layer, &[], n, &lengths, &mut columns)?;
     let series = plan
         .layer
         .columns
@@ -904,7 +975,7 @@ fn built_bucket_kinds(built: &Built) -> Vec<(String, bool)> {
     built
         .buckets
         .iter()
-        .map(|b| (b.column.clone(), matches!(b.kind, BucketKind::Date)))
+        .map(|b| (b.column.clone(), matches!(b.kind, BucketKind::Date(_))))
         .collect()
 }
 
@@ -912,7 +983,7 @@ fn key_of(keys: &[Cell], specs: &[BucketSpec], shift_ms: i64) -> Vec<String> {
     keys.iter()
         .zip(specs)
         .map(|(k, spec)| match (k, &spec.kind) {
-            (Cell::Number(ms), BucketKind::Date) => format!("{}", *ms as i64 + shift_ms),
+            (Cell::Number(ms), BucketKind::Date(_)) => format!("{}", *ms as i64 + shift_ms),
             (Cell::Number(n), _) => format!("{n}"),
             (Cell::Text(t), _) => t.clone(),
             (Cell::Null, _) => String::new(),
@@ -953,7 +1024,7 @@ fn flatten(
     };
     for (i, bucket) in list.iter().enumerate() {
         let key = match &spec.kind {
-            BucketKind::Date | BucketKind::Numeric => {
+            BucketKind::Date(_) | BucketKind::Numeric => {
                 bucket["key"].as_f64().map_or(Cell::Null, Cell::Number)
             }
             BucketKind::Filters(labels) => Cell::Text(labels.get(i).cloned().unwrap_or_default()),
@@ -1009,5 +1080,81 @@ fn read(bucket: &Value, agg: &Value, how: &Read) -> Cell {
             Read::TopHit(_) => read(agg, &agg["v"], inner),
             other => read(agg, &agg["v"], other),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use jiff::ToSpan;
+
+    const DAY: f64 = 86_400_000.0;
+
+    fn ms(s: &str) -> f64 {
+        s.parse::<jiff::Timestamp>().unwrap().as_millisecond() as f64
+    }
+
+    fn built(span: Option<jiff::Span>, from: &str, to: &str, tz: &str) -> Built {
+        Built {
+            buckets: span
+                .map(|span| BucketSpec {
+                    column: "x".into(),
+                    kind: BucketKind::Date(span),
+                })
+                .into_iter()
+                .collect(),
+            groups: Vec::new(),
+            documents: None,
+            range: Range {
+                from_ms: ms(from) as i64,
+                to_ms: ms(to) as i64,
+            },
+            time_zone: jiff::tz::TimeZone::get(tz).unwrap(),
+        }
+    }
+
+    #[test]
+    fn bucket_lengths_are_calendar_months_clipped_to_the_range() {
+        let b = built(
+            Some(1.month()),
+            "2026-04-01T00:00:00Z",
+            "2026-10-02T00:00:00Z",
+            "UTC",
+        );
+        let starts = [
+            "2026-04-01T00:00:00Z",
+            "2026-05-01T00:00:00Z",
+            "2026-10-01T00:00:00Z",
+        ];
+        let columns = HashMap::from([(
+            "x".to_string(),
+            starts.iter().map(|s| Cell::Number(ms(s))).collect(),
+        )]);
+        assert_eq!(
+            bucket_lengths(&b, &columns, 3),
+            vec![30.0 * DAY, 31.0 * DAY, DAY]
+        );
+    }
+
+    #[test]
+    fn bucket_lengths_follow_daylight_saving_in_the_zone() {
+        // Europe/London springs forward on 2026-03-29: that day is 23 hours.
+        let b = built(
+            Some(1.day()),
+            "2026-03-01T00:00:00Z",
+            "2026-04-01T00:00:00Z",
+            "Europe/London",
+        );
+        let columns = HashMap::from([(
+            "x".to_string(),
+            vec![Cell::Number(ms("2026-03-29T00:00:00Z"))],
+        )]);
+        assert_eq!(bucket_lengths(&b, &columns, 1), vec![23.0 * 3_600_000.0]);
+    }
+
+    #[test]
+    fn without_a_date_histogram_the_bucket_is_the_whole_range() {
+        let b = built(None, "2026-04-01T00:00:00Z", "2026-04-08T00:00:00Z", "UTC");
+        assert_eq!(bucket_lengths(&b, &HashMap::new(), 2), vec![7.0 * DAY; 2]);
     }
 }

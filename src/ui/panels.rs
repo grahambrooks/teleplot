@@ -216,7 +216,7 @@ fn low_sample_note(xy: &series::Xy, min: Option<u32>) -> Option<AnyView> {
 fn display(cell: &Cell, column: Option<&Column>, tz: &str) -> String {
     match (cell, column.map(|c| &c.op)) {
         (Cell::Number(ms), Some(Operation::DateHistogram { .. })) => date(*ms, tz),
-        (Cell::Number(n), _) => format::value(*n, column.and_then(|c| c.format.as_ref())),
+        (Cell::Number(n), _) => format::value(*n, column.and_then(|c| c.display_format()).as_ref()),
         (other, _) => cell_text(other),
     }
 }
@@ -314,7 +314,7 @@ fn metric_tile(
     min_samples: Option<u32>,
 ) -> AnyView {
     let main = match value {
-        Cell::Number(n) => format::value(*n, column.format.as_ref()),
+        Cell::Number(n) => format::value(*n, column.display_format().as_ref()),
         other => cell_text(other),
     };
     let band = value
@@ -326,7 +326,7 @@ fn metric_tile(
         });
     let compare = secondary.map(|(col, cell, comparable)| {
         let shown = match &cell {
-            Cell::Number(n) => format::value(*n, col.format.as_ref()),
+            Cell::Number(n) => format::value(*n, col.display_format().as_ref()),
             Cell::Null => "–".to_string(),
             other => cell_text(other),
         };

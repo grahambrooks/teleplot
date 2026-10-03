@@ -11,7 +11,7 @@ use super::objects::{
 use super::{broken, out_of_scope, search, unparseable};
 use crate::model::{
     Chart, ChartKind, Column, DataView, Encoding, Expr, Format, FormatKind, Interval, Layer,
-    NamedQuery, Operation, OverallFunction, Placeholder, Range, SeriesType, TermsOrder,
+    NamedQuery, Operation, OverallFunction, PerUnit, Placeholder, Range, SeriesType, TermsOrder,
 };
 
 /// Converts Lens saved-object attributes. `refs` are the references visible
@@ -391,6 +391,14 @@ fn column(id: &str, c: &Value, all: &Map<String, Value>) -> Result<Option<Column
         op,
         filter,
         time_shift: str_field(c, "timeShift").map(String::from),
+        per: match str_field(c, "timeScale") {
+            None => None,
+            Some("s") => Some(PerUnit::Second),
+            Some("m") => Some(PerUnit::Minute),
+            Some("h") => Some(PerUnit::Hour),
+            Some("d") => Some(PerUnit::Day),
+            Some(other) => return Err(format!("unsupported Lens time scale {other:?}")),
+        },
         format: format(&params["format"]),
         helper: false,
         thresholds: Vec::new(),

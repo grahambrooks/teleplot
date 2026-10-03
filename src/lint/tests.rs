@@ -183,3 +183,34 @@ fn offline_checks_skip_the_cluster() {
     let d = parse(d).unwrap();
     assert_eq!(check(&d, None), [], "field checks need field caps");
 }
+
+#[test]
+fn only_metrics_are_normalized_by_unit() {
+    let mut d = reference();
+    let (p, c) = d["panels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+        .find_map(|(p, panel)| {
+            let columns = panel["content"]["layers"][0]["columns"].as_array()?;
+            let c = columns.iter().position(|c| c["op"] == "date_histogram")?;
+            Some((p, c))
+        })
+        .unwrap();
+    let column = &mut d["panels"][p]["content"]["layers"][0]["columns"][c];
+    column["per"] = json!("day");
+    let found = problems(d.clone());
+    let problem = only(&found);
+    assert_eq!(
+        problem.path,
+        format!("panels[{p}].content.layers[0].columns[{c}].per")
+    );
+
+    d["panels"][p]["content"]["layers"][0]["columns"][c]
+        .as_object_mut()
+        .unwrap()
+        .remove("per");
+    d["panels"][p]["content"]["layers"][0]["columns"][c + 1]["per"] = json!("week");
+    assert_eq!(problems(d), []);
+}

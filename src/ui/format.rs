@@ -150,6 +150,25 @@ mod tests {
     }
 
     #[test]
+    fn normalized_columns_carry_kibanas_unit_suffix() {
+        let column = |per: &str, format: &str| -> crate::model::Column {
+            serde_yaml_ng::from_str(&format!("{{ id: c, op: count, per: {per}{format} }}")).unwrap()
+        };
+        let shown = |c: crate::model::Column, v| value(v, c.display_format().as_ref());
+        assert_eq!(shown(column("day", ""), 6.1333333), "6.133/d");
+        assert_eq!(
+            shown(
+                column(
+                    "week",
+                    ", format: { kind: number, decimals: 1, suffix: ' h' }"
+                ),
+                3.04
+            ),
+            "3.0 h/w"
+        );
+    }
+
+    #[test]
     fn changes() {
         assert_eq!(change(110.0, 100.0), Some(10.0));
         assert_eq!(change(5.0, 0.0), None);

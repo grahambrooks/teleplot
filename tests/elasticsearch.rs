@@ -149,6 +149,17 @@ async fn dora_overview_matches_kibana() {
             assert_shown(lead[i].number().unwrap(), median, 1, team);
             assert_shown(cfr[i].number().unwrap() * 100.0, pct, 1, team);
         }
+
+        // Normalized by unit: each calendar month divided by its own length,
+        // and October by the one day of it inside the range.
+        let per_day = column(&data, "per-day-monthly", "pd-n");
+        let shown = [6.133, 5.71, 6.467, 5.71, 5.645, 6.467, 9.0];
+        assert_eq!(per_day.len(), shown.len(), "{version}");
+        for (i, (cell, shown)) in per_day.iter().zip(shown).enumerate() {
+            assert_shown(cell.number().unwrap(), shown, 3, &format!("month {i}"));
+        }
+        // Without a date histogram: the whole range (184 days).
+        assert_shown(number(&data, "per-day", "pt-n"), 6.033, 3, "per day");
     }
 }
 

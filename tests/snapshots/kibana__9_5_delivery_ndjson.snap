@@ -452,6 +452,60 @@ panels:
         - tt-n
         - tt-lead
         - tt-cfr
+- id: per-day-monthly
+  title: Deployments per day (monthly)
+  grid:
+    x: 0
+    y: 49
+    w: 24
+    h: 12
+  content:
+    type: chart
+    kind: table
+    layers:
+    - id: layer-per-day-monthly
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      columns:
+      - id: pd-x
+        label: deployed_at
+        op: date_histogram
+        field: deployed_at
+        interval: 1M
+        include_empty: true
+      - id: pd-n
+        label: Deployments per day
+        op: count
+        per: day
+      encoding:
+        as: table
+        columns:
+        - pd-x
+        - pd-n
+- id: per-day
+  title: Deployments per day
+  grid:
+    x: 24
+    y: 49
+    w: 24
+    h: 12
+  content:
+    type: chart
+    kind: metric
+    layers:
+    - id: layer-per-day
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      columns:
+      - id: pt-n
+        label: Deployments per day
+        op: count
+        per: day
+      encoding:
+        as: metric
+        value: pt-n
 ---
 id: teleplot-pr-flow
 title: '[Delivery] PR flow'

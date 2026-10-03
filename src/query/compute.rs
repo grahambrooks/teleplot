@@ -7,16 +7,31 @@
 
 use std::collections::HashMap;
 
-use crate::model::{Cell, Expr, Layer, Operation, OverallFunction};
+use crate::model::{Cell, Expr, Layer, Operation, OverallFunction, PerUnit};
 
 /// Fills in every computed column of `layer`. `buckets` are the bucket
 /// columns with whether each is a date histogram.
+///
+/// Columns with [`per`](crate::model::Column::per) are normalized by
+/// `lengths`, each row's bucket length in milliseconds: fetched columns
+/// first, computed ones once computed, so a formula sees normalized inputs
+/// and a normalized `differences` is a rate, as in Kibana.
 pub fn computed_columns(
     layer: &Layer,
     buckets: &[(String, bool)],
     rows: usize,
+    lengths: &[f64],
     columns: &mut HashMap<String, Vec<Cell>>,
 ) -> Result<(), String> {
+    for column in &layer.columns {
+        if let Some(per) = column.per
+            && column.op.inputs().is_empty()
+            && let Some(values) = columns.get_mut(&column.id)
+        {
+            per_unit(values, per, lengths);
+        }
+    }
+
     let by: Vec<&str> = buckets
         .iter()
         .filter(|(_, date)| !date)
@@ -69,9 +84,27 @@ pub fn computed_columns(
             }
             other => return Err(format!("{other:?} is not computed")),
         };
+        let mut values = values;
+        if let Some(per) = column.per {
+            per_unit(&mut values, per, lengths);
+        }
         columns.insert(column.id.clone(), values);
     }
     Ok(())
+}
+
+/// Kibana's `lens_time_scale`: each value divided by its bucket's length in
+/// `per` units. Empty values, and buckets with no length, stay empty.
+fn per_unit(values: &mut [Cell], per: PerUnit, lengths: &[f64]) {
+    for (cell, length) in values.iter_mut().zip(lengths) {
+        if let Cell::Number(v) = cell {
+            *cell = if *length > 0.0 {
+                Cell::Number(*v / (length / per.ms()))
+            } else {
+                Cell::Null
+            };
+        }
+    }
 }
 
 fn numbers(cells: &[Cell]) -> Vec<Option<f64>> {
@@ -271,6 +304,29 @@ mod tests {
 
     fn one_partition(n: usize) -> Vec<String> {
         vec![String::new(); n]
+    }
+
+    #[test]
+    fn per_unit_divides_by_bucket_length_and_scales_computed_columns_after() {
+        let layer: Layer = serde_yaml_ng::from_str(
+            r#"
+id: l
+data_view: { index: i }
+columns:
+  - { id: n, op: count, per: day }
+  - { id: d, op: differences, of: n, per: hour }
+  - { id: f, op: formula, text: "n * 2", expr: { call: multiply, args: [n, 2] } }
+encoding: { as: table, columns: [n, d, f] }
+"#,
+        )
+        .unwrap();
+        let day = 86_400_000.0;
+        let mut columns = HashMap::from([("n".to_string(), cells(&[Some(14.0), Some(7.0), None]))]);
+        computed_columns(&layer, &[], 3, &[7.0 * day, day, day], &mut columns).unwrap();
+        assert_eq!(columns["n"], cells(&[Some(2.0), Some(7.0), None]));
+        // differences of the normalized values (5), then per hour of a day.
+        assert_eq!(columns["d"], cells(&[None, Some(5.0 / 24.0), None]));
+        assert_eq!(columns["f"], cells(&[Some(4.0), Some(14.0), None]));
     }
 
     #[test]

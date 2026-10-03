@@ -2,6 +2,7 @@
 //! imported dashboards bucket identically (`histogram:barTarget` 50,
 //! `histogram:maxBars` 100 by default).
 
+use jiff::{Span, ToSpan};
 use serde_json::{Value, json};
 
 use crate::model::{Interval, IntervalUnit};
@@ -132,6 +133,32 @@ fn es_interval(ms: i64) -> Value {
     json!({ "fixed_interval": format!("{}ms", ms.max(1)) })
 }
 
+/// One bucket of `es` (from [`Resolved::es`]) as a calendar span: added to a
+/// bucket's start in its time zone, it gives the bucket's end. Days, weeks,
+/// months and years are calendar units, as when moment.js adds Kibana's
+/// interval (so a day across a DST change is 23 or 25 hours).
+pub fn span(es: &Value) -> Span {
+    let text = es
+        .get("calendar_interval")
+        .or_else(|| es.get("fixed_interval"))
+        .and_then(Value::as_str)
+        .unwrap_or("1ms");
+    let split = text
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(text.len());
+    let n: i64 = text[..split].parse().unwrap_or(1);
+    match &text[split..] {
+        "y" => n.years(),
+        "M" => n.months(),
+        "w" => n.weeks(),
+        "d" => n.days(),
+        "h" => n.hours(),
+        "m" => n.minutes(),
+        "s" => n.seconds(),
+        _ => n.milliseconds(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,6 +209,22 @@ mod tests {
         let r = resolve("1h".parse().unwrap(), 30 * DAY, 50, 100);
         assert_eq!(r.es, json!({ "fixed_interval": "3h" }));
         assert_eq!(r.scaled_from.as_deref(), Some("1h"));
+    }
+
+    #[test]
+    fn spans_are_calendar_units() {
+        assert_eq!(
+            span(&json!({ "calendar_interval": "1M" })).fieldwise(),
+            1.month().fieldwise()
+        );
+        assert_eq!(
+            span(&json!({ "fixed_interval": "14d" })).fieldwise(),
+            14.days().fieldwise()
+        );
+        assert_eq!(
+            span(&json!({ "fixed_interval": "100ms" })).fieldwise(),
+            100.milliseconds().fieldwise()
+        );
     }
 
     #[test]

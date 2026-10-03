@@ -341,6 +341,12 @@ pub struct Column {
     /// Kibana time shift, e.g. `1w` or `previous`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub time_shift: Option<String>,
+    /// Kibana's "normalize by unit": the value per this unit of time, scaled
+    /// by the length of its date histogram bucket (the whole time range when
+    /// there is none). Partial buckets at the range's edges count only the
+    /// part inside it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub per: Option<PerUnit>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub format: Option<Format>,
     /// Only an input to another column (a formula part); not drawn.
@@ -350,6 +356,63 @@ pub struct Column {
     /// Elite/High/Medium/Low lead time. Drawn behind charts and named on tiles.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub thresholds: Vec<Threshold>,
+}
+
+/// The unit a [`Column::per`] value is normalized to. Kibana offers second
+/// to day; week is Teleplot's, for DORA-style "per week" rates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum PerUnit {
+    Second,
+    Minute,
+    Hour,
+    Day,
+    Week,
+}
+
+impl Column {
+    /// The format to show values in: [`Column::format`], with Kibana's unit
+    /// suffix (`/d`) when the column is normalized by unit.
+    pub fn display_format(&self) -> Option<Format> {
+        let Some(per) = self.per else {
+            return self.format.clone();
+        };
+        let mut format = self.format.clone().unwrap_or(Format {
+            kind: FormatKind::Number,
+            decimals: None,
+            suffix: None,
+            compact: false,
+        });
+        format.suffix = Some(format!(
+            "{}/{}",
+            format.suffix.unwrap_or_default(),
+            per.suffix()
+        ));
+        Some(format)
+    }
+}
+
+impl PerUnit {
+    fn suffix(self) -> &'static str {
+        match self {
+            PerUnit::Second => "s",
+            PerUnit::Minute => "m",
+            PerUnit::Hour => "h",
+            PerUnit::Day => "d",
+            PerUnit::Week => "w",
+        }
+    }
+
+    pub fn ms(self) -> f64 {
+        match self {
+            PerUnit::Second => 1e3,
+            PerUnit::Minute => 60e3,
+            PerUnit::Hour => 3_600e3,
+            PerUnit::Day => 86_400e3,
+            PerUnit::Week => 604_800e3,
+        }
+    }
 }
 
 /// A labelled range of values: `from` inclusive, `to` exclusive; open-ended

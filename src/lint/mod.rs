@@ -221,6 +221,12 @@ fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Probl
             if let Operation::Formula { expr, .. } = &column.op {
                 functions(expr, &at, problems);
             }
+            if column.per.is_some() && column.op.is_bucket() {
+                problems.push(Problem::error(
+                    format!("{at}.per"),
+                    "only metric and computed columns can be normalized by unit",
+                ));
+            }
             if let Operation::Terms {
                 order: crate::model::TermsOrder::Column { column: by, .. },
                 ..

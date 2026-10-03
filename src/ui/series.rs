@@ -164,7 +164,7 @@ pub fn xy(chart: &Chart, data: &PanelData, min_samples: Option<u32>) -> Xy {
         let splits: Option<&[Cell]> = split.as_deref().and_then(column);
         for y_id in y {
             let Some(ys) = column(y_id) else { continue };
-            let format = layer.column(y_id).and_then(|c| c.format.clone());
+            let format = layer.column(y_id).and_then(|c| c.display_format());
             for row in 0..layer_data.rows {
                 let label = match splits {
                     Some(s) if y.len() > 1 => {
@@ -300,7 +300,7 @@ pub fn band(chart: &Chart, data: &PanelData, min_samples: Option<u32>) -> Xy {
             label: label(column, id),
             kind: SeriesType::Line,
             values: numbers(d, id),
-            format: column.and_then(|c| c.format.clone()),
+            format: column.and_then(|c| c.display_format()),
             style,
         }
     };
@@ -347,7 +347,7 @@ pub fn scatter(chart: &Chart, data: &PanelData) -> Xy {
         .collect();
     let ys = numbers(d, y);
     let y_column = layer.column(y);
-    let format = y_column.and_then(|c| c.format.clone());
+    let format = y_column.and_then(|c| c.display_format());
     let mut series: Vec<XySeries> = Vec::new();
     let groups: Vec<String> = match split.as_deref().and_then(|s| d.series(s)) {
         Some(s) => s.values.iter().map(cell_text).collect(),
@@ -467,6 +467,7 @@ mod tests {
             op,
             filter: None,
             time_shift: None,
+            per: None,
             format: None,
             helper: false,
             thresholds: Vec::new(),

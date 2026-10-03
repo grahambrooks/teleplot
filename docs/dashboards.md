@@ -44,9 +44,10 @@ Buckets nest in the order listed. Any column can also have:
 | Key | Meaning |
 |---|---|
 | `label` | Shown in legends, tables and tiles |
-| `format` | `{ kind: number \| percent \| bytes, decimals, suffix, compact }` |
+| `format` | `{ kind: number \| percent \| bytes \| duration \| currency, decimals, suffix, compact }` |
 | `filter` | `{ language: kql, text: ... }`, restricting just this column |
 | `time_shift` | `previous` (the range before this one) or a duration such as `1w` |
+| `per` | `second`, `minute`, `hour`, `day` or `week`: a rate, with each value divided by the length of its date-histogram bucket, or by the whole range when there is no date histogram. Partial buckets at the range's edges count only the part inside the range. Shown with a suffix such as `/d`, as Kibana's "normalize by unit". Metric and computed columns only |
 | `helper: true` | An input to another column, not drawn |
 | `thresholds` | Benchmark bands, below |
 
