@@ -26,6 +26,11 @@ enum Command {
         /// Address to listen on.
         #[arg(long, default_value = DEFAULT_ADDR)]
         addr: SocketAddr,
+        /// Directory of dashboards (.ndjson Kibana exports, .yaml); overrides the config.
+        #[arg(long)]
+        dashboards: Option<PathBuf>,
+        #[command(flatten)]
+        connection: Connection,
     },
     /// Report which panels of Kibana exports Teleplot can render. Exits
     /// non-zero if any supported panel could not be converted.
@@ -97,12 +102,25 @@ async fn main() -> ExitCode {
 
     let command = Cli::parse().command.unwrap_or(Command::Serve {
         addr: DEFAULT_ADDR.parse().expect("valid default address"),
+        dashboards: None,
+        connection: Connection {
+            config: "teleplot.yaml".into(),
+            es: None,
+            time_zone: None,
+        },
     });
     let result = match command {
-        Command::Serve { addr } => teleplot::server::serve(addr)
-            .await
-            .map(|()| ExitCode::SUCCESS)
-            .map_err(|e| e.to_string()),
+        Command::Serve {
+            addr,
+            dashboards,
+            connection,
+        } => teleplot::server::serve(
+            addr,
+            teleplot::server::Teleplot::new(connection.config(), dashboards),
+        )
+        .await
+        .map(|()| ExitCode::SUCCESS)
+        .map_err(|e| e.to_string()),
         Command::Check { exports } => check(&exports),
         Command::Convert { export, out } => convert(&export, out.as_deref()),
         Command::Query {
@@ -173,7 +191,7 @@ async fn query(
     let engine = Engine::new(&connection.config()?)?;
     let request = Request {
         time: time.map(|(from, to)| TimeRange { from, to }),
-        selections: Vec::new(),
+        ..Default::default()
     };
     let dashboards = teleplot::dashboards::load_file(file)?;
     let chosen: Vec<&Dashboard> = dashboards

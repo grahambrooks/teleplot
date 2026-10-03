@@ -4,6 +4,7 @@
 //! native YAML dashboard format. It describes *what* to show. Building
 //! Elasticsearch requests from it is the query engine's job.
 
+pub mod api;
 mod data;
 mod interval;
 

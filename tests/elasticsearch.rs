@@ -29,7 +29,7 @@ fn kibana_range() -> Request {
             from: "2026-04-01T00:00:00.000Z".into(),
             to: "2026-10-02T00:00:00.000Z".into(),
         }),
-        selections: Vec::new(),
+        ..Default::default()
     }
 }
 

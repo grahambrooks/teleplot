@@ -51,7 +51,7 @@ fn searches(d: &Dashboard, stats: &HashMap<(String, String), (f64, f64)>) -> Val
     let ctx = Context {
         range: RANGE,
         time_zone: "UTC",
-        query: &d.query,
+        queries: std::slice::from_ref(&d.query),
         filters: &d.filters,
         selections: &[],
         fields: &fields,

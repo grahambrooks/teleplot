@@ -43,8 +43,8 @@ pub struct Context<'a> {
     pub range: Range,
     /// IANA zone for calendar buckets and date matches.
     pub time_zone: &'a str,
-    /// Dashboard query and filter pills.
-    pub query: &'a Query,
+    /// Dashboard query, the viewer's query bar, and filter pills.
+    pub queries: &'a [Query],
     pub filters: &'a [Filter],
     /// Values chosen in dashboard controls, per field.
     pub selections: &'a [(String, Vec<String>)],
@@ -84,6 +84,48 @@ pub fn stats_searches(chart: &Chart, ctx: &Context) -> Vec<((String, String), Se
         }
     }
     out
+}
+
+/// The top values of a field, for dashboard controls. Read the buckets from
+/// `aggregations.values.buckets`.
+pub fn terms_search(
+    view: &DataView,
+    field: &str,
+    size: u32,
+    ctx: &Context,
+) -> Result<Search, String> {
+    let mut filter = Vec::new();
+    let mut must_not = Vec::new();
+    let fields = fields(ctx, view);
+    let options = kql::Options {
+        time_zone: Some(ctx.time_zone.to_string()),
+    };
+    if let Some(time_field) = &view.time_field {
+        filter.push(json!({ "range": { time_field: { "gte": ctx.range.from_ms, "lte": ctx.range.to_ms, "format": "epoch_millis" } } }));
+    }
+    for q in ctx.queries {
+        if let Some(dsl) = query_dsl(q, &fields, &options)? {
+            filter.push(dsl);
+        }
+    }
+    for f in ctx.filters.iter().filter(|f| !f.disabled) {
+        if f.negate {
+            must_not.push(f.query.clone())
+        } else {
+            filter.push(f.query.clone())
+        }
+    }
+    for (f, values) in ctx.selections.iter().filter(|(_, v)| !v.is_empty()) {
+        filter.push(json!({ "terms": { f: values } }));
+    }
+    Ok(Search {
+        index: view.index.clone(),
+        body: json!({
+            "size": 0, "track_total_hits": false,
+            "query": { "bool": { "filter": filter, "must_not": must_not } },
+            "aggs": { "values": { "terms": { "field": field, "size": size } } }
+        }),
+    })
 }
 
 /// Reads a stats search response.
@@ -346,7 +388,7 @@ fn base_query(chart: &Chart, layer: &Layer, ctx: &Context, range: Range) -> Resu
             "gte": range.from_ms, "lte": range.to_ms, "format": "epoch_millis"
         } } }));
     }
-    for q in [ctx.query, &chart.query] {
+    for q in ctx.queries.iter().chain([&chart.query]) {
         if let Some(dsl) = query_dsl(q, &fields, &options)? {
             filter.push(dsl);
         }

@@ -16,7 +16,7 @@ use serde_json::Value;
 use crate::config::Config;
 use crate::es::{Client, Search};
 use crate::kql::Field;
-use crate::model::{Dashboard, PanelContent, PanelData, TimeRange};
+use crate::model::{Control, Dashboard, PanelContent, PanelData, Query, TimeRange};
 use crate::query::{self, Context, Settings};
 use crate::time;
 
@@ -35,6 +35,8 @@ pub struct Engine {
 pub struct Request {
     /// Overrides the dashboard's default time range.
     pub time: Option<TimeRange>,
+    /// The viewer's query bar, ANDed with the dashboard's query.
+    pub query: Option<Query>,
     /// Control selections: field → chosen values.
     pub selections: Vec<(String, Vec<String>)>,
 }
@@ -122,10 +124,13 @@ impl Engine {
         }
 
         let empty_stats = HashMap::new();
+        let queries: Vec<Query> = std::iter::once(dashboard.query.clone())
+            .chain(request.query.clone())
+            .collect();
         let context = |range, stats| Context {
             range,
             time_zone: &self.time_zone_name,
-            query: &dashboard.query,
+            queries: &queries,
             filters: &dashboard.filters,
             selections: &request.selections,
             fields: &fields,
@@ -171,6 +176,83 @@ impl Engine {
             out.insert(id, plan.evaluate(&mine));
         }
         Ok(out)
+    }
+
+    pub fn time_zone_name(&self) -> &str {
+        &self.time_zone_name
+    }
+
+    /// The resolved time range for a request, epoch milliseconds.
+    pub fn range(
+        &self,
+        dashboard: &Dashboard,
+        request: &Request,
+        now: Timestamp,
+    ) -> Result<time::Range, String> {
+        let default_time = TimeRange {
+            from: "now-15m".into(),
+            to: "now".into(),
+        };
+        let time = request
+            .time
+            .as_ref()
+            .or(dashboard.time.as_ref())
+            .unwrap_or(&default_time);
+        time::resolve(&time.from, &time.to, now, &self.time_zone)
+    }
+
+    /// The most common values of a control's field, under the dashboard's
+    /// time range, queries, filters and the *other* controls' selections.
+    pub async fn control_values(
+        &self,
+        dashboard: &Dashboard,
+        control: &Control,
+        request: &Request,
+        now: Timestamp,
+    ) -> Result<Vec<(String, u64)>, String> {
+        let range = self.range(dashboard, request, now)?;
+        let index = &control.data_view.index;
+        let fields: HashMap<String, Vec<Field>> =
+            HashMap::from([(index.clone(), (*self.fields(index).await?).clone())]);
+        let others: Vec<(String, Vec<String>)> = request
+            .selections
+            .iter()
+            .filter(|(f, _)| *f != control.field)
+            .cloned()
+            .collect();
+        let queries: Vec<Query> = std::iter::once(dashboard.query.clone())
+            .chain(request.query.clone())
+            .collect();
+        let stats = HashMap::new();
+        let ctx = Context {
+            range,
+            time_zone: &self.time_zone_name,
+            queries: &queries,
+            filters: &dashboard.filters,
+            selections: &others,
+            fields: &fields,
+            stats: &stats,
+            settings: self.settings,
+        };
+        let search = query::terms_search(&control.data_view, &control.field, 100, &ctx)?;
+        let response = self.search(&[search]).await?.remove(0)?;
+        Ok(response["aggregations"]["values"]["buckets"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|b| {
+                let key =
+                    b["key_as_string"]
+                        .as_str()
+                        .map(String::from)
+                        .or_else(|| match &b["key"] {
+                            Value::String(s) => Some(s.clone()),
+                            Value::Null => None,
+                            other => Some(other.to_string()),
+                        })?;
+                Some((key, b["doc_count"].as_u64().unwrap_or(0)))
+            })
+            .collect())
     }
 
     async fn fields(&self, index: &str) -> Result<Arc<Vec<Field>>, String> {

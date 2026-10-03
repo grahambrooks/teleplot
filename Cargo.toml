@@ -23,12 +23,13 @@ leptos_meta = "0.8"
 leptos_router = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+jiff = "0.2"
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 
 # server only
 axum = { version = "0.8", optional = true }
 base64 = { version = "0.23", optional = true }
 clap = { version = "4", features = ["derive"], optional = true }
-jiff = { version = "0.2", optional = true }
 leptos_axum = { version = "0.8", optional = true }
 mime_guess = { version = "2", optional = true }
 moka = { version = "0.12", features = ["future"], optional = true }
@@ -40,7 +41,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = tr
 
 # client only
 console_error_panic_hook = { version = "0.1", optional = true }
+gloo-net = { version = "0.6", default-features = false, features = ["http", "json"], optional = true }
+js-sys = { version = "0.3", optional = true }
 wasm-bindgen = { version = "0.2", optional = true }
+web-sys = { version = "0.3", features = ["CssStyleDeclaration", "Document", "Element", "HtmlElement", "ResizeObserver", "Window"], optional = true }
 
 # Server only, and never compiled for WASM. Keeps reqwest's TLS stack, and the
 # bundled-roots fallback it uses on unknown platforms (CDLA-licensed), out of
@@ -63,12 +67,18 @@ reqwest = { version = "0.13", features = ["json", "multipart"] }
 # Plain `cargo run`/`cargo test` build the server. cargo-leptos and the WASM
 # build pass --no-default-features, so this never leaks into the client.
 default = ["ssr"]
-hydrate = ["leptos/hydrate", "dep:console_error_panic_hook", "dep:wasm-bindgen"]
+hydrate = [
+    "leptos/hydrate",
+    "dep:console_error_panic_hook",
+    "dep:gloo-net",
+    "dep:js-sys",
+    "dep:wasm-bindgen",
+    "dep:web-sys",
+]
 ssr = [
     "dep:axum",
     "dep:base64",
     "dep:clap",
-    "dep:jiff",
     "dep:leptos_axum",
     "dep:mime_guess",
     "dep:moka",

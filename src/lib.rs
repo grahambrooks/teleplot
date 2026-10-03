@@ -3,6 +3,9 @@
 //! One crate builds twice: the server binary (`ssr`) and the browser client
 //! (`hydrate`, compiled to WASM). Modules shared by both live outside `server`.
 
+// Leptos view types nest deeply.
+#![recursion_limit = "256"]
+
 pub mod kql;
 pub mod model;
 pub mod ui;
