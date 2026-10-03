@@ -10,7 +10,7 @@ A combination of [Kibana](https://github.com/elastic/kibana) simplicity, [Grafan
 
 ## MVP
 
-The full plan, with research and citations, is in `docs/mvp-plan.md`. Its scope decisions:
+The full plan, with research and citations, is in `docs/mvp-plan.md`. Remaining work, in order: `docs/roadmap.md`. The MVP's scope decisions:
 
 * **Audience:** senior tech leaders doing software delivery analytics (DORA, cycle time, throughput, investment)
 * **Targets** ES/Kibana 8.x and 9.x. Exports can be of mixed version, so parse defensively

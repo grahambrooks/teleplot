@@ -1,7 +1,8 @@
 # Plan: MCP endpoint for agent-authored dashboards, and the feature-gap roadmap
 
 Status: decided and in progress, 2026-10-03. The research behind this plan was carried out
-the same day; sources are linked inline.
+the same day; sources are linked inline. The remaining gaps are ordered,
+alongside the charting work, in [`roadmap.md`](roadmap.md).
 
 ## Context
 

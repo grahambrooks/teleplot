@@ -1,5 +1,7 @@
 # Teleplot — MVP Plan
 
+Status: M0–M5 and M6 parts 1–2 (export, performance) are done. The remaining work is ordered in [`roadmap.md`](roadmap.md).
+
 ## Context
 
 `/Users/graham/dev/Teleplot` is empty apart from `CLAUDE.md`, which states the vision: Kibana's simplicity plus Grafana's styling, built for performance. It must visualise Elasticsearch data, accept Kibana dashboard and panel exports read from disk, and ship as a single binary. This plan turns that into an MVP based on four research tracks: Kibana saved-object formats, Grafana UX and competing tools, the Rust/ES performance stack, and delivery-analytics practice. It also follows Graham's recorded conventions from the vault: pure Rust, a single crate, design first, CalVer with an in-repo Homebrew formula, trunk-based development, and explicit done-when criteria.
