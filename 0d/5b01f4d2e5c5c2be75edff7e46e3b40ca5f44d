@@ -1,0 +1,23 @@
+CLAUDE.md
+  s_29f5657d840a80::t_53cbec61e718aa 35-36
+README.md
+  s_29f5657d840a80::t_0f28eab096df32 1-130
+.gitignore
+  s_29f5657d840a80::t_53cbec61e718aa 4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0d5b01f4d2e5c5c2be75edff7e46e3b40ca5f44d",
+  "prompts": {},
+  "sessions": {
+    "s_29f5657d840a80": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "add6a07c-8806-4ad8-8ff9-304c65144b92",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
