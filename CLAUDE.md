@@ -42,13 +42,20 @@ Ingestion/ETL · writing to ES (except the dev-only fixture seeder) · UI editin
 CLI:
 
 * `teleplot check <export.ndjson>...` — reports, per dashboard, which panels render. Exits 1 if an in-scope panel could not be converted
+* `teleplot query <file> --es http://localhost:9208 [--dashboard x] [--from … --to …]` — runs a dashboard's queries and prints each panel's table. `--config teleplot.yaml` for real clusters
 * `teleplot convert <export.ndjson> [--out dir]` — writes Teleplot YAML dashboards. The YAML is the serde form of `src/model`
 
 Code map:
 
 * `src/model/` — the dashboard model, shared by server and WASM client. Also the native YAML format
 * `src/kibana/` — Kibana export → model. Panels that can't convert become `Placeholder`s and never fail the dashboard. Each placeholder has a reason: out of scope, broken reference, or unparseable
+* `src/kql/` — KQL parser (rule-for-rule port of Kibana's `grammar.peggy`) and DSL translation (port of Kibana's `kuery/functions`, field-type aware)
+* `src/query/` — chart → searches → tables. Kibana's interval rules (`interval.rs`), and Kibana's pipeline semantics for formulas, moving average and the rest (`compute.rs`)
+* `src/engine.rs` — runs a whole dashboard in one `_msearch`. Caches field caps and responses
+* `src/es.rs` — small REST client (reqwest/rustls). Not the alpha `elasticsearch` crate
 * `tests/kibana.rs` — conversion tests over `fixtures/`, plus YAML snapshots in `tests/snapshots/`. Review snapshot diffs with `cargo insta review`
+* `tests/query.rs` — golden request snapshots
+* `tests/elasticsearch.rs` — Kibana-parity tests. Fixture dashboards must reproduce the numbers in Kibana's screenshots on ES 8.19 and 9.5, and the KQL translation must match native ES `kql`. Runs when `TELEPLOT_TEST_ES` is set (`make integration`, and in CI)
 
 Build gotchas, learned in M0:
 

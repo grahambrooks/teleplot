@@ -877,16 +877,17 @@ panels:
         time_field: merged_at
       columns:
       - id: '1.50'
-        label: p50 of cycle_time_hours
+        label: 50th percentile of cycle_time_hours
         op: percentile
         field: cycle_time_hours
         percent: 50.0
       - id: '1.85'
-        label: p85 of cycle_time_hours
+        label: 85th percentile of cycle_time_hours
         op: percentile
         field: cycle_time_hours
         percent: 85.0
       - id: '2'
+        label: merged_at per week
         op: date_histogram
         field: merged_at
         interval: 1w
@@ -983,6 +984,7 @@ panels:
         time_field: done_at
       columns:
       - id: '1'
+        label: Count
         op: count
       encoding:
         as: metric
@@ -1004,8 +1006,10 @@ panels:
         time_field: done_at
       columns:
       - id: '1'
+        label: Count
         op: count
       - id: '2'
+        label: 'type: Descending'
         op: terms
         fields:
         - type
@@ -1088,6 +1092,7 @@ panels:
         op: median
         field: flow_time_days
       - id: '2'
+        label: 'team: Descending'
         op: terms
         fields:
         - team

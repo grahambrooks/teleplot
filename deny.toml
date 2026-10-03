@@ -9,6 +9,12 @@ targets = [
     "aarch64-apple-darwin",
     "wasm32-unknown-unknown",
 ]
+# cargo-deny checks each dependency edge against every target above on its
+# own, so rustls-platform-verifier (native only, via reqwest) appears to pull
+# its wasm32-only webpki-root-certs (CDLA-Permissive-2.0). reqwest is never
+# built for wasm32 (see Cargo.toml); `cargo tree --target wasm32-unknown-unknown
+# -i webpki-root-certs` confirms the crate is absent from every real build.
+exclude = ["webpki-root-certs"]
 
 [advisories]
 version = 2

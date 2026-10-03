@@ -33,3 +33,44 @@ jobs:
 
       - name: Release build serves the full UI from the binary alone
         run: make smoke
+
+  # The fixture dashboards must reproduce Kibana's numbers on both versions.
+  elasticsearch:
+    runs-on: ubuntu-latest
+    services:
+      es8:
+        image: docker.elastic.co/elasticsearch/elasticsearch:8.19.22
+        env:
+          discovery.type: single-node
+          xpack.security.enabled: "false"
+          ES_JAVA_OPTS: -Xms1g -Xmx1g
+        ports: ["9208:9200"]
+        options: >-
+          --health-cmd "curl -sf http://localhost:9200/_cluster/health?wait_for_status=yellow"
+          --health-interval 5s --health-retries 60
+      es9:
+        image: docker.elastic.co/elasticsearch/elasticsearch:9.5.3
+        env:
+          discovery.type: single-node
+          xpack.security.enabled: "false"
+          ES_JAVA_OPTS: -Xms1g -Xmx1g
+        ports: ["9209:9200"]
+        options: >-
+          --health-cmd "curl -sf http://localhost:9200/_cluster/health?wait_for_status=yellow"
+          --health-interval 5s --health-retries 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Seed both clusters with the fixture dataset
+        run: |
+          cargo run -q --example seed -- --es http://localhost:9208 --end 2026-10-01
+          cargo run -q --example seed -- --es http://localhost:9209 --end 2026-10-01
+
+      - name: Kibana parity tests
+        env:
+          TELEPLOT_TEST_ES: 8.19=http://localhost:9208,9.5=http://localhost:9209
+        run: cargo test --test elasticsearch

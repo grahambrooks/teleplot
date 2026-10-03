@@ -4,11 +4,13 @@
 //! native YAML dashboard format. It describes *what* to show. Building
 //! Elasticsearch requests from it is the query engine's job.
 
+mod data;
 mod interval;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub use data::{Cell, LayerData, PanelData, Series};
 pub use interval::{Interval, IntervalUnit};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

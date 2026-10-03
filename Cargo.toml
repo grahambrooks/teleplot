@@ -26,9 +26,12 @@ serde_json = "1"
 
 # server only
 axum = { version = "0.8", optional = true }
+base64 = { version = "0.23", optional = true }
 clap = { version = "4", features = ["derive"], optional = true }
+jiff = { version = "0.2", optional = true }
 leptos_axum = { version = "0.8", optional = true }
 mime_guess = { version = "2", optional = true }
+moka = { version = "0.12", features = ["future"], optional = true }
 rust-embed = { version = "8", optional = true }
 serde_yaml_ng = { version = "0.10", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"], optional = true }
@@ -39,15 +42,22 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = tr
 console_error_panic_hook = { version = "0.1", optional = true }
 wasm-bindgen = { version = "0.2", optional = true }
 
+# Server only, and never compiled for WASM. Keeps reqwest's TLS stack, and the
+# bundled-roots fallback it uses on unknown platforms (CDLA-licensed), out of
+# the client's dependency graph.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+reqwest = { version = "0.13", features = ["json"], optional = true }
+
 [dev-dependencies]
 http-body-util = "0.1"
-insta = { version = "1", features = ["yaml"] }
-jiff = "0.2"
+insta = { version = "1", features = ["json", "yaml"] }
 rand = "0.10"
 rand_chacha = "0.10"
 rand_distr = "0.6"
-reqwest = { version = "0.13", features = ["json", "multipart"] }
 tower = { version = "0.5", features = ["util"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+reqwest = { version = "0.13", features = ["json", "multipart"] }
 
 [features]
 # Plain `cargo run`/`cargo test` build the server. cargo-leptos and the WASM
@@ -56,9 +66,13 @@ default = ["ssr"]
 hydrate = ["leptos/hydrate", "dep:console_error_panic_hook", "dep:wasm-bindgen"]
 ssr = [
     "dep:axum",
+    "dep:base64",
     "dep:clap",
+    "dep:jiff",
     "dep:leptos_axum",
     "dep:mime_guess",
+    "dep:moka",
+    "dep:reqwest",
     "dep:rust-embed",
     "dep:serde_yaml_ng",
     "dep:tokio",

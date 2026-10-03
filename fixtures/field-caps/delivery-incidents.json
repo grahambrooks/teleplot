@@ -1,0 +1,204 @@
+{
+ "fields": {
+  "_data_stream_timestamp": {
+   "_data_stream_timestamp": {
+    "aggregatable": false,
+    "metadata_field": true,
+    "searchable": false,
+    "type": "_data_stream_timestamp"
+   }
+  },
+  "_doc_count": {
+   "integer": {
+    "aggregatable": false,
+    "metadata_field": true,
+    "searchable": false,
+    "type": "integer"
+   }
+  },
+  "_feature": {
+   "_feature": {
+    "aggregatable": false,
+    "metadata_field": true,
+    "searchable": false,
+    "type": "_feature"
+   }
+  },
+  "_field_names": {
+   "_field_names": {
+    "aggregatable": false,
+    "metadata_field": true,
+    "searchable": true,
+    "type": "_field_names"
+   }
+  },
+  "_id": {
+   "_id": {
+    "aggregatable": false,
+    "metadata_field": true,
+    "searchable": true,
+    "type": "_id"
+   }
+  },
+  "_ignored": {
+   "_ignored": {
+    "aggregatable": true,
+    "metadata_field": true,
+    "searchable": true,
+    "type": "_ignored"
+   }
+  },
+  "_ignored_source": {
+   "_ignored_source": {
+    "aggregatable": false,
+    "metadata_field": true,
+    "searchable": false,
+    "type": "_ignored_source"
+   }
+  },
+  "_index": {
+   "_index": {
+    "aggregatable": true,
+    "metadata_field": true,
+    "searchable": true,
+    "type": "_index"
+   }
+  },
+  "_index_mode": {
+   "_index_mode": {
+    "aggregatable": true,
+    "metadata_field": true,
+    "searchable": true,
+    "type": "_index_mode"
+   }
+  },
+  "_inference_fields": {
+   "_inference_fields": {
+    "aggregatable": false,
+    "metadata_field": true,
+    "searchable": false,
+    "type": "_inference_fields"
+   }
+  },
+  "_nested_path": {
+   "_nested_path": {
+    "aggregatable": false,
+    "metadata_field": true,
+    "searchable": true,
+    "type": "_nested_path"
+   }
+  },
+  "_routing": {
+   "_routing": {
+    "aggregatable": false,
+    "metadata_field": true,
+    "searchable": true,
+    "type": "_routing"
+   }
+  },
+  "_seq_no": {
+   "_seq_no": {
+    "aggregatable": true,
+    "metadata_field": true,
+    "searchable": true,
+    "type": "_seq_no"
+   }
+  },
+  "_source": {
+   "_source": {
+    "aggregatable": false,
+    "metadata_field": true,
+    "searchable": false,
+    "type": "_source"
+   }
+  },
+  "_tier": {
+   "keyword": {
+    "aggregatable": true,
+    "metadata_field": true,
+    "searchable": true,
+    "type": "keyword"
+   }
+  },
+  "_version": {
+   "_version": {
+    "aggregatable": true,
+    "metadata_field": true,
+    "searchable": false,
+    "type": "_version"
+   }
+  },
+  "caused_by_deployment_id": {
+   "keyword": {
+    "aggregatable": true,
+    "metadata_field": false,
+    "searchable": true,
+    "type": "keyword"
+   }
+  },
+  "created_at": {
+   "date": {
+    "aggregatable": true,
+    "metadata_field": false,
+    "searchable": true,
+    "type": "date"
+   }
+  },
+  "group": {
+   "keyword": {
+    "aggregatable": true,
+    "metadata_field": false,
+    "searchable": true,
+    "type": "keyword"
+   }
+  },
+  "incident_id": {
+   "keyword": {
+    "aggregatable": true,
+    "metadata_field": false,
+    "searchable": true,
+    "type": "keyword"
+   }
+  },
+  "recovery_hours": {
+   "float": {
+    "aggregatable": true,
+    "metadata_field": false,
+    "searchable": true,
+    "type": "float"
+   }
+  },
+  "repo": {
+   "keyword": {
+    "aggregatable": true,
+    "metadata_field": false,
+    "searchable": true,
+    "type": "keyword"
+   }
+  },
+  "resolved_at": {
+   "date": {
+    "aggregatable": true,
+    "metadata_field": false,
+    "searchable": true,
+    "type": "date"
+   }
+  },
+  "severity": {
+   "keyword": {
+    "aggregatable": true,
+    "metadata_field": false,
+    "searchable": true,
+    "type": "keyword"
+   }
+  },
+  "team": {
+   "keyword": {
+    "aggregatable": true,
+    "metadata_field": false,
+    "searchable": true,
+    "type": "keyword"
+   }
+  }
+ }
+}

@@ -219,9 +219,13 @@ fn columns(aggs: &[Value]) -> Result<(Vec<Column>, Roles), String> {
                     .map(|p| p.iter().filter_map(number).collect())
                     .unwrap_or_default();
                 for p in percents {
-                    let label = label
-                        .clone()
-                        .or_else(|| Some(format!("p{p} of {}", field().unwrap_or_default())));
+                    let label = label.clone().or_else(|| {
+                        Some(format!(
+                            "{} percentile of {}",
+                            ordinal(p),
+                            field().unwrap_or_default()
+                        ))
+                    });
                     push(
                         format!("{id}.{p}"),
                         Operation::Percentile {
@@ -306,9 +310,74 @@ fn columns(aggs: &[Value]) -> Result<(Vec<Column>, Roles), String> {
                     },
                     other => return Err(format!("unsupported aggregation {other}")),
                 };
+                let label = label.or_else(|| default_label(&op, params));
                 push(id, op, label);
             }
         }
     }
     Ok((columns, roles))
+}
+
+/// The label Kibana gives an aggregation without a custom label.
+fn default_label(op: &Operation, params: &Value) -> Option<String> {
+    Some(match op {
+        Operation::Count { .. } => "Count".into(),
+        Operation::Average { field } => format!("Average {field}"),
+        Operation::Sum { field } => format!("Sum of {field}"),
+        Operation::Min { field } => format!("Min {field}"),
+        Operation::Max { field } => format!("Max {field}"),
+        Operation::Median { field } => format!("Median {field}"),
+        Operation::StandardDeviation { field } => format!("Standard deviation of {field}"),
+        Operation::UniqueCount { field } => format!("Unique count of {field}"),
+        Operation::LastValue { field, .. } => format!("Last {field}"),
+        Operation::DateHistogram {
+            field, interval, ..
+        } => match interval {
+            Interval::Auto => format!("{field} per auto interval"),
+            Interval::Every { count: 1, unit } => format!("{field} per {}", unit_name(*unit)),
+            other => format!("{field} per {other}"),
+        },
+        Operation::Terms { fields, .. } => {
+            let direction = if str_field(params, "order") == Some("asc") {
+                "Ascending"
+            } else {
+                "Descending"
+            };
+            format!("{}: {direction}", fields.join(", "))
+        }
+        Operation::Filters { .. } => "Filters".into(),
+        Operation::Histogram { field, .. } => field.clone(),
+        Operation::Ranges { field, .. } => format!("{field} ranges"),
+        _ => return None,
+    })
+}
+
+fn unit_name(unit: crate::model::IntervalUnit) -> &'static str {
+    use crate::model::IntervalUnit::*;
+    match unit {
+        Millisecond => "millisecond",
+        Second => "second",
+        Minute => "minute",
+        Hour => "hour",
+        Day => "day",
+        Week => "week",
+        Month => "month",
+        Quarter => "quarter",
+        Year => "year",
+    }
+}
+
+/// 50 → "50th", 1 → "1st", 99.9 → "99.9th".
+fn ordinal(p: f64) -> String {
+    if p.fract() != 0.0 {
+        return format!("{p}th");
+    }
+    let n = p as i64;
+    let suffix = match (n % 10, n % 100) {
+        (1, r) if r != 11 => "st",
+        (2, r) if r != 12 => "nd",
+        (3, r) if r != 13 => "rd",
+        _ => "th",
+    };
+    format!("{n}{suffix}")
 }

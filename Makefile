@@ -1,4 +1,4 @@
-.PHONY: pre-commit fmt lint test dev release smoke deny fixtures
+.PHONY: pre-commit fmt lint test dev release smoke deny fixtures integration
 
 CLIENT := --lib --target wasm32-unknown-unknown --no-default-features --features hydrate
 SERVER := --all-targets --no-default-features --features ssr
@@ -36,3 +36,8 @@ deny:
 # Rebuild Kibana fixtures against real ES + Kibana (Docker). See fixtures/README.md.
 fixtures:
 	fixtures/make-fixtures.sh
+
+# Kibana parity tests against the local fixture stacks (make fixtures, or
+# `docker compose -f fixtures/docker-compose.yml --profile v8 --profile v9 up -d` and seed).
+integration:
+	TELEPLOT_TEST_ES=8.19=http://localhost:9208,9.5=http://localhost:9209 cargo test --test elasticsearch
