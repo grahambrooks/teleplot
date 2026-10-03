@@ -11,10 +11,10 @@ Items carry their source IDs (`mcp gap 2`, `charting A1`). A phase starts once
 the one before it is done. Items inside a phase can go in parallel. Every item
 also follows the [verification rules](#verification-rules) below.
 
-## Phase 0: housekeeping
+## Phase 0: housekeeping (done 2026-10-03)
 
 - **Vault entity page.** Write `wiki/entities/teleplot.md` in `~/knowledge-base` with the scope decisions from mvp-plan and the decisions recorded in mcp-plan and charting-plan. It goes through the `claude-obsidian` `save` transaction, then the index is rebuilt and `claude-obsidian checkpoint` is run.
-- *Done when:* the page exists, links to the related conventions pages, and `retrieve.py "teleplot"` finds it.
+- *Done when:* the page exists, links to the related conventions pages, and `retrieve.py "teleplot"` finds it. Written as operation `save-20261003-teleplot-entity` and checkpointed.
 
 ## Phase 1: trust and honesty
 
