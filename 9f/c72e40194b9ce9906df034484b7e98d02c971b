@@ -1,0 +1,31 @@
+README.md
+  s_ae1a5b1be5a92c::t_2e156b6d4e4da0 121-134
+skills/teleplot/references/verification.md
+  s_ae1a5b1be5a92c::t_2fb2ecd3113529 1-105
+tests/skill.rs
+  s_ae1a5b1be5a92c::t_c97b9be30ff2f6 18-31,57-59,64-65
+  s_ae1a5b1be5a92c::t_44998ebe294efd 1-17,32-56,60-63,66-75
+skills/teleplot/references/mcp.md
+  s_ae1a5b1be5a92c::t_53ecdd070793c1 1-72
+skills/teleplot/SKILL.md
+  s_ae1a5b1be5a92c::t_32a122854968f9 49
+  s_ae1a5b1be5a92c::t_ff07cc18a1b541 1-48,50-155
+skills/teleplot/references/cookbook.md
+  s_ae1a5b1be5a92c::t_9bdf5f4cb6e8e8 1-439
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9fc72e40194b9ce9906df034484b7e98d02c971b",
+  "prompts": {},
+  "sessions": {
+    "s_ae1a5b1be5a92c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70378e7a-4351-4fcf-99d5-ebdcf2e157f9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
