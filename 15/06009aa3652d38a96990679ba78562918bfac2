@@ -1,0 +1,72 @@
+src/kibana/legacy.rs
+  s_1ea9e4cdbfcccf::t_ebf3003dcfd9f5 210
+src/lint/mod.rs
+  s_1ea9e4cdbfcccf::t_c035fb3685fad4 224-229
+fixtures/kibana/9.5/delivery.ndjson
+  s_1ea9e4cdbfcccf::t_17ad037dcd85ba 1-12
+fixtures/kibana/8.19/delivery.ndjson
+  s_1ea9e4cdbfcccf::t_83ff10b4830363 1-12
+src/ui/series.rs
+  s_1ea9e4cdbfcccf::t_098e963d3e8f0d 167,303,350
+  s_1ea9e4cdbfcccf::t_d61a942cceb419 470
+src/query/compute.rs
+  s_1ea9e4cdbfcccf::t_7b1eaca9c71964 27-31
+  s_1ea9e4cdbfcccf::t_f2810c1e2205b8 10,14-18,23,26,32-34,87-90,96-107
+  s_1ea9e4cdbfcccf::t_0e9efeedb6950c 310-331
+  s_1ea9e4cdbfcccf::t_6ad34a0cc6f6fb 108-109,309
+examples/kibana_fixtures.rs
+  s_1ea9e4cdbfcccf::t_57b73abf29eb7a 130-135,675-709
+  s_1ea9e4cdbfcccf::t_9b7ac1abe38af7 710
+src/lint/tests.rs
+  s_1ea9e4cdbfcccf::t_d57733c6e54b2e 186-216
+src/ui/format.rs
+  s_1ea9e4cdbfcccf::t_83b0183496e11e 153-170
+  s_1ea9e4cdbfcccf::t_dc48d9d0ed77f2 152
+src/model/mod.rs
+  s_1ea9e4cdbfcccf::t_50138849ca1f43 344-349,361-373,396,407-415
+  s_1ea9e4cdbfcccf::t_098e963d3e8f0d 374-395,397-406,416
+  s_1ea9e4cdbfcccf::t_f4e7c693ab171e 417
+tests/elasticsearch.rs
+  s_1ea9e4cdbfcccf::t_e6ce6dff19de64 152-162
+src/query/interval.rs
+  s_1ea9e4cdbfcccf::t_4925ed3f5910fc 5,136-161,214-228
+  s_1ea9e4cdbfcccf::t_773e18f924fd47 229
+fixtures/README.md
+  s_1ea9e4cdbfcccf::t_b2ce972341ecc5 21
+docs/dashboards.md
+  s_1ea9e4cdbfcccf::t_eb6509d3e680c2 47,50
+src/kibana/lens.rs
+  s_1ea9e4cdbfcccf::t_ebf3003dcfd9f5 14
+  s_1ea9e4cdbfcccf::t_2c9f74514317fe 394-401
+src/ui/panels.rs
+  s_1ea9e4cdbfcccf::t_098e963d3e8f0d 219,317,329
+src/query/mod.rs
+  s_1ea9e4cdbfcccf::t_cd59c4325773c6 159-161,179-180,339,376-377,600-603,978,986,1027
+  s_1ea9e4cdbfcccf::t_0e9efeedb6950c 496,1085-1160
+  s_1ea9e4cdbfcccf::t_f2810c1e2205b8 457-470,895-902,953-954
+  s_1ea9e4cdbfcccf::t_7ac8c614db7187 447-448,452-456,471-495
+  s_1ea9e4cdbfcccf::t_aa9209ad50a2ba 834-839,925
+  s_1ea9e4cdbfcccf::t_a300216a1de07a 497
+tests/snapshots/kibana__8_19_delivery_ndjson.snap
+  s_1ea9e4cdbfcccf::t_cc0ca918cf1a38 455-508
+tests/snapshots/kibana__9_5_delivery_ndjson.snap
+  s_1ea9e4cdbfcccf::t_8dbd10f1a05dd1 455-508
+tests/snapshots/query__teleplot-delivery-overview.snap
+  s_1ea9e4cdbfcccf::t_38d8b9513bc59a 427-505
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1506009aa3652d38a96990679ba78562918bfac2",
+  "prompts": {},
+  "sessions": {
+    "s_1ea9e4cdbfcccf": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7ebf7443-4ca1-4201-bad1-72d3edfe3843",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
