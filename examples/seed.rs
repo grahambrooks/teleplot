@@ -610,6 +610,19 @@ async fn main() {
             "create index",
         )
         .await;
+        // Bulk loads start at once, so wait until the new index can take writes.
+        check(
+            client
+                .get(format!(
+                    "{}/_cluster/health/{}{index}?wait_for_status=yellow&timeout=60s",
+                    args.es, args.prefix
+                ))
+                .send()
+                .await
+                .unwrap(),
+            "wait for index",
+        )
+        .await;
     }
 
     let mut totals: HashMap<&str, usize> = HashMap::new();
