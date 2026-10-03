@@ -1,0 +1,105 @@
+src/kibana/mod.rs
+  s_ae1a5b1be5a92c::t_e62dde7d4eacc5 70
+examples/bench.rs
+  s_ae1a5b1be5a92c::t_0d4b6d6cf0133a 37-41
+  s_ae1a5b1be5a92c::t_580166d5916242 42-43
+src/kibana/legacy.rs
+  s_ae1a5b1be5a92c::t_d3d4510b278fdc 139
+src/ui/uplot.rs
+  s_ae1a5b1be5a92c::t_7c730d56cb2638 231-241,434-439,443,995-1011,1015,1071-1084,1086-1152,1164-1174,1177-1194,1198-1213
+  s_ae1a5b1be5a92c::t_9754f70a1dc197 15-16
+  s_ae1a5b1be5a92c::t_423efaeabcb24a 1195-1197
+  s_ae1a5b1be5a92c::t_619ea7731010ad 1085,1153-1163,1175-1176,1214
+  s_ae1a5b1be5a92c::t_a6f5d3f403c644 1215
+src/ui/theme.rs
+  s_ae1a5b1be5a92c::t_244581bb4ad915 20-21,30
+src/ui/series.rs
+  s_ae1a5b1be5a92c::t_9754f70a1dc197 4-5
+  s_ae1a5b1be5a92c::t_244581bb4ad915 26-27,435,512,562-563,617,689,788
+  s_ae1a5b1be5a92c::t_35cc6d1675cdb7 300-303,320,438,515-517
+  s_ae1a5b1be5a92c::t_e62dde7d4eacc5 902,924
+src/query/mod.rs
+  s_ae1a5b1be5a92c::t_e62dde7d4eacc5 279
+  s_ae1a5b1be5a92c::t_c3553c0916580f 1465-1496,1505-1533,1538,1543-1557,1562-1581,1592-1599,1615-1620,1626-1650,1665-1685,1691-1694,1700-1704
+  s_ae1a5b1be5a92c::t_c82be366f6a537 20-21,341-348
+  s_ae1a5b1be5a92c::t_9754f70a1dc197 1497-1504,1534-1537,1539-1542,1558-1561,1582-1591,1600-1614,1621-1625,1651-1664,1686-1690,1695-1699
+  s_ae1a5b1be5a92c::t_951c90554d1817 56-57,151-166,242-244,266-269,311-321,326-340,349-355,367-514
+src/model/mod.rs
+  s_ae1a5b1be5a92c::t_d49bdeddc07af4 15,41-43,47-72,77-110,248-253,258-279
+  s_ae1a5b1be5a92c::t_c82be366f6a537 73-76
+  s_ae1a5b1be5a92c::t_2dedfd05248b2d 280
+examples/kibana_fixtures.rs
+  s_ae1a5b1be5a92c::t_2454b67f1c026a 328-350,837-858
+  s_ae1a5b1be5a92c::t_89317c595851b0 859-861
+docs/mcp-plan.md
+  s_ae1a5b1be5a92c::t_884866cfc97c4a 177
+  s_ae1a5b1be5a92c::t_4a0e9d1f08376b 4
+src/lint/mod.rs
+  s_ae1a5b1be5a92c::t_76be8b8d4a34c2 132-135,175-207,216-221,230-231,240-242,245-253
+  s_ae1a5b1be5a92c::t_9754f70a1dc197 16-17,208-215,222-229,232-239
+tests/query.rs
+  s_ae1a5b1be5a92c::t_c82be366f6a537 60
+tests/elasticsearch.rs
+  s_ae1a5b1be5a92c::t_507335b2b3f143 205-209
+  s_ae1a5b1be5a92c::t_8e573b4b4bb688 177-204,210
+fixtures/README.md
+  s_ae1a5b1be5a92c::t_fbab82f210f76a 26
+src/engine.rs
+  s_ae1a5b1be5a92c::t_bf4b0bc4b1e040 183,190,192
+  s_ae1a5b1be5a92c::t_c82be366f6a537 182,184-189,191,215,334,368-370,388-399,405-408
+fixtures/kibana/9.5/delivery.ndjson
+  s_ae1a5b1be5a92c::t_c5e7eefa9348c6 1-12
+src/lint/tests.rs
+  s_ae1a5b1be5a92c::t_3b6ca656cbeb15 290-305,308-319
+  s_ae1a5b1be5a92c::t_9754f70a1dc197 306-307
+docs/roadmap.md
+  s_ae1a5b1be5a92c::t_fbab82f210f76a 7,26,30-35
+src/main.rs
+  s_ae1a5b1be5a92c::t_a67832436aa97b 295-300
+fixtures/kibana/9.5/sample-data.ndjson
+  s_ae1a5b1be5a92c::t_c5e7eefa9348c6 1-15
+docs/dashboards.md
+  s_ae1a5b1be5a92c::t_fbab82f210f76a 22,32,185-218
+  s_ae1a5b1be5a92c::t_72b4b7e58134c9 219
+src/kibana/lens.rs
+  s_ae1a5b1be5a92c::t_c82be366f6a537 13-15,72-73,301-303
+  s_ae1a5b1be5a92c::t_d3d4510b278fdc 68-71,74-75,108,130-141,144-146,162,174,241-300,304-325
+dashboards/delivery-overview.yaml
+  s_ae1a5b1be5a92c::t_339131946599e2 30-46
+tests/kibana.rs
+  s_ae1a5b1be5a92c::t_35151ce55a8fb6 199,202,206-209,214,216,224-235
+src/model/data.rs
+  s_ae1a5b1be5a92c::t_d49bdeddc07af4 13-47
+tests/snapshots/kibana__8_19_delivery_ndjson.snap
+  s_ae1a5b1be5a92c::t_60911ab8f2a12d 571-596
+tests/snapshots/kibana__8_19_sample-data_ndjson.snap
+  s_ae1a5b1be5a92c::t_ba8ac6e445a3d0 141-152,676-687,1305-1316
+tests/snapshots/kibana__9_5_delivery_ndjson.snap
+  s_ae1a5b1be5a92c::t_83755e76bc12a7 571-596
+tests/snapshots/kibana__9_5_sample-data_ndjson.snap
+  s_ae1a5b1be5a92c::t_f31ec3805529cd 141-152,676-687,1294-1305
+tests/snapshots/query__native-delivery-overview.snap
+  s_ae1a5b1be5a92c::t_bddcc60b9dc0ef 346-474,537-665,820-945,955-962,965,1156-1284,1672-1800
+tests/snapshots/query__teleplot-delivery-overview.snap
+  s_ae1a5b1be5a92c::t_c268945f522d55 488-539
+fixtures/kibana/8.19/delivery.ndjson
+  s_ae1a5b1be5a92c::t_4ef401c5fd653d 1-12
+fixtures/kibana/8.19/sample-data.ndjson
+  s_ae1a5b1be5a92c::t_5d26001cb2e1f9 1-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "87dcedf7536cb68e3a0f54e9277c00272550ebe7",
+  "prompts": {},
+  "sessions": {
+    "s_ae1a5b1be5a92c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70378e7a-4351-4fcf-99d5-ebdcf2e157f9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
