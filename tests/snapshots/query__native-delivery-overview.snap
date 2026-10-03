@@ -28,6 +28,68 @@ expression: "searches(&native(), &HashMap::new())"
       "index": "delivery-prs"
     }
   ],
+  "cfr-gauge": [
+    {
+      "body": {
+        "aggs": {
+          "root": {
+            "aggs": {
+              "m0": {
+                "filter": {
+                  "bool": {
+                    "minimum_should_match": 1,
+                    "should": [
+                      {
+                        "term": {
+                          "result": {
+                            "value": "failure"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            "filter": {
+              "match_all": {}
+            }
+          }
+        },
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "deployed_at": {
+                    "format": "epoch_millis",
+                    "gte": 1775001600000,
+                    "lte": 1790899200000
+                  }
+                }
+              },
+              {
+                "bool": {
+                  "minimum_should_match": 1,
+                  "should": [
+                    {
+                      "match": {
+                        "is_rework": false
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "must_not": []
+          }
+        },
+        "size": 0,
+        "track_total_hits": false
+      },
+      "index": "delivery-deployments"
+    }
+  ],
   "change-fail-rate": [
     {
       "body": {
@@ -690,6 +752,52 @@ expression: "searches(&native(), &HashMap::new())"
       "index": "delivery-incidents"
     }
   ],
+  "deploy-calendar": [
+    {
+      "body": {
+        "aggs": {
+          "root": {
+            "aggs": {
+              "b0": {
+                "date_histogram": {
+                  "calendar_interval": "1d",
+                  "extended_bounds": {
+                    "max": 1790899200000,
+                    "min": 1775001600000
+                  },
+                  "field": "deployed_at",
+                  "min_doc_count": 0,
+                  "time_zone": "UTC"
+                }
+              }
+            },
+            "filter": {
+              "match_all": {}
+            }
+          }
+        },
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "deployed_at": {
+                    "format": "epoch_millis",
+                    "gte": 1775001600000,
+                    "lte": 1790899200000
+                  }
+                }
+              }
+            ],
+            "must_not": []
+          }
+        },
+        "size": 0,
+        "track_total_hits": false
+      },
+      "index": "delivery-deployments"
+    }
+  ],
   "deploy-frequency": [
     {
       "body": {
@@ -1044,6 +1152,81 @@ expression: "searches(&native(), &HashMap::new())"
         "track_total_hits": false
       },
       "index": "delivery-incidents"
+    }
+  ],
+  "investment-treemap": [
+    {
+      "body": {
+        "aggs": {
+          "root": {
+            "aggs": {
+              "b0": {
+                "aggs": {
+                  "b1": {
+                    "aggs": {
+                      "m0": {
+                        "sum": {
+                          "field": "story_points"
+                        }
+                      }
+                    },
+                    "terms": {
+                      "field": "team",
+                      "order": {
+                        "_count": "desc"
+                      },
+                      "size": 8
+                    }
+                  }
+                },
+                "terms": {
+                  "field": "type",
+                  "order": {
+                    "_count": "desc"
+                  },
+                  "size": 4
+                }
+              }
+            },
+            "filter": {
+              "match_all": {}
+            }
+          }
+        },
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "done_at": {
+                    "format": "epoch_millis",
+                    "gte": 1775001600000,
+                    "lte": 1790899200000
+                  }
+                }
+              },
+              {
+                "bool": {
+                  "minimum_should_match": 1,
+                  "should": [
+                    {
+                      "term": {
+                        "status": {
+                          "value": "done"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "must_not": []
+          }
+        },
+        "size": 0,
+        "track_total_hits": false
+      },
+      "index": "delivery-workitems"
     }
   ],
   "lead-time": [
@@ -1537,6 +1720,49 @@ expression: "searches(&native(), &HashMap::new())"
       "index": "delivery-incidents"
     }
   ],
+  "results-waffle": [
+    {
+      "body": {
+        "aggs": {
+          "root": {
+            "aggs": {
+              "b0": {
+                "terms": {
+                  "field": "result",
+                  "order": {
+                    "_count": "desc"
+                  },
+                  "size": 5
+                }
+              }
+            },
+            "filter": {
+              "match_all": {}
+            }
+          }
+        },
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "deployed_at": {
+                    "format": "epoch_millis",
+                    "gte": 1775001600000,
+                    "lte": 1790899200000
+                  }
+                }
+              }
+            ],
+            "must_not": []
+          }
+        },
+        "size": 0,
+        "track_total_hits": false
+      },
+      "index": "delivery-deployments"
+    }
+  ],
   "rework": [
     {
       "body": {
@@ -1629,6 +1855,202 @@ expression: "searches(&native(), &HashMap::new())"
         "track_total_hits": false
       },
       "index": "delivery-deployments"
+    }
+  ],
+  "team-multiples": [
+    {
+      "body": {
+        "aggs": {
+          "root": {
+            "aggs": {
+              "b0": {
+                "aggs": {
+                  "b1": {
+                    "aggs": {
+                      "m0": {
+                        "percentiles": {
+                          "field": "cycle_time_hours",
+                          "percents": [
+                            50.0
+                          ]
+                        }
+                      }
+                    },
+                    "date_histogram": {
+                      "calendar_interval": "1w",
+                      "extended_bounds": {
+                        "max": 1790899200000,
+                        "min": 1775001600000
+                      },
+                      "field": "merged_at",
+                      "min_doc_count": 1,
+                      "time_zone": "UTC"
+                    }
+                  }
+                },
+                "terms": {
+                  "field": "team",
+                  "order": {
+                    "_count": "desc"
+                  },
+                  "size": 8
+                }
+              }
+            },
+            "filter": {
+              "match_all": {}
+            }
+          }
+        },
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "merged_at": {
+                    "format": "epoch_millis",
+                    "gte": 1775001600000,
+                    "lte": 1790899200000
+                  }
+                }
+              }
+            ],
+            "must_not": []
+          }
+        },
+        "size": 0,
+        "track_total_hits": false
+      },
+      "index": "delivery-prs"
+    },
+    {
+      "body": {
+        "_source": false,
+        "fields": [
+          {
+            "field": "deployed_at",
+            "format": "epoch_millis"
+          },
+          "team"
+        ],
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "deployed_at": {
+                    "format": "epoch_millis",
+                    "gte": 1775001600000,
+                    "lte": 1790899200000
+                  }
+                }
+              },
+              {
+                "bool": {
+                  "minimum_should_match": 1,
+                  "should": [
+                    {
+                      "term": {
+                        "result": {
+                          "value": "failure"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "must_not": []
+          }
+        },
+        "size": 500,
+        "sort": [
+          {
+            "deployed_at": {
+              "order": "desc"
+            }
+          }
+        ],
+        "track_total_hits": false
+      },
+      "index": "delivery-deployments"
+    },
+    {
+      "body": {
+        "_source": false,
+        "fields": [
+          {
+            "field": "created_at",
+            "format": "epoch_millis"
+          },
+          {
+            "field": "resolved_at",
+            "format": "epoch_millis"
+          },
+          "team"
+        ],
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "created_at": {
+                    "format": "epoch_millis",
+                    "gte": 1775001600000,
+                    "lte": 1790899200000
+                  }
+                }
+              },
+              {
+                "bool": {
+                  "minimum_should_match": 1,
+                  "should": [
+                    {
+                      "bool": {
+                        "minimum_should_match": 1,
+                        "should": [
+                          {
+                            "term": {
+                              "severity": {
+                                "value": "sev1"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "bool": {
+                        "minimum_should_match": 1,
+                        "should": [
+                          {
+                            "term": {
+                              "severity": {
+                                "value": "sev2"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "must_not": []
+          }
+        },
+        "size": 500,
+        "sort": [
+          {
+            "created_at": {
+              "order": "desc"
+            }
+          }
+        ],
+        "track_total_hits": false
+      },
+      "index": "delivery-incidents"
     }
   ],
   "teams": [

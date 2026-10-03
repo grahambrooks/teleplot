@@ -444,3 +444,109 @@ panels:
             - { id: other, label: "Median, other PRs", op: value, field: other, format: { kind: number, decimals: 1, suffix: " h" } }
             - { id: change, label: Change, op: value, field: change, format: { kind: percent, decimals: 0 } }
           encoding: { as: table, columns: [team, prs, ai, other, change] }
+
+  # ---------------------------------------------------------------- cadence and shares
+  # Deploy cadence: one square a day, darker for more deployments. Weekends,
+  # freezes and busy weeks stand out.
+  - id: deploy-calendar
+    title: Deployments per day
+    grid: { x: 0, y: 70, w: 24, h: 10 }
+    content:
+      type: chart
+      kind: calendar
+      layers:
+        - id: days
+          data_view: { index: delivery-deployments, time_field: deployed_at }
+          columns:
+            - { id: day, op: date_histogram, field: deployed_at, interval: 1d, include_empty: true }
+            - { id: n, label: deployments, op: count }
+          encoding: { as: calendar, date: day, value: n }
+
+  - id: cfr-gauge
+    title: Change fail rate against the DORA bands
+    grid: { x: 24, y: 70, w: 12, h: 10 }
+    content:
+      type: chart
+      kind: gauge
+      query: { language: kql, text: "is_rework : false" }
+      layers:
+        - id: cfr
+          data_view: { index: delivery-deployments, time_field: deployed_at }
+          columns:
+            - { id: failed, op: count, filter: { language: kql, text: "result : failure" }, helper: true }
+            - { id: all, op: count, helper: true }
+            - id: rate
+              label: Failed deployments
+              op: formula
+              text: "count(kql='result : failure') / count()"
+              expr: { call: divide, args: [failed, all] }
+              format: { kind: percent, decimals: 1 }
+            - { id: max, op: static_value, value: 0.3 }
+            - { id: goal, op: static_value, value: 0.05 }
+          encoding:
+            as: gauge
+            value: rate
+            max: max
+            goal: goal
+            shape: arc
+            bands:
+              stops:
+                - { from: 0, color: "#73BF69" }
+                - { from: 0.05, color: "#5794F2" }
+                - { from: 0.10, color: "#FF9830" }
+                - { from: 0.15, color: "#F2495C" }
+
+  - id: results-waffle
+    title: Deployments by result
+    grid: { x: 36, y: 70, w: 12, h: 10 }
+    content:
+      type: chart
+      kind: waffle
+      layers:
+        - id: results
+          data_view: { index: delivery-deployments, time_field: deployed_at }
+          columns:
+            - { id: result, op: terms, fields: [result], size: 5 }
+            - { id: n, label: Deployments, op: count }
+          encoding: { as: pie, groups: [result], values: [n] }
+
+  # Small multiples: each team's weekly median on the same scale, so a team
+  # that is slow, or getting slower, is plain at a glance.
+  - id: team-multiples
+    title: Weekly median cycle time, team by team
+    grid: { x: 0, y: 80, w: 48, h: 16 }
+    content:
+      type: chart
+      kind: xy
+      layers:
+        - id: weekly
+          data_view: { index: delivery-prs, time_field: merged_at }
+          columns:
+            - { id: team, op: terms, fields: [team], size: 8 }
+            - { id: week, op: date_histogram, field: merged_at, interval: 1w }
+            - { id: median, label: Median cycle time, op: median, field: cycle_time_hours, format: { kind: number, decimals: 1, suffix: " h" } }
+          encoding:
+            as: xy
+            series: line
+            x: week
+            y: [median]
+            facet: team
+            interpolation: smooth
+            missing: gap
+            legend_stats: [average, last]
+
+  - id: investment-treemap
+    title: Story points by type of work and team
+    grid: { x: 0, y: 96, w: 24, h: 12 }
+    content:
+      type: chart
+      kind: treemap
+      query: { language: kql, text: "status : done" }
+      layers:
+        - id: work
+          data_view: { index: delivery-workitems, time_field: done_at }
+          columns:
+            - { id: type, op: terms, fields: [type], size: 4 }
+            - { id: team, op: terms, fields: [team], size: 8 }
+            - { id: points, label: Story points, op: sum, field: story_points }
+          encoding: { as: pie, groups: [type, team], values: [points] }

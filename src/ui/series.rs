@@ -25,6 +25,11 @@ pub struct Xy {
     pub x_format: Option<Format>,
     /// Events to mark (time axes only).
     pub annotations: Vec<AnnotationData>,
+    pub interpolation: crate::model::Interpolation,
+    /// Draw lines across empty buckets (else leave gaps).
+    pub span_gaps: bool,
+    /// A fixed y range, e.g. shared by small multiples.
+    pub y_range: Option<(f64, f64)>,
 }
 
 /// A reference line with its value resolved.
@@ -185,6 +190,7 @@ pub fn xy(chart: &Chart, data: &PanelData, min_samples: Option<u32>) -> Xy {
             x,
             y,
             split,
+            ..
         } = &layer.encoding
         else {
             continue;
@@ -296,6 +302,40 @@ pub fn xy(chart: &Chart, data: &PanelData, min_samples: Option<u32>) -> Xy {
         .map(|c| c.thresholds.clone())
         .unwrap_or_default();
     let reference_lines = reference_lines(chart, data, &series);
+    // How the lines are drawn, gaps filled, and the legend labelled: from
+    // the first xy layer (Lens sets these for the whole chart).
+    let options = chart
+        .layers
+        .iter()
+        .find_map(|l| match &l.encoding {
+            Encoding::Xy { options, .. } => Some(options.clone()),
+            _ => None,
+        })
+        .unwrap_or_default();
+    for s in &mut series {
+        let stats: Vec<String> = options
+            .legend_stats
+            .iter()
+            .filter_map(|stat| {
+                let v = stat.of(&s.values)?;
+                let text = match stat {
+                    crate::model::LegendStat::DifferencePercent => {
+                        format!("{:+.1}%", v * 100.0)
+                    }
+                    crate::model::LegendStat::Count => crate::ui::format::plain(v),
+                    _ => crate::ui::format::value(v, s.format.as_ref()),
+                };
+                Some(format!("{} {text}", stat.label()))
+            })
+            .collect();
+        if !stats.is_empty() {
+            s.label = format!("{} · {}", s.label, stats.join(" · "));
+        }
+    }
+    // Filled after the statistics: Kibana's legend describes the data, not the fill.
+    for s in series.iter_mut().filter(|s| !s.kind.is_bar()) {
+        s.values = options.missing.fill(&s.values);
+    }
     let x_format = chart.layers.iter().find_map(|l| match &l.encoding {
         Encoding::Xy { x: Some(x), .. } => l
             .column(x)
@@ -334,7 +374,80 @@ pub fn xy(chart: &Chart, data: &PanelData, min_samples: Option<u32>) -> Xy {
         bin_ends,
         x_format,
         annotations,
+        interpolation: options.interpolation,
+        span_gaps: options.missing == crate::model::Missing::Connect,
+        y_range: None,
     }
+}
+
+/// Small multiples: one chart per value of the layer's `facet` column, each
+/// from that value's rows, all on the same y range. Empty without a facet.
+pub fn facets(chart: &Chart, data: &PanelData, min_samples: Option<u32>) -> Vec<(String, Xy)> {
+    let facet = chart.layers.iter().find_map(|l| match &l.encoding {
+        Encoding::Xy { options, .. } => options.facet.clone(),
+        _ => None,
+    });
+    let Some(facet) = facet else {
+        return Vec::new();
+    };
+    // Facet values in table order (terms order), across layers.
+    let mut values: Vec<String> = Vec::new();
+    for d in &data.layers {
+        if let Some(col) = d.series(&facet) {
+            for v in &col.values {
+                let v = cell_text(v);
+                if !values.contains(&v) {
+                    values.push(v);
+                }
+            }
+        }
+    }
+    let mut out: Vec<(String, Xy)> = values
+        .into_iter()
+        .map(|value| {
+            let mut part = data.clone();
+            for d in &mut part.layers {
+                let Some(col) = d.series(&facet).cloned() else {
+                    continue;
+                };
+                let keep: Vec<bool> = col.values.iter().map(|v| cell_text(v) == value).collect();
+                for s in &mut d.columns {
+                    let mut k = keep.iter();
+                    s.values.retain(|_| *k.next().unwrap_or(&false));
+                }
+                let mut k = keep.iter();
+                d.counts.retain(|_| *k.next().unwrap_or(&false));
+                d.rows = keep.iter().filter(|k| **k).count();
+            }
+            let mut xy = xy(chart, &part, min_samples);
+            // Dashboard annotations aren't split by facet: on every small
+            // chart they would read as that facet's events.
+            xy.annotations.clear();
+            // One series: the facet's title carries its legend statistics,
+            // and the small chart's legend only its values.
+            let title = match xy.series.as_slice() {
+                [only] => match only.label.split_once(" · ") {
+                    Some((_, stats)) => format!("{value} · {stats}"),
+                    None => value,
+                },
+                _ => value,
+            };
+            (title, xy)
+        })
+        .collect();
+    // One y range for all, so the charts compare at a glance.
+    let drawn: Vec<f64> = out
+        .iter()
+        .flat_map(|(_, xy)| stacked(xy).into_iter().flatten().flatten())
+        .collect();
+    let lo = drawn.iter().copied().fold(f64::INFINITY, f64::min).min(0.0);
+    let hi = drawn.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    if hi.is_finite() && hi > lo {
+        for (_, xy) in &mut out {
+            xy.y_range = Some((lo, hi * 1.05));
+        }
+    }
+    out
 }
 
 /// The bounds of the x axis's log histogram, when the chart has one.
@@ -591,6 +704,9 @@ pub fn band(chart: &Chart, data: &PanelData, min_samples: Option<u32>) -> Xy {
         bin_ends: Vec::new(),
         x_format: None,
         annotations: Vec::new(),
+        interpolation: Default::default(),
+        span_gaps: true,
+        y_range: None,
     };
     xy.reference_lines = reference_lines(chart, data, &xy.series);
     xy.annotations = data.annotations.clone();
@@ -668,6 +784,9 @@ pub fn scatter(chart: &Chart, data: &PanelData) -> Xy {
         bin_ends: Vec::new(),
         x_format: None,
         annotations: Vec::new(),
+        interpolation: Default::default(),
+        span_gaps: true,
+        y_range: None,
     };
     xy.reference_lines = reference_lines(chart, data, &xy.series);
     if time {
@@ -953,6 +1072,9 @@ fn empty() -> Xy {
         bin_ends: Vec::new(),
         x_format: None,
         annotations: Vec::new(),
+        interpolation: Default::default(),
+        span_gaps: true,
+        y_range: None,
     }
 }
 
@@ -1063,6 +1185,7 @@ mod tests {
                     x: Some("x".into()),
                     y: vec!["y".into()],
                     split: split.then(|| "s".into()),
+                    options: Default::default(),
                 },
                 documents: None,
                 esql: None,

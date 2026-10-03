@@ -1162,6 +1162,120 @@ fn delivery_overview() -> Value {
         "is_rework : false",
     );
 
+    // A gauge: median lead time on a 0–200 h scale, coloured by DORA band,
+    // with a one-day goal.
+    let bands = json!({
+        "type": "palette", "name": "custom",
+        "params": {
+            "name": "custom", "reverse": false, "rangeType": "number",
+            "rangeMin": 0, "rangeMax": 200, "progression": "fixed",
+            "continuity": "none", "steps": 3, "maxSteps": 5,
+            "colorStops": [
+                { "color": "#54B399", "stop": 0 }, { "color": "#6092C0", "stop": 24 },
+                { "color": "#D6BF57", "stop": 168 }
+            ],
+            "stops": [
+                { "color": "#54B399", "stop": 24 }, { "color": "#6092C0", "stop": 168 },
+                { "color": "#D6BF57", "stop": 200 }
+            ]
+        }
+    });
+    d.lens(
+        "gauge-lead",
+        Grid(24, 111, 12, 11),
+        "Lead time against a one-day goal",
+        "lnsGauge",
+        DV_DEPLOYS,
+        vec![
+            col("gl-m", lead()),
+            col("gl-min", static_value(0.0, "Min")),
+            col("gl-max", static_value(200.0, "Max")),
+            col("gl-goal", static_value(24.0, "Goal")),
+        ],
+        json!({
+            "layerId": "layer-gauge-lead", "layerType": "data", "shape": "semiCircle",
+            "metricAccessor": "gl-m", "minAccessor": "gl-min", "maxAccessor": "gl-max",
+            "goalAccessor": "gl-goal", "ticksPosition": "auto", "labelMajorMode": "auto",
+            "colorMode": "palette", "palette": bands
+        }),
+        "is_rework : false",
+    );
+
+    // A waffle: deployments by result.
+    d.lens(
+        "waffle-results",
+        Grid(36, 111, 12, 11),
+        "Deployments by result",
+        "lnsPie",
+        DV_DEPLOYS,
+        vec![
+            col("wr-r", terms("result", 5, "wr-n")),
+            col("wr-n", count("Deployments")),
+        ],
+        json!({
+            "shape": "waffle",
+            "layers": [{
+                "layerId": "layer-waffle-results", "layerType": "data",
+                "primaryGroups": ["wr-r"], "metrics": ["wr-n"],
+                "numberDisplay": "percent", "categoryDisplay": "default", "legendDisplay": "show",
+                "nestedLegend": false
+            }]
+        }),
+        "is_rework : false",
+    );
+
+    // A treemap: story points by type of work, then team.
+    d.lens(
+        "treemap-work",
+        Grid(0, 122, 24, 14),
+        "Story points by type and team",
+        "lnsPie",
+        DV_ITEMS,
+        vec![
+            col("tw-type", terms("type", 4, "tw-p")),
+            col("tw-team", terms("team", 8, "tw-p")),
+            col("tw-p", metric("sum", "story_points", "Story points")),
+        ],
+        json!({
+            "shape": "treemap",
+            "layers": [{
+                "layerId": "layer-treemap-work", "layerType": "data",
+                "primaryGroups": ["tw-type", "tw-team"], "metrics": ["tw-p"],
+                "numberDisplay": "percent", "categoryDisplay": "default", "legendDisplay": "default",
+                "nestedLegend": false
+            }]
+        }),
+        "status : done",
+    );
+
+    // Missing values carried forward, a stepped line, and legend statistics.
+    let mut vis = xy("layer-recovery-weekly", "line", "rw-w", &["rw-m"], None);
+    vis["fittingFunction"] = json!("Carry");
+    vis["curveType"] = json!("CURVE_STEP_AFTER");
+    vis["legend"]["legendStats"] = json!(["average", "max", "lastValue"]);
+    vis["legend"]["isVisible"] = json!(true);
+    vis["legend"]["showSingleSeries"] = json!(true);
+    vis["legend"]["position"] = json!("right");
+    d.lens(
+        "recovery-weekly",
+        Grid(24, 122, 24, 14),
+        "Weekly median recovery of sev1 incidents",
+        "lnsXY",
+        DV_INCIDENTS,
+        vec![
+            col("rw-w", date_histogram("created_at", "1w")),
+            col(
+                "rw-m",
+                with_format(
+                    metric("median", "recovery_hours", "Median recovery"),
+                    hours_format(),
+                ),
+            ),
+        ],
+        vis,
+        "severity : sev1",
+    );
+
     dashboard_object(
         "teleplot-delivery-overview",
         "[Delivery] Overview (DORA)",

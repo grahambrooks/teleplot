@@ -60,6 +60,7 @@ panels:
         x: f3cc8168-6360-4727-a410-a57f5a325091
         y:
         - a69956c9-43cd-4756-a3c0-e93cb1502a0b
+        missing: gap
     - id: 1d08a43c-8913-4692-a3e0-8d77902f6e46
       data_view:
         index: kibana_sample_data_ecommerce
@@ -86,6 +87,7 @@ panels:
         x: 644b06ea-73a3-47b1-9b40-3035844c4621
         y:
         - 9a3d8abd-81a5-40ae-9616-020d5a5b2ee2
+        missing: gap
     - id: 9725cdbd-a9f3-479f-a349-0f11244e5239
       data_view:
         index: kibana_sample_data_ecommerce
@@ -112,6 +114,7 @@ panels:
         x: 6749b404-4784-4fd6-8bf6-5712e84c7310
         y:
         - b5588228-9c46-4a4b-92ee-d140c327bca0
+        missing: gap
     - id: 2031d0f8-01fc-4009-b1ad-a7b7ca9266c0
       data_view:
         index: kibana_sample_data_ecommerce
@@ -138,6 +141,7 @@ panels:
         x: 1b199cb1-b47f-48e6-b209-74eb81b303f5
         y:
         - 985e05c0-3a0b-4e55-84bb-1f02128388a9
+        missing: gap
     annotations:
     - id: c8c30be0-b88f-11e8-a451-f37365e9f268
       label: Event
@@ -363,6 +367,7 @@ panels:
         - eadae280-2da3-4d1d-a0e1-f9733f89c15b
         - 5e31e5d3-2aaa-4475-a130-3b69bf2f748a
         - ddc92e50-4d5c-413e-b91b-3e504889fa65
+        missing: gap
 - id: bda054f7-2d06-4936-b461-365d1be621fa
   title: Daily comparison
   grid:
@@ -469,6 +474,7 @@ panels:
         x: d77cdd24-dedc-48dd-9a4b-d34c6f1a6c46
         y:
         - 7ac31901-277a-46e2-8128-8d684b2c1127
+        missing: gap
 - id: 39d96714-152f-414b-992c-ce2492fc69f3
   title: Top products last week
   grid:
@@ -507,6 +513,7 @@ panels:
         x: d77cdd24-dedc-48dd-9a4b-d34c6f1a6c46
         y:
         - 7ac31901-277a-46e2-8128-8d684b2c1127
+        missing: gap
 - id: cd47b7cb-0ac0-43e0-b8c6-53489648bdef
   title: Breakdown by category
   grid:
@@ -550,6 +557,7 @@ panels:
         y:
         - 5575214b-7f21-4b6c-8bc1-34433c6a0c58
         split: 9f61a7df-198e-4754-b34c-81ed544136ba
+        missing: gap
 - id: bdb525ab-270b-46f1-a847-dd29be19aadb
   title: '% of target revenue ($10k)'
   grid:
@@ -598,6 +606,7 @@ panels:
         x: 8289349e-6d1b-4abf-b164-0208183d2c34
         y:
         - 041db33b-5c9c-47f3-a5d3-ef5e255d1663
+        missing: gap
 ---
 id: 7adfa750-4c81-11e8-b3d7-01146121b73d
 title: '[Flights] Global Flight Dashboard'
@@ -684,6 +693,7 @@ panels:
         x: 6944431b-f90a-4dab-a282-0961cb97edd1
         y:
         - b9d6187b-8a7e-4c49-bffd-7a60cc075a4a
+        missing: gap
     annotations:
     - id: 53b7dff0-4c89-11e8-a66a-6989ad5a0a39
       label: Event
@@ -733,6 +743,7 @@ panels:
         x: c7936be7-e59b-424e-a912-69ba820d8e24
         y:
         - c84f9fa9-e2a1-4845-8fcf-f5a34f5f92da
+        missing: gap
 - id: '23'
   title: '[Flights] Origin Time Delayed'
   grid:
@@ -1000,6 +1011,7 @@ panels:
         x: a5b94e30-4e77-4b0a-9187-1d8b13de1456
         y:
         - 3e267327-7317-4310-aee3-320e0f7c1e70
+        missing: gap
 - id: fb86b32f-fb7a-45cf-9511-f366fef51bbd
   title: '[Flights] Most delayed cities'
   grid:
@@ -1140,6 +1152,7 @@ panels:
         y:
         - 0233d302-ec81-4fbe-96cb-7fac84cf035c
         split: caf7421e-93a3-439e-ab0a-fbdead93c21c
+        missing: gap
 - id: 5d53db36-2d5a-4adc-af7b-cec4c1a294e0
   title: '[Flights] Delay Type'
   grid:
@@ -1217,6 +1230,7 @@ panels:
         y:
         - 9d212159-afac-41f5-9303-5fb62ff04ba3
         split: d99ad4d7-26ff-4d65-a8ce-34656fdafa0a
+        missing: gap
 ---
 id: edf84fe0-e1a0-11e7-b6d5-4dc382ef7f5b
 title: '[Logs] Web Traffic'
@@ -1332,6 +1346,7 @@ panels:
         y:
         - 896c5eb2-81c5-44f1-a4a1-57344161ea62
         split: 43f5bb0f-c6da-43a0-8a0a-50e9838ed34b
+        missing: gap
     annotations:
     - id: bd7548a0-2223-11e8-832f-d5027f3c8a47
       label: Event
@@ -1601,6 +1616,7 @@ panels:
         x: a8511a62-2b78-4ba4-9425-a417df6e059f
         y:
         - b5f3dc78-dba8-4db8-87b6-24a0b9cca260
+        missing: gap
 - id: 1d5f0b3f-d9d2-4b26-997b-83bc5ca3090b
   title: '[Logs] Errors by host'
   grid:

@@ -4,7 +4,7 @@ Status: decided, 2026-10-03. The research behind this plan was carried out the
 same day, and sources are linked inline. It sits alongside `docs/mcp-plan.md`
 and does not repeat items that plan owns: the query inspector (gap 2),
 annotations (gap 3), ES|QL (gap 4) and baseline comparison/BubbleUp (gap 6).
-A1, A2, A3, A5, A8 and B1–B3 are done. The remaining items are ordered, with the mcp-plan gaps, in
+A1–A9, B1–B3, B6 and B8 are done. In the model, A7's `fill_missing` became `missing` and B8's `facet_by` became `facet`. The remaining items are ordered, with the mcp-plan gaps, in
 [`roadmap.md`](roadmap.md).
 
 ## Context

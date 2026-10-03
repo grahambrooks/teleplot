@@ -297,6 +297,14 @@ pub enum ChartKind {
     Table,
     /// A grid of cells: one bucket column across, one down, coloured by a metric.
     Heatmap,
+    /// A value on a scale: arc, circle or bullet (Lens gauge).
+    Gauge,
+    /// Nested rectangles sized by value (Lens treemap); a `pie` encoding.
+    Treemap,
+    /// A 10 × 10 grid of squares by share (Lens waffle); a `pie` encoding.
+    Waffle,
+    /// One square per day, in weeks (GitHub-style); a `calendar` encoding.
+    Calendar,
 }
 
 /// One query against one data view, and how its columns are drawn.
@@ -354,7 +362,27 @@ pub enum Encoding {
         y: Vec<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         split: Option<String>,
+        #[serde(flatten)]
+        options: XyOptions,
     },
+    /// A value against a scale (Lens gauge).
+    Gauge {
+        value: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        min: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max: Option<String>,
+        /// A target, marked on the scale.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        goal: Option<String>,
+        #[serde(default)]
+        shape: GaugeShape,
+        /// Colour bands along the scale (and the value's colour).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bands: Option<ColorByValue>,
+    },
+    /// One square per day, coloured by `value`; `date` is a daily date histogram.
+    Calendar { date: String, value: String },
     Metric {
         value: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -431,6 +459,177 @@ pub enum Encoding {
     /// Lines at fixed values across an XY chart, e.g. a target or a
     /// percentile. Each value is one of this layer's unbucketed columns.
     ReferenceLines { lines: Vec<ReferenceLine> },
+}
+
+/// How lines are drawn and gaps filled on an `xy` layer, its legend, and
+/// small multiples.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+pub struct XyOptions {
+    /// `linear` (the default), `smooth` or `step` lines.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub interpolation: Interpolation,
+    /// What empty buckets do to a line: `connect` across them (the
+    /// default), leave a `gap`, or fill with `zero`, the previous value
+    /// (`carry`) or the next (`lookahead`).
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub missing: Missing,
+    /// Statistics shown beside each series in the legend.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub legend_stats: Vec<LegendStat>,
+    /// A terms column: one small chart per value, on a shared y scale.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub facet: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum Interpolation {
+    #[default]
+    Linear,
+    Smooth,
+    Step,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum Missing {
+    #[default]
+    Connect,
+    Gap,
+    Zero,
+    Carry,
+    Lookahead,
+}
+
+/// Legend statistics, over a series' non-empty values in x order (as
+/// Elastic Charts computes them for Lens).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum LegendStat {
+    Average,
+    Median,
+    Min,
+    Max,
+    Range,
+    First,
+    Last,
+    Total,
+    Count,
+    Difference,
+    DifferencePercent,
+    StdDeviation,
+}
+
+impl LegendStat {
+    pub fn label(self) -> &'static str {
+        match self {
+            LegendStat::Average => "Avg",
+            LegendStat::Median => "Median",
+            LegendStat::Min => "Min",
+            LegendStat::Max => "Max",
+            LegendStat::Range => "Range",
+            LegendStat::First => "First",
+            LegendStat::Last => "Last",
+            LegendStat::Total => "Sum",
+            LegendStat::Count => "Count",
+            LegendStat::Difference => "Difference",
+            LegendStat::DifferencePercent => "Difference %",
+            LegendStat::StdDeviation => "Std dev",
+        }
+    }
+
+    /// The statistic of `values` (x order; `None` for empty buckets).
+    pub fn of(self, values: &[Option<f64>]) -> Option<f64> {
+        let present: Vec<f64> = values.iter().flatten().copied().collect();
+        let (first, last) = (*present.first()?, *present.last()?);
+        let n = present.len() as f64;
+        let sum: f64 = present.iter().sum();
+        let mean = sum / n;
+        Some(match self {
+            LegendStat::Average => mean,
+            LegendStat::Median => {
+                let mut sorted = present.clone();
+                sorted.sort_by(f64::total_cmp);
+                let mid = sorted.len() / 2;
+                if sorted.len().is_multiple_of(2) {
+                    (sorted[mid - 1] + sorted[mid]) / 2.0
+                } else {
+                    sorted[mid]
+                }
+            }
+            LegendStat::Min => present.iter().copied().fold(f64::INFINITY, f64::min),
+            LegendStat::Max => present.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+            LegendStat::Range => {
+                present.iter().copied().fold(f64::NEG_INFINITY, f64::max)
+                    - present.iter().copied().fold(f64::INFINITY, f64::min)
+            }
+            LegendStat::First => first,
+            LegendStat::Last => last,
+            LegendStat::Total => sum,
+            LegendStat::Count => n,
+            LegendStat::Difference => last - first,
+            LegendStat::DifferencePercent => {
+                if first == 0.0 {
+                    return None;
+                }
+                (last - first) / first
+            }
+            LegendStat::StdDeviation => {
+                (present.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n).sqrt()
+            }
+        })
+    }
+}
+
+impl Missing {
+    /// Fills a series' empty buckets (`gap` and `connect` leave them; the
+    /// renderer draws across or breaks the line).
+    pub fn fill(self, values: &[Option<f64>]) -> Vec<Option<f64>> {
+        match self {
+            Missing::Connect | Missing::Gap => values.to_vec(),
+            Missing::Zero => values.iter().map(|v| Some(v.unwrap_or(0.0))).collect(),
+            Missing::Carry => {
+                let mut last = None;
+                values
+                    .iter()
+                    .map(|v| {
+                        last = v.or(last);
+                        last
+                    })
+                    .collect()
+            }
+            Missing::Lookahead => {
+                let mut next = None;
+                let mut out: Vec<Option<f64>> = values
+                    .iter()
+                    .rev()
+                    .map(|v| {
+                        next = v.or(next);
+                        next
+                    })
+                    .collect();
+                out.reverse();
+                out
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum GaugeShape {
+    /// Three quarters of a circle (Lens's default arc).
+    #[default]
+    Arc,
+    SemiCircle,
+    Circle,
+    HorizontalBullet,
+    VerticalBullet,
 }
 
 /// How a metric's secondary value is shown as a trend: an arrow (and the
@@ -733,7 +932,14 @@ impl Encoding {
     pub fn columns(&self) -> Vec<&str> {
         let mut ids: Vec<&str> = Vec::new();
         match self {
-            Encoding::Xy { x, y, split, .. } => {
+            Encoding::Xy {
+                x,
+                y,
+                split,
+                options,
+                ..
+            } => {
+                ids.extend(options.facet.as_deref());
                 ids.extend(x.as_deref());
                 ids.extend(y.iter().map(String::as_str));
                 ids.extend(split.as_deref());
@@ -757,6 +963,17 @@ impl Encoding {
                 ids.extend(groups.iter().chain(values).map(String::as_str))
             }
             Encoding::Table { columns, .. } => ids.extend(columns.iter().map(String::as_str)),
+            Encoding::Gauge {
+                value,
+                min,
+                max,
+                goal,
+                ..
+            } => {
+                ids.push(value);
+                ids.extend([min, max, goal].into_iter().flatten().map(String::as_str));
+            }
+            Encoding::Calendar { date, value } => ids.extend([date.as_str(), value.as_str()]),
             Encoding::Sparkline { x, y, by } => {
                 ids.extend([x.as_str(), y.as_str()]);
                 ids.extend(by.as_deref());
@@ -1248,5 +1465,47 @@ mod tests {
         assert_eq!(Summary::Max.of(&values), Some(3.0));
         assert_eq!(Summary::Avg.of(&[]), None);
         assert_eq!(Summary::Count.of(&[]), Some(0.0));
+    }
+
+    use super::{LegendStat, Missing};
+
+    #[test]
+    fn legend_stats_cover_the_non_empty_values_in_order() {
+        let v = [None, Some(4.0), Some(2.0), None, Some(6.0)];
+        assert_eq!(LegendStat::Average.of(&v), Some(4.0));
+        assert_eq!(LegendStat::Median.of(&v), Some(4.0));
+        assert_eq!(LegendStat::Range.of(&v), Some(4.0));
+        assert_eq!(LegendStat::First.of(&v), Some(4.0));
+        assert_eq!(LegendStat::Last.of(&v), Some(6.0));
+        assert_eq!(LegendStat::Total.of(&v), Some(12.0));
+        assert_eq!(LegendStat::Count.of(&v), Some(3.0));
+        assert_eq!(LegendStat::Difference.of(&v), Some(2.0));
+        assert_eq!(LegendStat::DifferencePercent.of(&v), Some(0.5));
+        assert_eq!(LegendStat::Average.of(&[None]), None);
+    }
+
+    #[test]
+    fn missing_values_fill_as_kibana_fits_them() {
+        let v = [None, Some(1.0), None, None, Some(4.0), None];
+        assert_eq!(Missing::Gap.fill(&v), v);
+        assert_eq!(
+            Missing::Zero.fill(&v),
+            [
+                Some(0.0),
+                Some(1.0),
+                Some(0.0),
+                Some(0.0),
+                Some(4.0),
+                Some(0.0)
+            ]
+        );
+        assert_eq!(
+            Missing::Carry.fill(&v),
+            [None, Some(1.0), Some(1.0), Some(1.0), Some(4.0), Some(4.0)]
+        );
+        assert_eq!(
+            Missing::Lookahead.fill(&v),
+            [Some(1.0), Some(1.0), Some(4.0), Some(4.0), Some(4.0), None]
+        );
     }
 }

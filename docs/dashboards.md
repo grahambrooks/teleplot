@@ -29,7 +29,7 @@ panels:
 
 Panel `content` is one of:
 
-- `type: chart`, which has a `kind` (`xy`, `metric`, `pie`, `donut`, `table` or `heatmap`), an optional `query` and `filters`, `layers`, and `annotations` of its own. Charts converted from Kibana can also carry `warnings`, naming parts of the original that Teleplot does not draw (a Lens annotation group linked from the library, for example). The panel shows them.
+- `type: chart`, which has a `kind` (`xy`, `metric`, `pie`, `donut`, `treemap`, `waffle`, `table`, `heatmap`, `gauge` or `calendar`), an optional `query` and `filters`, `layers`, and `annotations` of its own. Charts converted from Kibana can also carry `warnings`, naming parts of the original that Teleplot does not draw (a Lens annotation group linked from the library, for example). The panel shows them.
 - `type: markdown` with `text`.
 
 ## Layers and columns
@@ -57,9 +57,11 @@ The `encoding` (`as:`) says how columns are drawn:
 
 | `as` | Fields |
 |---|---|
-| `xy` | `series` (line, area, bar, …, `bar_percentage_stacked`), `x`, `y: [...]`, `split` |
+| `xy` | `series` (line, area, bar, …, `bar_percentage_stacked`), `x`, `y: [...]`, `split`; and `interpolation`, `missing`, `legend_stats`, `facet` (below) |
 | `metric` | `value`, `secondary`, `breakdown`, `max`, `progress`, `badge` (below) |
-| `pie` | `groups`, `values` |
+| `pie` | `groups`, `values`: for `pie`, `donut`, `treemap` (up to two levels of groups) and `waffle` charts |
+| `gauge` | `value`, `min`, `max`, `goal`, `shape` (`arc`, `semi_circle`, `circle`, `horizontal_bullet`, `vertical_bullet`), `bands` (below) |
+| `calendar` | `date` (a 1-day date histogram), `value`: one square a day, in weeks |
 | `table` | `columns`, `styles`, `sparkline` (below) |
 | `sparkline` | `x` (a date histogram), `y`, `by`: a small line drawn inside the chart's metric tiles or table rows |
 | `band` | `x`, `low`, `mid`, `high`: a line inside a shaded band, e.g. median within p25–p75 |
@@ -329,6 +331,50 @@ encoding:
 - **Summary row:** `sum`, `avg`, `count`, `min` or `max` of the column's non-empty values, as Kibana computes it (a count is left unformatted).
 - **Sparkline column:** a last column of small lines, from a `sparkline` layer whose `by` matches the table's first column (for example each team's deployments per week). Kibana's datatable has no sparklines; Grafana's has.
 - **Kibana:** Lens datatable columns' `colorMode` with a custom palette, and `summaryRow` with `summaryLabel`, convert.
+
+### Lines, gaps, legend statistics and small multiples
+
+```yaml
+encoding:
+  as: xy
+  series: line
+  x: week
+  y: [median]
+  interpolation: smooth           # linear (default), smooth or step
+  missing: gap                    # connect (default), gap, zero, carry, lookahead
+  legend_stats: [average, last]   # beside each series in the legend
+  facet: team                     # one small chart per team, same y scale
+```
+
+- **`missing`** decides what an empty bucket does to a line or area: draw across it, leave a gap, or fill it with zero, the previous value (`carry`) or the next (`lookahead`). Bars are never filled. Lens's `fittingFunction` converts, and a Lens chart without one leaves gaps, as Kibana does.
+- **`legend_stats`**: `average`, `median`, `min`, `max`, `range`, `first`, `last`, `total`, `count`, `difference`, `difference_percent` or `std_deviation`, over the series' non-empty values. They are added to the series' legend label, so they also appear in PNG exports. Lens 9.4+ `legendStats` convert.
+- **`facet`** names a terms column. The panel draws one chart per value, in a grid, all on the same y range, so the charts compare at a glance. With one series, each chart's title carries its legend statistics. Dashboard annotations aren't drawn on facets, because they aren't split by facet.
+
+### Gauges
+
+```yaml
+kind: gauge
+encoding:
+  as: gauge
+  value: rate
+  max: max          # a column, e.g. a static value; 0 and a round number above the value otherwise
+  goal: goal        # marked on the scale
+  shape: arc
+  bands:            # coloured bands along the scale; the value takes its band's colour
+    stops:
+      - { from: 0, color: "#73BF69" }
+      - { from: 0.05, color: "#5794F2" }
+      - { from: 0.15, color: "#F2495C" }
+```
+
+The bands use the same stops as a table's colour by value (`percent`,
+`extend_below`, `extend_above`, `to`). Lens gauges (`lnsGauge`, every shape)
+convert with their palette.
+
+### Treemaps, waffles and calendars
+
+- A **treemap** sizes rectangles by value: the first group, then the second inside it. A **waffle** shows shares as 100 squares. Both use the `pie` encoding, and Lens's treemap and waffle shapes convert. Mosaic stays a placeholder.
+- A **calendar** shows one square per day, darker for more, in weeks from Monday, in the dashboard's time zone. Use a `date_histogram` with `interval: 1d`. It suits deployment cadence: weekends, freezes and busy weeks show at a glance.
 
 ### Chained controls
 

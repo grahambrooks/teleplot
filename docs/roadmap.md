@@ -5,7 +5,7 @@ The research and rationale stay in the source plans:
 
 - [`mvp-plan.md`](mvp-plan.md): M0–M5 and M6 parts 1–2 (export, performance) are done.
 - [`mcp-plan.md`](mcp-plan.md): Part 1 (MCP endpoint) and gaps 1–6 (lint/schema, inspector and CSV, annotations, ES|QL panels, chained and ad-hoc variables, BubbleUp) are done.
-- [`charting-plan.md`](charting-plan.md): A1 (reference lines), A2 (`timeScale` → `per`), A3 (metric chart), A5 (heatmap), A8 (datatable) and B1–B3 (the distribution charts) are done.
+- [`charting-plan.md`](charting-plan.md): Wave A (A1–A9), B1–B3 (the distribution charts), B6 (calendar) and B8 (small multiples) are done.
 
 Items carry their source IDs (`mcp gap 2`, `charting A1`). A phase starts once
 the one before it is done. Items inside a phase can go in parallel. Every item
@@ -81,10 +81,20 @@ also follows the [verification rules](#verification-rules) below.
   - **Fixtures.** Three panels exported from Kibana 8.19 and 9.5: a lead-time metric with trend line and "Difference" badge, a deployments metric with a progress bar to a target, and a datatable coloured by DORA band with a total and average. Parity tests check Kibana's 20.6 h and 0.9 h, 1,004 of 1,200, the total and average, and every cell's colour. The sample data's datatable palettes now convert too.
   - **Reference dashboard.** The deployment-frequency tile has a trend and a progress bar to 50 a week. The lead-time tile has a trend and a badge. The team table is coloured by band, has a total, and has a deployments-per-week sparkline for each team.
 
-## Phase 7: remaining parity and polish
+## Phase 7: remaining parity and polish (done 2026-10-03)
 
 - **`charting A4`** gauge, **`A6`** legend statistics, **`A7`** interpolation and missing-value fill, **`A9`** treemap and waffle.
 - **`charting B6`** calendar heatmap, **`B8`** small multiples.
+- *Result:*
+  - **Gauges.** `kind: gauge` with a `value` and optional `min`, `max` and `goal` columns. Shapes are `arc`, `semi_circle`, `circle`, `horizontal_bullet` and `vertical_bullet`. Colour `bands` use the same palette stops as tables, and the value takes its band's colour. These are SVG, as metric progress bars are. Lens `lnsGauge` converts, including its palette.
+  - **Lines.** XY layers take `interpolation` (`linear`, `smooth`, `step`) and `missing` (`connect`, `gap`, `zero`, `carry`, `lookahead`), drawn with uPlot's spline and stepped paths. Lens `curveType` and `fittingFunction` convert. A Lens chart without a fitting function leaves gaps, as Kibana does, so the sample data's XY layers now convert with `missing: gap`.
+  - **Legend statistics.** `legend_stats` (average, median, min, max, range, first, last, total, count, difference, difference %, standard deviation) are appended to each series' legend label. As in Kibana, they're computed on the raw buckets before any fill. Lens `legendStats` converts. An unknown statistic produces a warning, not silence.
+  - **Treemap and waffle.** Lens pie shapes `treemap` and `waffle` convert to their own kinds. The treemap is squarified over two levels, with a key for the top level. The waffle is 100 squares, with shares rounded by largest remainder so they always add up to 100.
+  - **Calendar.** `kind: calendar` is one square per day in weeks from Monday, in the dashboard's time zone, shaded on the sequential ramp. It isn't a Lens chart, so it is native YAML only.
+  - **Small multiples.** `facet: <terms column>` on an XY layer draws one small chart per value, all on one y range. Dashboard annotations aren't drawn in facets, because they aren't split by facet value and would read as each facet's events. With one series, a facet's title carries its legend statistics.
+  - **Fixtures.** Four panels exported from Kibana 8.19 and 9.5: a semicircle lead-time gauge with DORA bands and a goal, a waffle of deployment results, a treemap of done story points by type and team, and a weekly sev1 recovery line with step interpolation, carry fill and legend statistics. Parity tests check the gauge's 20.6 h, max 200 and goal 24; the waffle's 902 and 102; the treemap's shares (47.97, 24.76, 15.42 and 11.85, and 8.6 for feature › checkout); and Kibana's legend average of 19.4 h.
+  - **Performance.** The reference dashboard is now 20 panels over 1,011,958 documents. The benchmark (7 runs) gives medians of 103 ms cold, 58 ms warm and 8 ms cached, still far inside the 2 s budget in `performance.md`. Its recorded 12-panel figures (71/49/4 ms) are left as they were measured.
+  - **Reference dashboard.** Adds a deployments-per-day calendar, a change-fail-rate gauge against the DORA bands, a waffle of deployment results, weekly cycle time as small multiples by team (with average and last), and an investment treemap.
 
 ## Phase 8: comparing teams
 

@@ -25,6 +25,7 @@ Versions: `8.19` is Kibana 8.19.22, `9.5` is Kibana 9.5.3.
 - **Dashboard-level settings:** KQL query, a negated phrase filter, `timeRestore`, refresh interval, and an options-list control (`controlGroupInput`).
 - **Lens metric, 9.x:** a background trend line, a `secondaryTrend` badge comparing with the primary ("Difference"), and a progress bar to a static `max`.
 - **Lens datatable styling:** colour by value (a custom palette in cell mode) and summary rows (sum with a label, average).
+- **Lens gauge, treemap, waffle and line options:** a semicircle gauge with palette bands, a static max and a goal; a waffle; a two-level treemap; and a step line with `fittingFunction: Carry` and legend statistics (average, max, last value).
 - **Lens ES|QL (`textBased`):** two metrics (one percent-formatted), a table, and a weekly `BUCKET` bar chart over ad hoc data views.
 - **Lens annotation layers:** a query annotation (sev1 incidents, labelled by team), a manual range (a release freeze) and a manual point (a reorg) on the lead-time chart; and the query annotations in the sample data.
 - **Panels outside the MVP, which must render as placeholders:** Vega, Maps and saved searches. (The 9.5 sample data's Lens ES|QL panels now convert.)

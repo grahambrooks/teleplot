@@ -106,6 +106,7 @@ fn convert(export: &Export, vis: Vis, refs: &[Reference]) -> Result<PanelContent
             x: segments.first().cloned(),
             y: metrics,
             split: groups.first().or(splits.first()).cloned(),
+            options: Default::default(),
         },
         ChartKind::Pie | ChartKind::Donut => Encoding::Pie {
             groups: splits.into_iter().chain(segments).collect(),
@@ -125,6 +126,9 @@ fn convert(export: &Export, vis: Vis, refs: &[Reference]) -> Result<PanelContent
             progress_direction: Default::default(),
             badge: None,
         },
+        ChartKind::Gauge | ChartKind::Treemap | ChartKind::Waffle | ChartKind::Calendar => {
+            return Err(unparseable(kind_name, "not a legacy chart kind"));
+        }
         ChartKind::Heatmap => {
             return Err(unparseable(kind_name, "legacy heatmaps are not converted"));
         }

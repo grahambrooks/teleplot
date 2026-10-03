@@ -9,6 +9,7 @@ pub mod format;
 mod inspector;
 mod panels;
 pub mod series;
+mod shapes;
 mod shell;
 mod theme;
 #[cfg(feature = "hydrate")]

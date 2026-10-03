@@ -1879,6 +1879,7 @@ mod tests {
                     x: Some("x".into()),
                     y: vec!["n".into()],
                     split: None,
+                    options: Default::default(),
                 },
                 documents: None,
                 esql: None,

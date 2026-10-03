@@ -240,6 +240,20 @@ fn ChartBody(chart: Chart, data: Signal<Option<PanelData>>, ctx: PanelContext) -
             (ChartKind::Table, _) => {
                 view! { <DataTable chart=c data=d ctx=ctx.clone()/> }.into_any()
             }
+            (ChartKind::Gauge, _) => {
+                view! { <super::shapes::GaugeChart chart=c data=d/> }.into_any()
+            }
+            (ChartKind::Treemap, _) => {
+                view! { <super::shapes::TreemapChart chart=c data=d/> }.into_any()
+            }
+            (ChartKind::Waffle, _) => {
+                view! { <super::shapes::WaffleChart chart=c data=d/> }.into_any()
+            }
+            (ChartKind::Calendar, _) => {
+                let time_zone = ctx.time_zone.get_untracked();
+                let dark = ctx.dark.get_untracked();
+                view! { <super::shapes::CalendarChart chart=c data=d time_zone dark/> }.into_any()
+            }
             (ChartKind::Heatmap, _) => {
                 let drawing = Drawing::Heatmap(series::heatmap(&c, &d));
                 view! { <CanvasChart drawing ctx=ctx.clone()/> }.into_any()
@@ -251,6 +265,21 @@ fn ChartBody(chart: Chart, data: Signal<Option<PanelData>>, ctx: PanelContext) -
             }
             (_, Some(Encoding::Scatter { .. })) => {
                 view! { <CanvasChart drawing=Drawing::Xy(series::scatter(&c, &d)) ctx=ctx.clone()/> }.into_any()
+            }
+            // Small multiples: one chart per facet value, on one y range.
+            _ if !series::facets(&c, &d, min).is_empty() => {
+                let charts = series::facets(&c, &d, min)
+                    .into_iter()
+                    .map(|(name, xy)| {
+                        view! {
+                            <div class="facet">
+                                <div class="facet-title">{name}</div>
+                                <CanvasChart drawing=Drawing::Xy(xy) ctx=ctx.clone()/>
+                            </div>
+                        }
+                    })
+                    .collect_view();
+                view! { <div class="facets">{charts}</div> }.into_any()
             }
             _ => {
                 let xy = series::xy(&c, &d, min);
@@ -291,7 +320,7 @@ fn display(cell: &Cell, column: Option<&Column>, is_date: bool, tz: &str) -> Str
 }
 
 #[cfg(feature = "hydrate")]
-fn date(ms: f64, tz: &str) -> String {
+pub(super) fn date(ms: f64, tz: &str) -> String {
     let date = js_sys::Date::new(&ms.into());
     let options = js_sys::Object::new();
     for (k, v) in [
@@ -306,7 +335,7 @@ fn date(ms: f64, tz: &str) -> String {
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn date(ms: f64, _tz: &str) -> String {
+pub(super) fn date(ms: f64, _tz: &str) -> String {
     jiff::Timestamp::from_millisecond(ms as i64)
         .map(|t| t.strftime("%Y-%m-%d").to_string())
         .unwrap_or_default()
@@ -629,7 +658,7 @@ fn PieChart(chart: Chart, data: PanelData, ctx: PanelContext) -> impl IntoView {
 }
 
 /// An SVG path for an annular sector (a pie slice when `inner` is 0).
-fn arc(cx: f64, cy: f64, outer: f64, inner: f64, start: f64, end: f64) -> String {
+pub(super) fn arc(cx: f64, cy: f64, outer: f64, inner: f64, start: f64, end: f64) -> String {
     let full = end - start >= std::f64::consts::TAU - 1e-9;
     let end = if full { end - 1e-4 } else { end };
     let large = if end - start > std::f64::consts::PI {

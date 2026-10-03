@@ -404,7 +404,12 @@ fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Probl
         let fits = matches!(
             (&layer.encoding, chart.kind),
             (Encoding::Metric { .. }, ChartKind::Metric)
-                | (Encoding::Pie { .. }, ChartKind::Pie | ChartKind::Donut)
+                | (
+                    Encoding::Pie { .. },
+                    ChartKind::Pie | ChartKind::Donut | ChartKind::Treemap | ChartKind::Waffle
+                )
+                | (Encoding::Gauge { .. }, ChartKind::Gauge)
+                | (Encoding::Calendar { .. }, ChartKind::Calendar)
                 | (Encoding::Table { .. }, ChartKind::Table)
                 | (Encoding::Heatmap { .. }, ChartKind::Heatmap)
                 | (
@@ -455,6 +460,29 @@ fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Probl
                     format!("no sparkline layer {:?} in this chart", spark.layer),
                 ));
             }
+        }
+        if let Encoding::Xy { options, .. } = &layer.encoding
+            && let Some(facet) = &options.facet
+            && !matches!(
+                layer.column(facet).map(|c| &c.op),
+                Some(Operation::Terms { .. }) | None
+            )
+        {
+            problems.push(Problem::error(
+                format!("{at}.encoding.facet"),
+                format!("facet {facet:?} must be a terms column: one small chart per value"),
+            ));
+        }
+        if let Encoding::Calendar { date, .. } = &layer.encoding
+            && !matches!(
+                layer.column(date).map(|c| &c.op),
+                Some(Operation::DateHistogram { .. }) | None
+            )
+        {
+            problems.push(Problem::error(
+                format!("{at}.encoding.date"),
+                format!("calendar date {date:?} must be a date histogram (interval 1d)"),
+            ));
         }
         if let Encoding::Heatmap { x, y, value } = &layer.encoding {
             for axis in [Some(x), y.as_ref()].into_iter().flatten() {

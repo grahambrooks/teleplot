@@ -296,6 +296,75 @@ async fn dora_overview_matches_kibana() {
             assert_eq!(*color, expected(team), "{version} {team}");
         }
 
+        // Phase 7: a gauge (20.6 h on 0–200 with a 24 h goal), a waffle
+        // (902 successes, 102 failures), a treemap (shares of story points by
+        // type, and checkout's 8.6% inside features), and legend statistics
+        // over the raw weekly medians (Kibana: Avg 19.4 h).
+        assert_shown(number(&data, "gauge-lead", "gl-m"), 20.6, 1, "gauge");
+        assert_eq!(number(&data, "gauge-lead", "gl-max"), 200.0, "{version}");
+        assert_eq!(number(&data, "gauge-lead", "gl-goal"), 24.0, "{version}");
+        let results = column(&data, "waffle-results", "wr-r");
+        let counts = column(&data, "waffle-results", "wr-n");
+        let count_of = |name: &str| {
+            let i = results
+                .iter()
+                .position(|r| *r == Cell::Text(name.into()))
+                .unwrap();
+            counts[i].number().unwrap()
+        };
+        assert_eq!(
+            (count_of("success"), count_of("failure")),
+            (902.0, 102.0),
+            "{version}"
+        );
+        let types = column(&data, "treemap-work", "tw-type");
+        let teams = column(&data, "treemap-work", "tw-team");
+        let points: Vec<f64> = column(&data, "treemap-work", "tw-p")
+            .iter()
+            .map(|c| c.number().unwrap())
+            .collect();
+        let total: f64 = points.iter().sum();
+        let share = |pred: &dyn Fn(usize) -> bool| -> f64 {
+            (0..points.len())
+                .filter(|&i| pred(i))
+                .map(|i| points[i])
+                .sum::<f64>()
+                / total
+                * 100.0
+        };
+        for (kind, shown) in [
+            ("feature", 47.97),
+            ("defect", 24.76),
+            ("debt", 15.42),
+            ("risk", 11.85),
+        ] {
+            assert_shown(
+                share(&|i| types[i] == Cell::Text(kind.into())),
+                shown,
+                2,
+                kind,
+            );
+        }
+        assert_shown(
+            share(&|i| {
+                types[i] == Cell::Text("feature".into())
+                    && teams[i] == Cell::Text("checkout".into())
+            }),
+            8.6,
+            2,
+            "feature › checkout",
+        );
+        let weekly: Vec<Option<f64>> = column(&data, "recovery-weekly", "rw-m")
+            .iter()
+            .map(Cell::number)
+            .collect();
+        assert_shown(
+            teleplot::model::LegendStat::Average.of(&weekly).unwrap(),
+            19.4,
+            1,
+            "legend average",
+        );
+
         let annotations = &data["lead-target"].annotations;
         let labels: Vec<&str> = annotations.iter().map(|a| a.label.as_str()).collect();
         assert_eq!(

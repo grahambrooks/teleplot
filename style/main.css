@@ -505,3 +505,26 @@ html.printing .panel { break-inside: avoid; }
 .data-table tfoot td { border-top: 1px solid var(--border-strong); font-weight: 500; }
 .data-table .spark { width: 90px; }
 .data-table .spark svg path { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+
+/* Gauges, treemaps, calendars, small multiples. */
+.gauge { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+.gauge-svg { width: 100%; max-height: calc(100% - 40px); flex: 1; }
+.gauge-svg.vertical { max-width: 120px; }
+.gauge-value { font-size: 14px; font-weight: 500; fill: var(--text); }
+.gauge-scale { width: 80%; display: flex; justify-content: space-between; }
+.treemap { height: 100%; display: flex; flex-direction: column; gap: 4px; }
+.treemap-key { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0; padding: 0; list-style: none; font-size: 12px; }
+.treemap-key li { display: flex; align-items: center; gap: 4px; }
+.treemap-key .legend-value { color: var(--text-muted); }
+.treemap-svg { width: 100%; flex: 1; min-height: 0; }
+.treemap-label { font-size: 9px; fill: #111; }
+.treemap-value { font-size: 8px; fill: #111; opacity: 0.75; }
+.calendar { height: 100%; display: flex; flex-direction: column; gap: 4px; overflow: auto; }
+.calendar-svg { width: 100%; max-height: calc(100% - 20px); }
+.calendar-label { font-size: 8px; fill: var(--text-muted); }
+.facets { height: 100%; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); grid-auto-rows: minmax(140px, 1fr); gap: 8px; overflow: auto; }
+.facet { display: flex; flex-direction: column; min-height: 0; }
+.facet-title { font-size: 12px; color: var(--text-muted); }
+.facet .timechart { flex: 1; min-height: 0; }
+.facet .u-legend { font-size: 11px; line-height: 1.2; }
+.facet .u-legend .u-label { display: none; }

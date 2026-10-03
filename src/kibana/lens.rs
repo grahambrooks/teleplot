@@ -11,9 +11,10 @@ use super::objects::{
 use super::{broken, out_of_scope, search, unparseable};
 use crate::model::{
     Annotation, AnnotationEvent, BadgeShow, Better, Chart, ChartKind, ColorByValue, ColorMode,
-    ColorStop, Column, ColumnStyle, DataView, Encoding, Esql, Expr, Format, FormatKind, Interval,
-    Layer, LineStyle, NamedQuery, Operation, OverallFunction, PerUnit, Placeholder, Range,
-    ReferenceAxis, ReferenceFill, ReferenceLine, SeriesType, Summary, TermsOrder, TrendBadge,
+    ColorStop, Column, ColumnStyle, DataView, Encoding, Esql, Expr, Format, FormatKind, GaugeShape,
+    Interpolation, Interval, Layer, LegendStat, LineStyle, Missing, NamedQuery, Operation,
+    OverallFunction, PerUnit, Placeholder, Range, ReferenceAxis, ReferenceFill, ReferenceLine,
+    SeriesType, Summary, TermsOrder, TrendBadge, XyOptions,
 };
 
 /// Converts Lens saved-object attributes. `refs` are the references visible
@@ -29,9 +30,12 @@ pub fn convert(export: &Export, attrs: &Value, refs: &[Reference]) -> Result<Cha
         "lnsMetric" => ChartKind::Metric,
         "lnsDatatable" => ChartKind::Table,
         "lnsHeatmap" => ChartKind::Heatmap,
+        "lnsGauge" => ChartKind::Gauge,
         "lnsPie" => match str_field(vis, "shape").unwrap_or("pie") {
             "pie" => ChartKind::Pie,
             "donut" => ChartKind::Donut,
+            "treemap" => ChartKind::Treemap,
+            "waffle" => ChartKind::Waffle,
             shape => {
                 return Err(out_of_scope(
                     &kind_name,
@@ -301,6 +305,7 @@ fn encodings(kind: ChartKind, vis: &Value) -> Result<Encodings, String> {
                         x: s(layer, "xAccessor"),
                         y: ids(&layer["accessors"]),
                         split: s(layer, "splitAccessor"),
+                        options: xy_options(vis, &mut warnings),
                     },
                 ));
             }
@@ -338,7 +343,27 @@ fn encodings(kind: ChartKind, vis: &Value) -> Result<Encodings, String> {
             }
             layers
         }
-        ChartKind::Pie | ChartKind::Donut => {
+        ChartKind::Gauge => vec![(
+            layer_id(vis)?,
+            Encoding::Gauge {
+                value: s(vis, "metricAccessor").ok_or("gauge without metricAccessor")?,
+                min: s(vis, "minAccessor"),
+                max: s(vis, "maxAccessor"),
+                goal: s(vis, "goalAccessor"),
+                shape: match str_field(vis, "shape") {
+                    Some("semiCircle") => GaugeShape::SemiCircle,
+                    Some("circle") => GaugeShape::Circle,
+                    Some("horizontalBullet") => GaugeShape::HorizontalBullet,
+                    Some("verticalBullet") => GaugeShape::VerticalBullet,
+                    _ => GaugeShape::Arc,
+                },
+                bands: (str_field(vis, "colorMode") == Some("palette"))
+                    .then(|| palette(&vis["palette"]["params"]))
+                    .flatten(),
+            },
+        )],
+        ChartKind::Calendar => return Err("calendars are not a Lens chart".into()),
+        ChartKind::Pie | ChartKind::Donut | ChartKind::Treemap | ChartKind::Waffle => {
             let layer = vis["layers"].get(0).ok_or("pie without layers")?;
             let mut values = ids(&layer["metrics"]);
             if values.is_empty() {
@@ -468,6 +493,58 @@ fn annotation_layer(
         out.push(annotation);
     }
     out
+}
+
+/// Lens XY settings that apply to every layer: how lines are drawn and gaps
+/// filled (`curveType`, `fittingFunction`), and legend statistics.
+fn xy_options(vis: &Value, warnings: &mut Vec<String>) -> XyOptions {
+    let interpolation = match str_field(vis, "curveType") {
+        Some("CURVE_MONOTONE_X") => Interpolation::Smooth,
+        Some("CURVE_STEP_AFTER") => Interpolation::Step,
+        _ => Interpolation::Linear,
+    };
+    // Lens leaves gaps unless told how to fit them.
+    let missing = match str_field(vis, "fittingFunction") {
+        Some("Linear") => Missing::Connect,
+        Some("Zero") => Missing::Zero,
+        Some("Carry") => Missing::Carry,
+        Some("Lookahead") => Missing::Lookahead,
+        _ => Missing::Gap,
+    };
+    let mut legend_stats = Vec::new();
+    for stat in vis["legend"]["legendStats"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+    {
+        let known = match stat {
+            "average" => Some(LegendStat::Average),
+            "median" => Some(LegendStat::Median),
+            "min" => Some(LegendStat::Min),
+            "max" => Some(LegendStat::Max),
+            "range" => Some(LegendStat::Range),
+            "firstValue" | "firstNonNullValue" => Some(LegendStat::First),
+            "lastValue" | "lastNonNullValue" | "currentAndLastValue" => Some(LegendStat::Last),
+            "total" => Some(LegendStat::Total),
+            "count" => Some(LegendStat::Count),
+            "difference" => Some(LegendStat::Difference),
+            "differencePercent" => Some(LegendStat::DifferencePercent),
+            "stdDeviation" => Some(LegendStat::StdDeviation),
+            _ => None,
+        };
+        match known {
+            Some(s) if !legend_stats.contains(&s) => legend_stats.push(s),
+            Some(_) => {}
+            None => warnings.push(format!("Not shown: the legend statistic {stat:?}.")),
+        }
+    }
+    XyOptions {
+        interpolation,
+        missing,
+        legend_stats,
+        facet: None,
+    }
 }
 
 /// Lens 9.x's `secondaryTrend`: a dynamic trend becomes a badge. Its palette

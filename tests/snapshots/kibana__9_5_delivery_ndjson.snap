@@ -987,6 +987,199 @@ panels:
             - from: 720.0
               color: '#E7664C'
           summary: avg
+- id: gauge-lead
+  title: Lead time against a one-day goal
+  grid:
+    x: 24
+    y: 111
+    w: 12
+    h: 11
+  content:
+    type: chart
+    kind: gauge
+    query:
+      language: kql
+      text: 'is_rework : false'
+    layers:
+    - id: layer-gauge-lead
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      columns:
+      - id: gl-m
+        label: Median lead time
+        op: median
+        field: change_lead_time_hours
+        format:
+          kind: number
+          decimals: 1
+          suffix: ' h'
+      - id: gl-min
+        label: Min
+        op: static_value
+        value: 0.0
+      - id: gl-max
+        label: Max
+        op: static_value
+        value: 200.0
+      - id: gl-goal
+        label: Goal
+        op: static_value
+        value: 24.0
+      encoding:
+        as: gauge
+        value: gl-m
+        min: gl-min
+        max: gl-max
+        goal: gl-goal
+        shape: semi_circle
+        bands:
+          mode: cell
+          stops:
+          - from: 0.0
+            color: '#54B399'
+          - from: 24.0
+            color: '#6092C0'
+          - from: 168.0
+            color: '#D6BF57'
+          extend_above: false
+          to: 200.0
+- id: waffle-results
+  title: Deployments by result
+  grid:
+    x: 36
+    y: 111
+    w: 12
+    h: 11
+  content:
+    type: chart
+    kind: waffle
+    query:
+      language: kql
+      text: 'is_rework : false'
+    layers:
+    - id: layer-waffle-results
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      columns:
+      - id: wr-r
+        label: Top 5 values of result
+        op: terms
+        fields:
+        - result
+        size: 5
+        order:
+          by: column
+          column: wr-n
+          ascending: false
+        other_bucket: true
+      - id: wr-n
+        label: Deployments
+        op: count
+      encoding:
+        as: pie
+        groups:
+        - wr-r
+        values:
+        - wr-n
+- id: treemap-work
+  title: Story points by type and team
+  grid:
+    x: 0
+    y: 122
+    w: 24
+    h: 14
+  content:
+    type: chart
+    kind: treemap
+    query:
+      language: kql
+      text: 'status : done'
+    layers:
+    - id: layer-treemap-work
+      data_view:
+        index: delivery-workitems
+        time_field: done_at
+      columns:
+      - id: tw-type
+        label: Top 4 values of type
+        op: terms
+        fields:
+        - type
+        size: 4
+        order:
+          by: column
+          column: tw-p
+          ascending: false
+        other_bucket: true
+      - id: tw-team
+        label: Top 8 values of team
+        op: terms
+        fields:
+        - team
+        size: 8
+        order:
+          by: column
+          column: tw-p
+          ascending: false
+        other_bucket: true
+      - id: tw-p
+        label: Story points
+        op: sum
+        field: story_points
+      encoding:
+        as: pie
+        groups:
+        - tw-type
+        - tw-team
+        values:
+        - tw-p
+- id: recovery-weekly
+  title: Weekly median recovery of sev1 incidents
+  grid:
+    x: 24
+    y: 122
+    w: 24
+    h: 14
+  content:
+    type: chart
+    kind: xy
+    query:
+      language: kql
+      text: 'severity : sev1'
+    layers:
+    - id: layer-recovery-weekly
+      data_view:
+        index: delivery-incidents
+        time_field: created_at
+      columns:
+      - id: rw-w
+        label: created_at
+        op: date_histogram
+        field: created_at
+        interval: 1w
+        include_empty: true
+      - id: rw-m
+        label: Median recovery
+        op: median
+        field: recovery_hours
+        format:
+          kind: number
+          decimals: 1
+          suffix: ' h'
+      encoding:
+        as: xy
+        series: line
+        x: rw-w
+        y:
+        - rw-m
+        interpolation: step
+        missing: carry
+        legend_stats:
+        - average
+        - max
+        - last
 ---
 id: teleplot-pr-flow
 title: '[Delivery] PR flow'

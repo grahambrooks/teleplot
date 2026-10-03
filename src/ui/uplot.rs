@@ -33,6 +33,12 @@ extern "C" {
     #[wasm_bindgen(js_namespace = ["uPlot", "paths"], js_name = bars)]
     fn bars(opts: &JsValue) -> JsValue;
 
+    #[wasm_bindgen(js_namespace = ["uPlot", "paths"], js_name = spline)]
+    fn spline() -> JsValue;
+
+    #[wasm_bindgen(js_namespace = ["uPlot", "paths"], js_name = stepped)]
+    fn stepped(opts: &JsValue) -> JsValue;
+
     #[wasm_bindgen(static_method_of = UPlot, js_class = "uPlot", js_name = tzDate)]
     fn tz_date(date: &js_sys::Date, tz: &str) -> js_sys::Date;
 }
@@ -159,7 +165,7 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
             ("label", s.label.clone().into()),
             ("stroke", color.into()),
             ("width", if s.kind.is_bar() { 0.0 } else { 2.0 }.into()),
-            ("spanGaps", (!s.kind.is_bar()).into()),
+            ("spanGaps", (!s.kind.is_bar() && xy.span_gaps).into()),
             ("points", obj(&[("show", false.into())]).into()),
             ("scale", if on_right(s) { "y2" } else { "y" }.into()),
         ]);
@@ -199,6 +205,16 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
                 "fill",
                 format!("{color}{}", if s.kind.is_bar() { "cc" } else { "40" }),
             );
+        }
+        // Smooth or stepped lines (Lens's curve type).
+        if !s.kind.is_bar() && s.style == Style::Normal {
+            match xy.interpolation {
+                crate::model::Interpolation::Smooth => set(&spec, "paths", spline()),
+                crate::model::Interpolation::Step => {
+                    set(&spec, "paths", stepped(&obj(&[("align", 1.into())])))
+                }
+                crate::model::Interpolation::Linear => {}
+            }
         }
         if bins && s.kind.is_bar() {
             set(&spec, "paths", no_path(&mut callbacks));
@@ -350,6 +366,10 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
     let range = |on_right_axis: bool| -> Option<Array> {
         if percentage && !on_right_axis {
             return Some(Array::of2(&0.into(), &1.into()));
+        }
+        // Small multiples share one range.
+        if let (false, Some((lo, hi))) = (on_right_axis, xy.y_range) {
+            return Some(Array::of2(&lo.into(), &hi.into()));
         }
         let mine: Vec<usize> = (0..xy.series.len())
             .filter(|&i| on_right(&xy.series[i]) == on_right_axis)
