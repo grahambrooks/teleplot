@@ -1,7 +1,7 @@
 # Plan: MCP endpoint for agent-authored dashboards, and the feature-gap roadmap
 
 Status: decided and in progress, 2026-10-03. The research behind this plan was carried out
-the same day; sources are linked inline. Gap 2 (inspector and CSV) is done. The remaining gaps are ordered,
+the same day; sources are linked inline. Gaps 2 (inspector and CSV) and 3 (annotations) are done. The remaining gaps are ordered,
 alongside the charting work, in [`roadmap.md`](roadmap.md).
 
 ## Context
@@ -174,7 +174,7 @@ Not pursued, and why:
 
 1. **MCP endpoint and lint/schema (Part 1 and gap 1).** They share `src/lint` and the schema, and lint makes the agent's saves safe.
 2. **Query inspector and CSV (gap 2).** Low effort, and builds trust.
-3. **Annotations (gap 3).** This is the delivery-analytics payoff.
+3. **Annotations (gap 3).** This is the delivery-analytics payoff. Done 2026-10-03.
 4. **ES|QL (gap 4).** It also brings more Kibana dashboards into scope.
 5. **Baseline comparison (gap 6),** the feature that sets Teleplot apart, then chained/ad-hoc variables (gap 5).
 6. **Revisit 7–10** once there is a decision about sharing and authentication.

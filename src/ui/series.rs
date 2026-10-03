@@ -1,8 +1,8 @@
 //! Turning layer tables into chart series.
 
 use crate::model::{
-    Cell, Chart, Column, Encoding, Format, Layer, LayerData, LineStyle, Operation, PanelData,
-    ReferenceAxis, ReferenceFill, SeriesType, Threshold,
+    AnnotationData, Cell, Chart, Column, Encoding, Format, Layer, LayerData, LineStyle, Operation,
+    PanelData, ReferenceAxis, ReferenceFill, SeriesType, Threshold,
 };
 
 /// What an XY chart draws.
@@ -23,6 +23,8 @@ pub struct Xy {
     pub bin_ends: Vec<f64>,
     /// How x values read, when they are numbers in a unit (log histograms).
     pub x_format: Option<Format>,
+    /// Events to mark (time axes only).
+    pub annotations: Vec<AnnotationData>,
 }
 
 /// A reference line with its value resolved.
@@ -295,6 +297,10 @@ pub fn xy(chart: &Chart, data: &PanelData, min_samples: Option<u32>) -> Xy {
             .collect(),
         _ => Vec::new(),
     };
+    let annotations = match x {
+        XAxis::Time(_) => data.annotations.clone(),
+        _ => Vec::new(),
+    };
     // A bin's height is its document count: shading small ones adds nothing.
     let low_sample = if bin_ends.is_empty() {
         low_sample
@@ -311,6 +317,7 @@ pub fn xy(chart: &Chart, data: &PanelData, min_samples: Option<u32>) -> Xy {
         reference_lines,
         bin_ends,
         x_format,
+        annotations,
     }
 }
 
@@ -425,8 +432,10 @@ pub fn band(chart: &Chart, data: &PanelData, min_samples: Option<u32>) -> Xy {
         reference_lines: Vec::new(),
         bin_ends: Vec::new(),
         x_format: None,
+        annotations: Vec::new(),
     };
     xy.reference_lines = reference_lines(chart, data, &xy.series);
+    xy.annotations = data.annotations.clone();
     xy
 }
 
@@ -500,8 +509,12 @@ pub fn scatter(chart: &Chart, data: &PanelData) -> Xy {
         reference_lines: Vec::new(),
         bin_ends: Vec::new(),
         x_format: None,
+        annotations: Vec::new(),
     };
     xy.reference_lines = reference_lines(chart, data, &xy.series);
+    if time {
+        xy.annotations = data.annotations.clone();
+    }
     // Percentiles of the points shown, e.g. "85% of PRs merged within …".
     let shown: Vec<f64> = ys.iter().flatten().copied().collect();
     for p in percentiles {
@@ -546,6 +559,8 @@ pub struct Heatmap {
     pub cells: Vec<Vec<Option<f64>>>,
     pub label: String,
     pub format: Option<Format>,
+    /// Events to mark (time axes only).
+    pub annotations: Vec<AnnotationData>,
 }
 
 impl Heatmap {
@@ -599,6 +614,7 @@ pub fn heatmap(chart: &Chart, data: &PanelData) -> Heatmap {
         cells: Vec::new(),
         label: String::new(),
         format: None,
+        annotations: Vec::new(),
     };
     let Some((layer, d)) = main_layer_data(chart, data) else {
         return out;
@@ -670,6 +686,7 @@ pub fn heatmap(chart: &Chart, data: &PanelData) -> Heatmap {
         let starts: Vec<f64> = x_keys.iter().filter_map(Cell::number).collect();
         out.x_ends = bucket_ends(&starts, x_column);
         out.x = XAxis::Time(starts);
+        out.annotations = data.annotations.clone();
     } else {
         out.x = XAxis::Category(x_keys.iter().map(|k| bucket_label(k, x_column)).collect());
     }
@@ -768,6 +785,7 @@ fn empty() -> Xy {
         reference_lines: Vec::new(),
         bin_ends: Vec::new(),
         x_format: None,
+        annotations: Vec::new(),
     }
 }
 
@@ -881,6 +899,7 @@ mod tests {
                 },
                 documents: None,
             }],
+            annotations: vec![],
             warnings: vec![],
         }
     }
@@ -902,6 +921,7 @@ mod tests {
                 error: None,
             }],
             warnings: vec![],
+            annotations: vec![],
         }
     }
 

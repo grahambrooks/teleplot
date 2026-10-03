@@ -174,6 +174,40 @@ async fn dora_overview_matches_kibana() {
         assert_eq!(line("team-target", "tg-target"), 24.0, "{version}");
         assert!(data["lead-target"].warnings.is_empty(), "{version}");
 
+        // The Lens annotation layer: Kibana marks 12 sev1 incidents (some
+        // grouped per week, with counts), labelled by team from infra in May
+        // to data in September; a release freeze; and a reorg.
+        let annotations = &data["lead-target"].annotations;
+        let labels: Vec<&str> = annotations.iter().map(|a| a.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            ["Sev1 incidents", "Release freeze", "Reorg"],
+            "{version}"
+        );
+        assert!(annotations.iter().all(|a| a.error.is_none()), "{version}");
+        let sev1 = &annotations[0].events;
+        assert_eq!(sev1.len(), 12, "{version}");
+        assert_eq!(sev1[0].text.as_deref(), Some("infra"), "{version}");
+        assert_eq!(sev1[11].text.as_deref(), Some("data"), "{version}");
+        let day = |d: &str| {
+            format!("{d}T00:00:00Z")
+                .parse::<jiff::Timestamp>()
+                .unwrap()
+                .as_millisecond() as f64
+        };
+        assert_eq!(annotations[1].events[0].at, day("2026-07-01"), "{version}");
+        assert_eq!(
+            annotations[1].events[0].end,
+            Some(day("2026-07-08")),
+            "{version}"
+        );
+        assert_eq!(annotations[2].events[0].at, day("2026-08-17"), "{version}");
+        assert_eq!(
+            annotations[0].color.as_deref(),
+            Some("#B877D9"),
+            "{version}"
+        );
+
         // The Lens heatmap: deployments per month (April–September, and the
         // one day of October) by team, rows top-down as Kibana draws them.
         let dashboards = dashboards(&version);

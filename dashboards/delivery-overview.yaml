@@ -27,6 +27,23 @@ controls:
     title: Repo
     field: repo
     data_view: { index: delivery-prs, time_field: merged_at }
+# Marked on every time-series chart, so a change in cycle time or lead time
+# can be read against what happened in production. Both follow the team and
+# repo controls.
+annotations:
+  - id: failed-deploys
+    label: Failed deployments
+    data_view: { index: delivery-deployments, time_field: deployed_at }
+    query: { language: kql, text: "result : failure" }
+    text: team
+    color: "#F2495C"
+  - id: incidents
+    label: Major incidents (sev1, sev2)
+    data_view: { index: delivery-incidents, time_field: created_at }
+    query: { language: kql, text: "severity : (sev1 or sev2)" }
+    end: resolved_at
+    text: team
+    color: "#B877D9"
 panels:
   # ---------------------------------------------------------------- DORA tiles
   - id: deploy-frequency

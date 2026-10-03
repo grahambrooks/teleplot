@@ -4,7 +4,7 @@ Status: current as of 2026-10-03. This is the one place that orders the work.
 The research and rationale stay in the source plans:
 
 - [`mvp-plan.md`](mvp-plan.md): M0–M5 and M6 parts 1–2 (export, performance) are done.
-- [`mcp-plan.md`](mcp-plan.md): Part 1 (MCP endpoint) and gaps 1 (lint/schema) and 2 (inspector, CSV) are done.
+- [`mcp-plan.md`](mcp-plan.md): Part 1 (MCP endpoint) and gaps 1 (lint/schema), 2 (inspector, CSV) and 3 (annotations) are done.
 - [`charting-plan.md`](charting-plan.md): A1 (reference lines), A2 (`timeScale` → `per`), A5 (heatmap) and B1–B3 (the distribution charts) are done.
 
 Items carry their source IDs (`mcp gap 2`, `charting A1`). A phase starts once
@@ -23,10 +23,16 @@ also follows the [verification rules](#verification-rules) below.
 - *Done when:* Lens reference lines from the 8.19 and 9.5 fixtures render with parity, no Lens layer is dropped silently, and every panel's numbers can be traced to its query and downloaded as CSV.
 - *Result:* the delivery fixtures gained two reference-line panels, exported from Kibana 8.19 and 9.5, with parity tests (`tests/elasticsearch.rs`). Annotation and other non-data Lens layers become chart `warnings`, shown on the panel and by `teleplot check`. **Inspect** shows each panel's table and its searches (`POST /api/dashboards/{id}/panels/{panel}/inspect`), and **CSV** downloads it. MCP `teleplot_preview` takes `inspect: true`. A layer holding only static values sends no search.
 
-## Phase 2: cause and effect
+## Phase 2: cause and effect (done 2026-10-03, after Phase 3)
 
 - **`mcp gap 3`: event annotations.** Deploy, incident and release markers come from one extra query per dashboard and are drawn on every time series with A1's hook. Kibana annotation layers become importable, replacing the Phase 1 warning.
 - *Done when:* `delivery-overview.yaml` shows deploy markers over cycle time, and a Kibana annotation-layer fixture converts.
+- *Result:*
+  - **Model.** `annotations` on the dashboard (every time-series chart) and on a chart (its own). Each searches a data view, with optional `query`, `end` and `text` fields, or lists fixed `events`.
+  - **Queries.** Annotation searches run in the dashboard's `_msearch`, and an identical search is sent once however many charts show it. The dashboard's filters and controls apply unless `ignore_global_filters` is set.
+  - **Drawing.** Lines, or shaded ranges, are drawn by the uPlot draw hook on line, band, scatter and heatmap charts. A legend entry per annotation shows the event under the cursor and is kept in PNG export.
+  - **Reference dashboard.** `delivery-overview.yaml` marks failed deployments and sev1/sev2 incidents (opened to resolved) over cycle time, lead time, throughput and the heatmap. Marking every deployment would be about 600 lines over 90 days.
+  - **Kibana.** Lens annotation layers convert: query and manual annotations, and point and range. The delivery fixtures gained a layer (sev1 incidents, a release freeze, a reorg) exported from 8.19 and 9.5. Its parity test matches Kibana's 12 incident markers and their teams. Kibana's three sample dashboards with annotation layers now convert instead of warning.
 
 ## Phase 3: the distribution story (done 2026-10-03, ahead of Phase 2)
 
@@ -40,7 +46,6 @@ also follows the [verification rules](#verification-rules) below.
   - **Fixture.** The delivery fixtures gained a heatmap of deployments per month by team, exported from Kibana 8.19 and 9.5, with a cell-by-cell parity test.
   - **`log_histogram`.** A new bucket with log-spaced, round bounds. It runs as a `range` aggregation with open-ended first and last buckets, so no document is dropped. On `xy` charts it draws as bins on a log x axis, with p50/p85/p95 as `axis: bottom` reference lines (B1). A weekly heatmap over it is B2.
   - **Scatter percentiles.** `percentiles` on the scatter are nearest-rank and computed client-side over the points shown (B3).
-- Phase 2 (annotations) was still open when this was done; Phase 3 doesn't depend on it.
 
 ## Phase 4: ES|QL
 

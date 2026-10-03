@@ -10,9 +10,9 @@ use super::objects::{
 };
 use super::{broken, out_of_scope, search, unparseable};
 use crate::model::{
-    Chart, ChartKind, Column, DataView, Encoding, Expr, Format, FormatKind, Interval, Layer,
-    LineStyle, NamedQuery, Operation, OverallFunction, PerUnit, Placeholder, Range, ReferenceAxis,
-    ReferenceFill, ReferenceLine, SeriesType, TermsOrder,
+    Annotation, AnnotationEvent, Chart, ChartKind, Column, DataView, Encoding, Expr, Format,
+    FormatKind, Interval, Layer, LineStyle, NamedQuery, Operation, OverallFunction, PerUnit,
+    Placeholder, Range, ReferenceAxis, ReferenceFill, ReferenceLine, SeriesType, TermsOrder,
 };
 
 /// Converts Lens saved-object attributes. `refs` are the references visible
@@ -65,7 +65,14 @@ pub fn convert(export: &Export, attrs: &Value, refs: &[Reference]) -> Result<Cha
         ad_hoc: as_object(&state["adHocDataViews"]),
     };
 
-    let (encodings, warnings) = encodings(kind, vis).map_err(|e| unparseable(&kind_name, e))?;
+    let (encodings, mut warnings, annotation_layers) =
+        encodings(kind, vis).map_err(|e| unparseable(&kind_name, e))?;
+    let mut annotations = Vec::new();
+    for layer in &annotation_layers {
+        let data_view =
+            str_field(layer, "layerId").and_then(|id| resolver.annotation_layer(id, layer));
+        annotations.extend(annotation_layer(layer, data_view, &mut warnings));
+    }
     let mut layers = Vec::new();
     for (layer_id, encoding) in encodings {
         let Some(source) = datasource_layers.get(&layer_id) else {
@@ -98,6 +105,7 @@ pub fn convert(export: &Export, attrs: &Value, refs: &[Reference]) -> Result<Cha
         query: search::query(&state["query"]),
         filters: search::filters(&state["filters"]),
         layers,
+        annotations,
         warnings,
     })
 }
@@ -119,11 +127,23 @@ impl DataViews<'_> {
             .data_view(id)
             .or_else(|| data_view_from(self.ad_hoc.get(id)?))
     }
+
+    /// An annotation layer's data view: referenced, or by id (ad hoc).
+    fn annotation_layer(&self, layer_id: &str, layer: &Value) -> Option<DataView> {
+        let name = format!("xy-visualization-layer-{layer_id}");
+        let id = find_ref(self.refs, &name)
+            .or_else(|| find_ref(&self.internal, &name))
+            .map(|r| r.id.clone())
+            .or_else(|| str_field(layer, "indexPatternId").map(String::from))?;
+        self.export
+            .data_view(&id)
+            .or_else(|| data_view_from(self.ad_hoc.get(&id)?))
+    }
 }
 
-/// Data layers and how each is drawn, from the visualization state, and
-/// warnings for the layers Teleplot does not draw.
-type Encodings = (Vec<(String, Encoding)>, Vec<String>);
+/// Data layers and how each is drawn, from the visualization state;
+/// warnings for the layers Teleplot does not draw; and annotation layers.
+type Encodings = (Vec<(String, Encoding)>, Vec<String>, Vec<Value>);
 
 fn encodings(kind: ChartKind, vis: &Value) -> Result<Encodings, String> {
     let s = |v: &Value, k: &str| str_field(v, k).map(String::from);
@@ -139,6 +159,7 @@ fn encodings(kind: ChartKind, vis: &Value) -> Result<Encodings, String> {
     let layer_id = |v: &Value| s(v, "layerId").ok_or("layer without layerId");
 
     let mut warnings = Vec::new();
+    let mut annotation_layers = Vec::new();
     let layers = match kind {
         ChartKind::Xy => {
             let mut out = Vec::new();
@@ -150,11 +171,7 @@ fn encodings(kind: ChartKind, vis: &Value) -> Result<Encodings, String> {
                         continue;
                     }
                     "annotations" => {
-                        let n = layer["annotations"].as_array().map_or(0, Vec::len);
-                        warnings.push(format!(
-                            "Not shown: a Lens annotation layer ({n} annotation{}). Teleplot does not draw Lens annotations yet.",
-                            if n == 1 { "" } else { "s" }
-                        ));
+                        annotation_layers.push(layer.clone());
                         continue;
                     }
                     other => {
@@ -221,7 +238,91 @@ fn encodings(kind: ChartKind, vis: &Value) -> Result<Encodings, String> {
             },
         )],
     };
-    Ok((layers, warnings))
+    Ok((layers, warnings, annotation_layers))
+}
+
+/// A Lens annotation layer: each visible annotation, manual (a moment or a
+/// range) or a query over the layer's data view.
+fn annotation_layer(
+    layer: &Value,
+    data_view: Option<DataView>,
+    warnings: &mut Vec<String>,
+) -> Vec<Annotation> {
+    let Some(list) = layer["annotations"].as_array() else {
+        // A layer linked to an annotation group in the library.
+        warnings.push(
+            "Not shown: a Lens annotation layer linked from the library. Teleplot converts annotation layers saved with the visualization.".into(),
+        );
+        return Vec::new();
+    };
+    // Lens ignores the dashboard's filters unless told otherwise.
+    let ignore_global_filters = layer["ignoreGlobalFilters"].as_bool().unwrap_or(true);
+    let mut out = Vec::new();
+    for (i, a) in list.iter().enumerate() {
+        if bool_field(a, "isHidden") {
+            continue;
+        }
+        let id = str_field(a, "id")
+            .map(String::from)
+            .unwrap_or_else(|| format!("annotation-{i}"));
+        let label = str_field(a, "label").map(String::from);
+        let mut annotation = Annotation {
+            id,
+            label: label.clone(),
+            data_view: None,
+            query: Default::default(),
+            time: None,
+            end: None,
+            text: None,
+            limit: 500,
+            events: Vec::new(),
+            ignore_global_filters,
+            color: str_field(a, "color").map(String::from),
+            style: match str_field(a, "lineStyle") {
+                Some("dashed") => LineStyle::Dashed,
+                Some("dotted") => LineStyle::Dotted,
+                _ => LineStyle::Solid,
+            },
+        };
+        let key = &a["key"];
+        match str_field(a, "type").unwrap_or("manual") {
+            "query" => {
+                let Some(view) = data_view.clone() else {
+                    warnings.push(format!(
+                        "Not shown: annotation {:?}, whose data view is not in this export.",
+                        label.unwrap_or_default()
+                    ));
+                    continue;
+                };
+                annotation.query = search::query(&a["filter"]);
+                annotation.time = str_field(a, "timeField")
+                    .filter(|f| view.time_field.as_deref() != Some(*f))
+                    .map(String::from);
+                annotation.text = str_field(a, "textField")
+                    .map(String::from)
+                    .or_else(|| a["extraFields"][0].as_str().map(String::from));
+                annotation.data_view = Some(view);
+            }
+            _ => {
+                let Some(at) = key["timestamp"].as_str() else {
+                    warnings.push(format!(
+                        "Not shown: annotation {:?}, which has no time.",
+                        label.unwrap_or_default()
+                    ));
+                    continue;
+                };
+                annotation.events.push(AnnotationEvent {
+                    at: at.to_string(),
+                    to: (str_field(key, "type") == Some("range"))
+                        .then(|| key["endTimestamp"].as_str().map(String::from))
+                        .flatten(),
+                    text: None,
+                });
+            }
+        }
+        out.push(annotation);
+    }
+    out
 }
 
 /// A Lens reference-line layer: one line per accessor, styled by its `yConfig`.

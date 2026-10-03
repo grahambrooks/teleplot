@@ -179,20 +179,17 @@ impl Engine {
             })
             .collect();
 
-        let mut fields = HashMap::new();
-        for (_, chart) in &charts {
-            for layer in &chart.layers {
-                let index = &layer.data_view.index;
-                if !fields.contains_key(index) {
-                    let found = self
-                        .fields(index)
-                        .await
-                        .map(|f| (*f).clone())
-                        .unwrap_or_default();
-                    fields.insert(index.clone(), found);
-                }
-            }
-        }
+        // Field types for every index searched: chart layers and annotations.
+        let indexes: Vec<String> = charts
+            .iter()
+            .flat_map(|(_, chart)| {
+                let layers = chart.layers.iter().map(|l| &l.data_view.index);
+                let annotations = chart.annotations.iter().chain(&dashboard.annotations);
+                layers.chain(annotations.filter_map(|a| a.data_view.as_ref().map(|v| &v.index)))
+            })
+            .cloned()
+            .collect();
+        let fields = self.fields_for(&indexes).await;
 
         let mut ranges = Vec::new();
         for (panel, _) in &charts {
@@ -215,6 +212,7 @@ impl Engine {
             fields: &fields,
             stats,
             settings: self.settings,
+            annotations: &dashboard.annotations,
         };
 
         // Pre-pass: field ranges for automatic histogram intervals.
@@ -333,6 +331,7 @@ impl Engine {
             fields: &fields,
             stats: &stats,
             settings: self.settings,
+            annotations: &[],
         };
         let search = query::terms_search(&control.data_view, &control.field, 100, &ctx)?;
         let response = self.search(&[search]).await?.remove(0)?;
@@ -366,7 +365,9 @@ impl Engine {
         Ok(fields)
     }
 
-    /// `_msearch` with a short-lived cache in front: only misses go to Elasticsearch.
+    /// `_msearch` with a short-lived cache in front: only misses go to
+    /// Elasticsearch, and a search repeated in one batch (the same
+    /// annotation on several charts) is sent once.
     async fn search(&self, searches: &[Search]) -> Result<Vec<Result<Value, String>>, String> {
         let keys: Vec<String> = searches
             .iter()
@@ -384,14 +385,27 @@ impl Engine {
             }
         }
         if !misses.is_empty() {
-            let batch: Vec<Search> = misses.iter().map(|&i| searches[i].clone()).collect();
-            for (i, response) in misses.into_iter().zip(self.client.msearch(&batch).await?) {
+            // The first of each distinct missed search, and who else wants it.
+            let mut unique: Vec<usize> = Vec::new();
+            let mut first_of: HashMap<&str, usize> = HashMap::new();
+            for &i in &misses {
+                first_of.entry(keys[i].as_str()).or_insert_with(|| {
+                    unique.push(i);
+                    i
+                });
+            }
+            let batch: Vec<Search> = unique.iter().map(|&i| searches[i].clone()).collect();
+            let mut answered: HashMap<usize, Result<Value, String>> = HashMap::new();
+            for (i, response) in unique.into_iter().zip(self.client.msearch(&batch).await?) {
                 if let Ok(value) = &response {
                     self.responses
                         .insert(keys[i].clone(), Arc::new(value.clone()))
                         .await;
                 }
-                results[i] = Some(response);
+                answered.insert(i, response);
+            }
+            for i in misses {
+                results[i] = answered.get(&first_of[keys[i].as_str()]).cloned();
             }
         }
         Ok(results

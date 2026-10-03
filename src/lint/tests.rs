@@ -287,3 +287,33 @@ fn log_histograms_need_a_positive_range_and_percentiles_a_percent() {
     let p = problems(d);
     assert!(only(&p).message.contains("150"), "{p:?}");
 }
+
+#[test]
+fn annotations_search_a_data_view_or_list_fixed_events() {
+    let mut d = reference();
+    d["annotations"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("data_view");
+    let p = problems(d.clone());
+    assert_eq!(only(&p).path, "annotations[0]");
+    assert!(only(&p).message.contains("data_view"), "{p:?}");
+
+    d["annotations"][0]["events"] = json!([{ "at": "2026-07-01T00:00:00Z" }, { "at": "July" }]);
+    let p = problems(d.clone());
+    assert_eq!(only(&p).path, "annotations[0].events[1].at");
+
+    d["annotations"][0]["events"] =
+        json!([{ "at": "2026-07-01T00:00:00Z", "to": "2026-07-08T00:00:00Z" }]);
+    assert_eq!(problems(d), []);
+}
+
+#[test]
+fn annotations_only_show_on_time_axes() {
+    let mut d = reference();
+    let panel = panel_index(&d, "teams");
+    d["panels"][panel]["content"]["annotations"] =
+        json!([{ "id": "x", "events": [{ "at": "2026-07-01T00:00:00Z" }] }]);
+    let p = problems(d);
+    assert!(only(&p).message.contains("time x axis"), "{p:?}");
+}

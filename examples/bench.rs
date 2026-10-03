@@ -34,6 +34,13 @@ fn dashboard(prefix: &str) -> Dashboard {
     for c in &mut d.controls {
         c.data_view.index = format!("{prefix}{}", c.data_view.index);
     }
+    for v in d
+        .annotations
+        .iter_mut()
+        .filter_map(|a| a.data_view.as_mut())
+    {
+        v.index = format!("{prefix}{}", v.index);
+    }
     for p in &mut d.panels {
         if let PanelContent::Chart(chart) = &mut p.content {
             for l in &mut chart.layers {

@@ -136,6 +136,7 @@ fn convert(export: &Export, vis: Vis, refs: &[Reference]) -> Result<PanelContent
             encoding,
             documents: None,
         }],
+        annotations: Vec::new(),
         warnings: Vec::new(),
     }))
 }

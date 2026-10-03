@@ -17,8 +17,8 @@ use serde_json::{Map, Value, json};
 use crate::es::Search;
 use crate::kql::{self, Field};
 use crate::model::{
-    Cell, Chart, Column, DataView, Filter, Layer, LayerData, Operation, PanelData, Query,
-    QueryLanguage, Series, TermsOrder,
+    Annotation, AnnotationData, Cell, Chart, Column, DataView, Event, Filter, Layer, LayerData,
+    Operation, PanelData, Query, QueryLanguage, Series, TermsOrder,
 };
 use crate::time::Range;
 
@@ -53,6 +53,8 @@ pub struct Context<'a> {
     /// Min/max per (layer, column) for auto-interval histograms; see [`stats_searches`].
     pub stats: &'a HashMap<(String, String), (f64, f64)>,
     pub settings: Settings,
+    /// The dashboard's annotations, marked on every time-series chart.
+    pub annotations: &'a [Annotation],
 }
 
 /// Searches for the min/max of fields bucketed by auto-interval histograms
@@ -146,6 +148,22 @@ static NO_SEARCH: std::sync::LazyLock<Result<Value, String>> =
 pub struct Plan {
     layers: Vec<LayerPlan>,
     warnings: Vec<String>,
+    annotations: Vec<AnnotationPlan>,
+}
+
+#[derive(Debug)]
+struct AnnotationPlan {
+    data: AnnotationData,
+    /// The search for its documents; `None` for fixed events or an error.
+    search: Option<(Search, AnnotationFields)>,
+}
+
+/// Which document fields hold an annotation's time, end and text.
+#[derive(Debug)]
+struct AnnotationFields {
+    time: String,
+    end: Option<String>,
+    text: Option<String>,
 }
 
 #[derive(Debug)]
@@ -221,10 +239,9 @@ enum Read {
 
 impl Plan {
     pub fn searches(&self) -> Vec<Search> {
-        self.layers
-            .iter()
-            .filter_map(|l| l.built.as_ref().ok())
-            .flat_map(|b| b.groups.iter().filter_map(|g| g.search.clone()))
+        self.described_searches()
+            .into_iter()
+            .map(|(_, s)| s)
             .collect()
     }
 
@@ -246,6 +263,10 @@ impl Plan {
                     Some((what, search))
                 })
             })
+            .chain(self.annotations.iter().filter_map(|a| {
+                let (search, _) = a.search.as_ref()?;
+                Some((format!("Annotation {}", a.data.label), search.clone()))
+            }))
             .collect()
     }
 
@@ -255,6 +276,7 @@ impl Plan {
         let mut data = PanelData {
             layers: Vec::new(),
             warnings: self.warnings.clone(),
+            annotations: Vec::new(),
         };
         for plan in &self.layers {
             let built = match &plan.built {
@@ -286,8 +308,49 @@ impl Plan {
             };
             data.layers.push(layer);
         }
+        for plan in &self.annotations {
+            let mut annotation = plan.data.clone();
+            if let Some((_, fields)) = &plan.search {
+                match responses.next() {
+                    Some(Ok(response)) => annotation.events = read_events(response, fields),
+                    Some(Err(e)) => annotation.error = Some(e.clone()),
+                    None => annotation.error = Some("missing response".into()),
+                }
+            }
+            data.annotations.push(annotation);
+        }
         data
     }
+}
+
+/// Annotation events from a search's hits, oldest first.
+fn read_events(response: &Value, fields: &AnnotationFields) -> Vec<Event> {
+    let ms = |hit: &Value, field: &str| match &hit["fields"][field][0] {
+        Value::String(s) => s.parse::<f64>().ok(),
+        Value::Number(n) => n.as_f64(),
+        _ => None,
+    };
+    let mut events: Vec<Event> = response["hits"]["hits"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|hit| {
+            Some(Event {
+                at: ms(hit, &fields.time)?,
+                end: fields.end.as_deref().and_then(|f| ms(hit, f)),
+                text: fields
+                    .text
+                    .as_deref()
+                    .and_then(|f| match &hit["fields"][f][0] {
+                        Value::String(s) => Some(s.clone()),
+                        Value::Null => None,
+                        other => Some(other.to_string()),
+                    }),
+            })
+        })
+        .collect();
+    events.reverse();
+    events
 }
 
 /// Plans the searches for a chart.
@@ -301,7 +364,154 @@ pub fn plan(chart: &Chart, ctx: &Context) -> Plan {
             built: build_layer(chart, layer, ctx, &mut warnings),
         })
         .collect();
-    Plan { layers, warnings }
+    // Only time axes can place events.
+    let annotations = if chart.has_time_axis() {
+        chart
+            .annotations
+            .iter()
+            .chain(ctx.annotations)
+            .map(|a| plan_annotation(a, ctx))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    Plan {
+        layers,
+        warnings,
+        annotations,
+    }
+}
+
+/// An annotation's search (or its fixed events, already resolved).
+fn plan_annotation(annotation: &Annotation, ctx: &Context) -> AnnotationPlan {
+    let mut data = AnnotationData {
+        id: annotation.id.clone(),
+        label: annotation
+            .label
+            .clone()
+            .unwrap_or_else(|| annotation.id.clone()),
+        color: annotation.color.clone(),
+        style: annotation.style,
+        events: Vec::new(),
+        error: None,
+    };
+    let Some(view) = &annotation.data_view else {
+        match fixed_events(annotation, ctx.range) {
+            Ok(events) => data.events = events,
+            Err(e) => data.error = Some(e),
+        }
+        return AnnotationPlan { data, search: None };
+    };
+    match annotation_search(annotation, view, ctx) {
+        Ok(search) => AnnotationPlan {
+            data,
+            search: Some(search),
+        },
+        Err(e) => {
+            data.error = Some(e);
+            AnnotationPlan { data, search: None }
+        }
+    }
+}
+
+/// Fixed events that overlap the range, oldest first.
+fn fixed_events(annotation: &Annotation, range: Range) -> Result<Vec<Event>, String> {
+    let ms = |s: &str| {
+        s.parse::<jiff::Timestamp>()
+            .map(|t| t.as_millisecond() as f64)
+            .map_err(|e| format!("annotation {}: time {s:?}: {e}", annotation.id))
+    };
+    let mut events = Vec::new();
+    for e in &annotation.events {
+        let at = ms(&e.at)?;
+        let end = e.to.as_deref().map(ms).transpose()?;
+        let last = end.unwrap_or(at);
+        if last >= range.from_ms as f64 && at <= range.to_ms as f64 {
+            events.push(Event {
+                at,
+                end,
+                text: e.text.clone(),
+            });
+        }
+    }
+    events.sort_by(|a, b| a.at.total_cmp(&b.at));
+    Ok(events)
+}
+
+/// The most recent documents an annotation marks within the range.
+fn annotation_search(
+    annotation: &Annotation,
+    view: &DataView,
+    ctx: &Context,
+) -> Result<(Search, AnnotationFields), String> {
+    let time = annotation
+        .time
+        .clone()
+        .or_else(|| view.time_field.clone())
+        .ok_or_else(|| {
+            format!(
+                "annotation {}: its data view has no time field; set `time`",
+                annotation.id
+            )
+        })?;
+    let fields = fields(ctx, view);
+    let options = kql::Options {
+        time_zone: Some(ctx.time_zone.to_string()),
+    };
+    let mut filter = vec![json!({ "range": { &time: {
+        "gte": ctx.range.from_ms, "lte": ctx.range.to_ms, "format": "epoch_millis"
+    } } })];
+    let mut must_not = Vec::new();
+    if let Some(dsl) = query_dsl(&annotation.query, &fields, &options)? {
+        filter.push(dsl);
+    }
+    if !annotation.ignore_global_filters {
+        for q in ctx.queries {
+            if let Some(dsl) = query_dsl(q, &fields, &options)? {
+                filter.push(dsl);
+            }
+        }
+        for f in ctx.filters.iter().filter(|f| !f.disabled) {
+            if f.negate {
+                must_not.push(f.query.clone())
+            } else {
+                filter.push(f.query.clone())
+            }
+        }
+        // A control on a field these documents don't have would hide them all.
+        for (field, values) in ctx.selections.iter().filter(|(_, v)| !v.is_empty()) {
+            if fields.is_empty() || fields.iter().any(|f| &f.name == field) {
+                filter.push(json!({ "terms": { field: values } }));
+            }
+        }
+    }
+    let wanted = AnnotationFields {
+        time: time.clone(),
+        end: annotation.end.clone(),
+        text: annotation.text.clone(),
+    };
+    let mut requested = vec![json!({ "field": time, "format": "epoch_millis" })];
+    if let Some(end) = &wanted.end {
+        requested.push(json!({ "field": end, "format": "epoch_millis" }));
+    }
+    if let Some(text) = &wanted.text {
+        requested.push(json!(text));
+    }
+    let body = json!({
+        "size": annotation.limit,
+        "track_total_hits": false,
+        "query": { "bool": { "filter": filter, "must_not": must_not } },
+        "sort": [{ &time: { "order": "desc" } }],
+        "_source": false,
+        "fields": requested,
+    });
+    Ok((
+        Search {
+            index: view.index.clone(),
+            body,
+        },
+        wanted,
+    ))
 }
 
 fn build_layer(
@@ -1251,5 +1461,245 @@ mod tests {
     fn without_a_date_histogram_the_bucket_is_the_whole_range() {
         let b = built(None, "2026-04-01T00:00:00Z", "2026-04-08T00:00:00Z", "UTC");
         assert_eq!(bucket_lengths(&b, &HashMap::new(), 2), vec![7.0 * DAY; 2]);
+    }
+
+    fn annotation(view: Option<&str>) -> Annotation {
+        Annotation {
+            id: "a".into(),
+            label: Some("Failed".into()),
+            data_view: view.map(|index| DataView {
+                index: index.into(),
+                time_field: Some("deployed_at".into()),
+            }),
+            query: Query::kql("result : failure"),
+            time: None,
+            end: None,
+            text: Some("team".into()),
+            limit: 500,
+            events: Vec::new(),
+            ignore_global_filters: false,
+            color: None,
+            style: Default::default(),
+        }
+    }
+
+    fn with_context<T>(
+        selections: &[(String, Vec<String>)],
+        annotations: &[Annotation],
+        f: impl FnOnce(&Context) -> T,
+    ) -> T {
+        let fields = HashMap::from([(
+            "deploys".to_string(),
+            ["team", "result", "deployed_at"]
+                .iter()
+                .map(|n| Field {
+                    name: n.to_string(),
+                    es_types: vec![
+                        if *n == "deployed_at" {
+                            "date"
+                        } else {
+                            "keyword"
+                        }
+                        .into(),
+                    ],
+                })
+                .collect(),
+        )]);
+        let stats = HashMap::new();
+        let queries = [Query::kql("team : checkout")];
+        let ctx = Context {
+            range: Range {
+                from_ms: ms("2026-07-01T00:00:00Z") as i64,
+                to_ms: ms("2026-08-01T00:00:00Z") as i64,
+            },
+            time_zone: "UTC",
+            queries: &queries,
+            filters: &[],
+            selections,
+            fields: &fields,
+            stats: &stats,
+            settings: Settings::default(),
+            annotations,
+        };
+        f(&ctx)
+    }
+
+    #[test]
+    fn annotations_search_their_documents_newest_first() {
+        let a = annotation(Some("deploys"));
+        let selections = [
+            ("team".to_string(), vec!["checkout".to_string()]),
+            ("service".to_string(), vec!["cart".to_string()]),
+        ];
+        let (search, fields) = with_context(&selections, &[], |ctx| {
+            annotation_search(&a, a.data_view.as_ref().unwrap(), ctx)
+        })
+        .unwrap();
+        assert_eq!(search.index, "deploys");
+        assert_eq!(
+            search.body["sort"],
+            json!([{ "deployed_at": { "order": "desc" } }])
+        );
+        assert_eq!(search.body["size"], json!(500));
+        let filter = search.body["query"]["bool"]["filter"].as_array().unwrap();
+        // Range, own query, the dashboard query, and the team selection. The
+        // control on `service`, which deployments don't have, is left out.
+        assert_eq!(filter.len(), 4, "{filter:#?}");
+        assert!(filter[3]["terms"]["team"].is_array());
+        assert_eq!(fields.time, "deployed_at");
+        assert_eq!(fields.text.as_deref(), Some("team"));
+    }
+
+    #[test]
+    fn annotations_can_ignore_the_dashboards_filters() {
+        let mut a = annotation(Some("deploys"));
+        a.ignore_global_filters = true;
+        let selections = [("team".to_string(), vec!["checkout".to_string()])];
+        let (search, _) = with_context(&selections, &[], |ctx| {
+            annotation_search(&a, a.data_view.as_ref().unwrap(), ctx)
+        })
+        .unwrap();
+        let filter = search.body["query"]["bool"]["filter"].as_array().unwrap();
+        assert_eq!(filter.len(), 2, "range and own query only: {filter:#?}");
+    }
+
+    #[test]
+    fn annotation_hits_become_events_oldest_first() {
+        let fields = AnnotationFields {
+            time: "at".into(),
+            end: Some("to".into()),
+            text: Some("team".into()),
+        };
+        let response = json!({ "hits": { "hits": [
+            { "fields": { "at": ["2000"], "to": ["3000"], "team": ["infra"] } },
+            { "fields": { "at": ["1000"], "team": [7] } },
+            { "fields": { "team": ["no time"] } }
+        ] } });
+        let events = read_events(&response, &fields);
+        assert_eq!(
+            events,
+            [
+                Event {
+                    at: 1000.0,
+                    end: None,
+                    text: Some("7".into())
+                },
+                Event {
+                    at: 2000.0,
+                    end: Some(3000.0),
+                    text: Some("infra".into())
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn fixed_events_outside_the_range_are_left_out() {
+        let mut a = annotation(None);
+        a.events = vec![
+            crate::model::AnnotationEvent {
+                at: "2026-07-10T00:00:00Z".into(),
+                to: None,
+                text: Some("freeze".into()),
+            },
+            crate::model::AnnotationEvent {
+                at: "2026-06-20T00:00:00Z".into(),
+                to: Some("2026-07-02T00:00:00Z".into()),
+                text: None,
+            },
+            crate::model::AnnotationEvent {
+                at: "2026-09-01T00:00:00Z".into(),
+                to: None,
+                text: None,
+            },
+        ];
+        let range = Range {
+            from_ms: ms("2026-07-01T00:00:00Z") as i64,
+            to_ms: ms("2026-08-01T00:00:00Z") as i64,
+        };
+        let events = fixed_events(&a, range).unwrap();
+        assert_eq!(
+            events.len(),
+            2,
+            "September is outside; June's range reaches into July"
+        );
+        assert_eq!(events[0].end, Some(ms("2026-07-02T00:00:00Z")));
+        a.events[0].at = "July".into();
+        assert!(fixed_events(&a, range).is_err());
+    }
+
+    #[test]
+    fn only_time_series_charts_get_annotations() {
+        use crate::model::{ChartKind, Column, Encoding, Layer, Operation, SeriesType, TermsOrder};
+        let column = |id: &str, op| Column {
+            id: id.into(),
+            label: None,
+            op,
+            filter: None,
+            time_shift: None,
+            per: None,
+            format: None,
+            helper: false,
+            thresholds: Vec::new(),
+        };
+        let chart = |x: Operation| Chart {
+            kind: ChartKind::Xy,
+            query: Default::default(),
+            filters: vec![],
+            layers: vec![Layer {
+                id: "l".into(),
+                data_view: DataView {
+                    index: "deploys".into(),
+                    time_field: Some("deployed_at".into()),
+                },
+                columns: vec![
+                    column("x", x),
+                    column("n", Operation::Count { field: None }),
+                ],
+                encoding: Encoding::Xy {
+                    series: SeriesType::Bar,
+                    x: Some("x".into()),
+                    y: vec!["n".into()],
+                    split: None,
+                },
+                documents: None,
+            }],
+            annotations: vec![annotation(Some("deploys"))],
+            warnings: vec![],
+        };
+        let dashboard = [annotation(Some("deploys"))];
+        let time = chart(Operation::DateHistogram {
+            field: "deployed_at".into(),
+            interval: "1w".parse().unwrap(),
+            include_empty: false,
+        });
+        let teams = chart(Operation::Terms {
+            fields: vec!["team".into()],
+            size: 5,
+            order: TermsOrder::Count,
+            other_bucket: false,
+            missing_bucket: false,
+        });
+        with_context(&[], &dashboard, |ctx| {
+            let p = plan(&time, ctx);
+            let described = p.described_searches();
+            assert_eq!(
+                described.len(),
+                3,
+                "the layer, then its own and the dashboard's annotation"
+            );
+            assert_eq!(described[1].0, "Annotation Failed");
+            assert!(plan(&teams, ctx).described_searches().len() == 1);
+            // Responses: the layer's, then one per annotation.
+            let hit = json!({ "hits": { "hits": [{ "fields": { "deployed_at": ["1000"] } }] } });
+            let data = p.evaluate(&[
+                Ok(json!({ "aggregations": { "root": {} } })),
+                Ok(hit.clone()),
+                Err("boom".into()),
+            ]);
+            assert_eq!(data.annotations.len(), 2);
+            assert_eq!(data.annotations[0].events.len(), 1);
+            assert_eq!(data.annotations[1].error.as_deref(), Some("boom"));
+        });
     }
 }

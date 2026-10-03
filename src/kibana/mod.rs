@@ -67,6 +67,7 @@ fn dashboard(export: &Export, object: &objects::SavedObject) -> Dashboard {
         filters: search::filters(&source["filter"]),
         controls: controls(export, object),
         min_samples: None,
+        annotations: Vec::new(),
         panels,
     }
 }

@@ -196,22 +196,24 @@ fn reference_line_layers_convert_with_their_styles() {
 }
 
 #[test]
-fn annotation_layers_are_reported_not_dropped() {
+fn lens_annotation_layers_convert() {
     for version in ["8.19", "9.5"] {
         let dashboards = read(&format!("{version}/sample-data.ndjson"));
-        let warned: Vec<&str> = dashboards
+        let annotated: Vec<(&str, &teleplot::model::Annotation)> = dashboards
             .iter()
             .flat_map(|d| &d.panels)
             .filter_map(|p| match &p.content {
-                PanelContent::Chart(c) if !c.warnings.is_empty() => {
-                    assert!(c.warnings[0].contains("annotation"), "{:?}", c.warnings);
-                    p.title.as_deref()
+                PanelContent::Chart(c) if !c.annotations.is_empty() => {
+                    assert!(c.warnings.is_empty(), "{:?}", c.warnings);
+                    assert!(c.has_time_axis(), "{:?}", p.title);
+                    Some((p.title.as_deref().unwrap_or_default(), &c.annotations[0]))
                 }
                 _ => None,
             })
             .collect();
+        let titles: Vec<&str> = annotated.iter().map(|(t, _)| *t).collect();
         assert_eq!(
-            warned,
+            titles,
             [
                 "[eCommerce] Promotion Tracking",
                 "[Flights] Delays & Cancellations",
@@ -219,6 +221,18 @@ fn annotation_layers_are_reported_not_dropped() {
             ],
             "{version}"
         );
+        // Query annotations over their layer's data view, Lucene kept as Lucene.
+        let (_, ecommerce) = annotated[0];
+        assert_eq!(
+            ecommerce.data_view.as_ref().map(|v| v.index.as_str()),
+            Some("kibana_sample_data_ecommerce")
+        );
+        assert_eq!(ecommerce.query.text, "taxful_total_price:>250");
+        assert_eq!(
+            ecommerce.query.language,
+            teleplot::model::QueryLanguage::Lucene
+        );
+        assert!(ecommerce.ignore_global_filters);
     }
 }
 

@@ -13,7 +13,8 @@ use serde_json::Value;
 
 use crate::kql::{self, Field};
 use crate::model::{
-    Chart, ChartKind, Dashboard, Encoding, Expr, Operation, PanelContent, Query, QueryLanguage,
+    Annotation, Chart, ChartKind, Dashboard, Encoding, Expr, Operation, PanelContent, Query,
+    QueryLanguage,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -128,6 +129,10 @@ pub fn check(d: &Dashboard, fields: Fields) -> Vec<Problem> {
         );
     }
 
+    for (i, a) in d.annotations.iter().enumerate() {
+        annotation(a, &format!("annotations[{i}]"), fields, &mut problems);
+    }
+
     for (i, p) in d.panels.iter().enumerate() {
         let at = format!("panels[{i}]");
         if !seen.insert(p.id.clone()) {
@@ -167,8 +172,85 @@ fn query(q: &Query, at: &str, problems: &mut Vec<Problem>) {
     }
 }
 
+/// An annotation needs either a data view (to search) or fixed events, and
+/// fields of the right types.
+fn annotation(a: &Annotation, at: &str, fields: Fields, problems: &mut Vec<Problem>) {
+    let Some(view) = &a.data_view else {
+        if a.events.is_empty() {
+            problems.push(Problem::error(
+                at,
+                "an annotation needs a data_view to search, or fixed events",
+            ));
+        }
+        for (i, e) in a.events.iter().enumerate() {
+            for (name, time) in [("at", Some(&e.at)), ("to", e.to.as_ref())] {
+                if let Some(time) = time
+                    && let Err(err) = time.parse::<jiff::Timestamp>()
+                {
+                    problems.push(Problem::error(
+                        format!("{at}.events[{i}].{name}"),
+                        format!("not an ISO 8601 time: {err}"),
+                    ));
+                }
+            }
+        }
+        return;
+    };
+    if !a.events.is_empty() {
+        problems.push(Problem::error(
+            format!("{at}.events"),
+            "an annotation searches a data view or lists fixed events, not both",
+        ));
+    }
+    query(&a.query, &format!("{at}.query"), problems);
+    let index = &view.index;
+    match a.time.as_ref().or(view.time_field.as_ref()) {
+        Some(time) => field(
+            fields,
+            index,
+            time,
+            Need::Date,
+            &format!("{at}.time"),
+            problems,
+        ),
+        None => problems.push(Problem::error(
+            format!("{at}.time"),
+            "the data view has no time field: say which field holds each event's time",
+        )),
+    }
+    if let Some(end) = &a.end {
+        field(
+            fields,
+            index,
+            end,
+            Need::Date,
+            &format!("{at}.end"),
+            problems,
+        );
+    }
+    if let Some(text) = &a.text {
+        field(
+            fields,
+            index,
+            text,
+            Need::Any,
+            &format!("{at}.text"),
+            problems,
+        );
+    }
+}
+
 fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Problem>) {
     query(&chart.query, &format!("{at}.query"), problems);
+    for (i, a) in chart.annotations.iter().enumerate() {
+        annotation(a, &format!("{at}.annotations[{i}]"), fields, problems);
+    }
+    if !chart.annotations.is_empty() && !chart.has_time_axis() {
+        problems.push(Problem::warning(
+            format!("{at}.annotations"),
+            "only charts with a time x axis show annotations",
+        ));
+    }
     if chart.layers.is_empty() {
         problems.push(Problem::error(
             format!("{at}.layers"),

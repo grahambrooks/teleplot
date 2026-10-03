@@ -12,7 +12,7 @@ pub mod table;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub use data::{Cell, LayerData, PanelData, Series};
+pub use data::{AnnotationData, Cell, Event, LayerData, PanelData, Series};
 pub use interval::{Interval, IntervalUnit};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -38,7 +38,74 @@ pub struct Dashboard {
     /// (small samples make medians and rates noisy).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_samples: Option<u32>,
+    /// Events marked on every time-series chart, e.g. failed deployments.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub annotations: Vec<Annotation>,
     pub panels: Vec<Panel>,
+}
+
+/// Events marked across time-series charts: one search for documents (their
+/// time, and optionally an end time and a text field), or fixed `events`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+pub struct Annotation {
+    pub id: String,
+    /// Shown in the legend, e.g. "Failed deployments".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Where the documents come from. Leave out for fixed `events`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_view: Option<DataView>,
+    /// Which documents to mark.
+    #[serde(default, skip_serializing_if = "Query::is_empty")]
+    pub query: Query,
+    /// The field holding each event's time; the data view's time field otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time: Option<String>,
+    /// A field holding each event's end, to mark a range (e.g. an incident
+    /// from opened to resolved).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end: Option<String>,
+    /// A field shown with each event on hover, e.g. the team.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// At most this many events (the most recent).
+    #[serde(
+        default = "annotation_limit",
+        skip_serializing_if = "is_annotation_limit"
+    )]
+    pub limit: u32,
+    /// Fixed events instead of a search, e.g. a release freeze.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub events: Vec<AnnotationEvent>,
+    /// The dashboard's query, filter pills and control selections apply
+    /// unless this is set (Kibana ignores them by default).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ignore_global_filters: bool,
+    /// CSS colour; the theme's warning colour otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub style: LineStyle,
+}
+
+fn annotation_limit() -> u32 {
+    500
+}
+
+fn is_annotation_limit(v: &u32) -> bool {
+    *v == annotation_limit()
+}
+
+/// A fixed event: a moment, or a range when `to` is set. ISO 8601 times.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+pub struct AnnotationEvent {
+    pub at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
 }
 
 /// Kibana date math, e.g. `now-90d/d` or an ISO timestamp.
@@ -178,10 +245,37 @@ pub struct Chart {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<Filter>,
     pub layers: Vec<Layer>,
-    /// Parts of the source Teleplot does not draw, e.g. a Lens annotation
-    /// layer. Shown on the panel and by `teleplot check`, never dropped silently.
+    /// Events marked on this chart only (Lens annotation layers convert to
+    /// these). Only charts with a time axis draw annotations.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub annotations: Vec<Annotation>,
+    /// Parts of the source Teleplot does not draw. Shown on the panel and by
+    /// `teleplot check`, never dropped silently.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
+}
+
+impl Chart {
+    /// Whether the chart has a time x axis, and so can show annotations.
+    pub fn has_time_axis(&self) -> bool {
+        self.layers.iter().any(|l| {
+            let is_date = |id: &str| {
+                matches!(
+                    l.column(id).map(|c| &c.op),
+                    Some(Operation::DateHistogram { .. })
+                )
+            };
+            match &l.encoding {
+                Encoding::Xy { x: Some(x), .. } | Encoding::Band { x, .. } => is_date(x),
+                Encoding::Heatmap { x, .. } => self.kind == ChartKind::Heatmap && is_date(x),
+                Encoding::Scatter { x, .. } => matches!(
+                    l.column(x).map(|c| &c.op),
+                    Some(Operation::Value { field }) if l.data_view.time_field.as_ref() == Some(field)
+                ),
+                _ => false,
+            }
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

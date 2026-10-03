@@ -19,6 +19,7 @@ min_samples: 5                   # flag buckets with fewer documents
 query: { language: kql, text: "" }   # applies to every panel (optional)
 controls:                        # viewer-selectable filters, shown as dropdowns
   - { id: team, title: Team, field: team, data_view: { index: delivery-prs, time_field: merged_at } }
+annotations: [...]               # events marked on every time-series chart (below)
 panels:
   - id: lead-time
     title: Change lead time
@@ -28,7 +29,7 @@ panels:
 
 Panel `content` is one of:
 
-- `type: chart`, which has a `kind` (`xy`, `metric`, `pie`, `donut`, `table` or `heatmap`), an optional `query` and `filters`, and `layers`. Charts converted from Kibana can also carry `warnings`, naming parts of the original that Teleplot does not draw (a Lens annotation layer, for example). The panel shows them.
+- `type: chart`, which has a `kind` (`xy`, `metric`, `pie`, `donut`, `table` or `heatmap`), an optional `query` and `filters`, `layers`, and `annotations` of its own. Charts converted from Kibana can also carry `warnings`, naming parts of the original that Teleplot does not draw (a Lens annotation group linked from the library, for example). The panel shows them.
 - `type: markdown` with `text`.
 
 ## Layers and columns
@@ -180,6 +181,41 @@ layers:
 - Numeric rows run upwards in value order, and log-histogram rows are labelled as ranges. Other rows keep their table order from the top down, as in Kibana.
 - Colours run from light (smallest) to dark (largest) on one hue, with a key beside the chart. In the dark theme, small values are dark instead.
 - Kibana's Lens heatmaps convert to this. Their colour palette is not carried over, because it changes only the colours.
+
+### Annotations
+
+Annotations mark events on time-series charts. A failed deployment, an
+incident or a release freeze then sits on the same axis as the metric it
+might explain. Dashboard `annotations` are marked on every chart with a time
+x axis: line, bar and area charts over a date histogram, bands, scatters
+over the data view's time field, and heatmaps. A chart can also have
+`annotations` of its own.
+
+```yaml
+annotations:
+  - id: failed-deploys
+    label: Failed deployments
+    data_view: { index: delivery-deployments, time_field: deployed_at }
+    query: { language: kql, text: "result : failure" }
+    text: team                     # shown on hover
+    color: "#F2495C"
+  - id: incidents
+    label: Major incidents
+    data_view: { index: delivery-incidents, time_field: created_at }
+    query: { language: kql, text: "severity : (sev1 or sev2)" }
+    end: resolved_at               # a range: shaded from created to resolved
+  - id: freeze
+    label: Release freeze
+    events:
+      - { at: "2026-07-01T00:00:00Z", to: "2026-07-08T00:00:00Z", text: Q3 freeze }
+```
+
+- **Two kinds.** An annotation either searches a `data_view` (optionally narrowed by `query`), or lists fixed `events` with ISO 8601 times.
+- **Fields.** `time` is the field holding each event's time; it defaults to the data view's time field. `end` turns events into ranges. `limit` caps the events at the most recent ones (500 by default).
+- **Filters.** The dashboard's query, filter pills and control selections apply to annotation searches too, so choosing a team shows that team's events. A control on a field the annotated documents don't have is skipped. Set `ignore_global_filters: true` to mark every event, which is what Kibana does by default.
+- **Drawing.** Each event is a thin line with a tick at the foot of the chart, and ranges are shaded. `color` and `style` (`solid`, `dashed`, `dotted`) set how. The legend names each annotation; hovering near an event shows its date and `text`.
+- **Searches.** Each annotation is one search, sent once per dashboard however many charts show it. **Inspect** lists it with the panel's other searches.
+- **Kibana.** Lens annotation layers saved with the visualization convert, both query and manual annotations. Annotation groups linked from Kibana's library are reported as a warning.
 
 ### Document layers
 

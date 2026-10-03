@@ -12,7 +12,8 @@ use super::series::{Heatmap, RefLine, Style, XAxis, Xy, XySeries, stacked};
 use super::theme;
 use super::theme::threshold_color;
 use crate::model::{
-    Format, FormatKind, LineStyle, ReferenceAxis, ReferenceFill, SeriesType, Threshold,
+    AnnotationData, Format, FormatKind, LineStyle, ReferenceAxis, ReferenceFill, SeriesType,
+    Threshold,
 };
 
 #[wasm_bindgen]
@@ -227,6 +228,17 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
         callbacks.push(value);
         series.push(&spec);
     }
+    if is_time {
+        annotation_series(
+            &xy.annotations,
+            xs.len(),
+            &colors.warning,
+            options.time_zone,
+            &data,
+            &series,
+            &mut callbacks,
+        );
+    }
 
     // Axis ticks keep a format's unit but not its fixed decimals.
     let tick_formatter = |fmt: Option<Format>| {
@@ -419,9 +431,16 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
     let panel = colors.panel.clone();
     let bin_starts = xs.clone();
     let bin_ends = xy.bin_ends.clone();
+    let annotations = Rc::new(if is_time {
+        xy.annotations.clone()
+    } else {
+        Vec::new()
+    });
+    let warning = colors.warning.clone();
     let on_top = Callback::new(move |u: JsValue, _a: JsValue, _b: JsValue, _c: JsValue| {
         draw_bins(&u, &bin_series, &bin_starts, &bin_ends);
         draw_reference_lines(&u, &lines, &line_color, &panel, false);
+        draw_annotations(&u, &annotations, &warning);
         JsValue::UNDEFINED
     });
     let hooks = obj(&[
@@ -973,9 +992,27 @@ pub fn heatmap(target: &web_sys::HtmlElement, hm: &Heatmap, options: Options) ->
     let extent = hm.extent();
     let format = hm.format.clone();
     let (dark, text) = (options.dark, colors.text.clone());
+    let annotations = Rc::new(if is_time {
+        hm.annotations.clone()
+    } else {
+        Vec::new()
+    });
+    if is_time {
+        annotation_series(
+            &annotations,
+            nx,
+            &colors.warning,
+            options.time_zone,
+            &data,
+            &series,
+            &mut callbacks,
+        );
+    }
+    let warning = colors.warning.clone();
     let draw_cells = Callback::new(move |u: JsValue, _a: JsValue, _b: JsValue, _c: JsValue| {
         draw_heatmap(&u, &cells, &starts, &ends, extent, dark);
         draw_color_key(&u, extent, format.as_ref(), dark, &text);
+        draw_annotations(&u, &annotations, &warning);
         JsValue::UNDEFINED
     });
     let hooks = obj(&[("draw", Array::of1(&function(&draw_cells)).into())]);
@@ -1029,6 +1066,151 @@ pub fn heatmap(target: &web_sys::HtmlElement, hm: &Heatmap, options: Options) ->
     };
     chart.fit(options.width, options.height);
     chart
+}
+
+/// Legend entries for annotations: each names its events (the key, which
+/// PNG export keeps) and, under the cursor, says which event is there.
+fn annotation_series(
+    annotations: &[AnnotationData],
+    points: usize,
+    default_color: &str,
+    time_zone: &str,
+    data: &Array,
+    series: &Array,
+    callbacks: &mut Vec<Callback>,
+) {
+    for a in annotations {
+        let empty: Array = (0..points).map(|_| JsValue::NULL).collect();
+        data.push(&empty);
+        let color = opaque(a.color.as_deref().unwrap_or(default_color));
+        let label = match &a.error {
+            Some(_) => format!("{} (failed)", a.label),
+            None => a.label.clone(),
+        };
+        let events = a.events.clone();
+        let error = a.error.clone();
+        let tz = time_zone.to_string();
+        let value = Callback::new(move |u: JsValue, _v: JsValue, _s: JsValue, _i: JsValue| {
+            if let Some(e) = &error {
+                return JsValue::from_str(e);
+            }
+            let cursor = Reflect::get(&u, &"cursor".into()).unwrap_or(JsValue::NULL);
+            let left = number(&cursor, "left");
+            let Ok(val_to_pos) =
+                Reflect::get(&u, &"valToPos".into()).and_then(|f| f.dyn_into::<Function>())
+            else {
+                return JsValue::from_str("–");
+            };
+            let px = |v: f64| {
+                val_to_pos
+                    .call2(&u, &v.into(), &"x".into())
+                    .ok()
+                    .and_then(|p| p.as_f64())
+                    .unwrap_or(f64::NAN)
+            };
+            // The nearest event within a few pixels, or a range the cursor is in.
+            let hit = events
+                .iter()
+                .map(|e| {
+                    let (x0, x1) = (px(e.at), px(e.end.unwrap_or(e.at)));
+                    let distance = if left >= x0 && left <= x1 {
+                        0.0
+                    } else {
+                        (left - x0).abs().min((left - x1).abs())
+                    };
+                    (distance, e)
+                })
+                .filter(|(d, _)| *d <= 5.0)
+                .min_by(|a, b| a.0.total_cmp(&b.0))
+                .map(|(_, e)| e);
+            let text = match hit {
+                Some(e) => {
+                    let when = match e.end {
+                        Some(end) => format!("{} – {}", date(e.at, &tz), date(end, &tz)),
+                        None => date(e.at, &tz),
+                    };
+                    match &e.text {
+                        Some(t) => format!("{when} · {t}"),
+                        None => when,
+                    }
+                }
+                None => format!("{} shown", events.len()),
+            };
+            JsValue::from_str(&text)
+        });
+        series.push(&obj(&[
+            ("label", label.into()),
+            ("stroke", color.clone().into()),
+            ("width", 1.into()),
+            ("paths", no_path(callbacks).into()),
+            ("points", obj(&[("show", false.into())]).into()),
+            ("value", function(&value).into()),
+        ]));
+        callbacks.push(value);
+    }
+}
+
+/// A colour without its own transparency (`#rrggbbaa` → `#rrggbb`), since
+/// marks are drawn with Teleplot's (Kibana stores range colours with one).
+fn opaque(color: &str) -> String {
+    match color.strip_prefix('#') {
+        Some(hex) if hex.len() == 8 && hex.chars().all(|c| c.is_ascii_hexdigit()) => {
+            format!("#{}", &hex[..6])
+        }
+        _ => color.to_string(),
+    }
+}
+
+/// Annotations over the data: a thin line at each event, with a tick at the
+/// foot; ranges are shaded from start to end.
+fn draw_annotations(u: &JsValue, annotations: &[AnnotationData], default_color: &str) {
+    if annotations.iter().all(|a| a.events.is_empty()) {
+        return;
+    }
+    let Some(plot) = Plot::of(u) else { return };
+    let dpr = dpr();
+    let bottom = plot.top + plot.height;
+    plot.clip();
+    for a in annotations {
+        let color = opaque(a.color.as_deref().unwrap_or(default_color));
+        let color = color.as_str();
+        let dash: &[f64] = match a.style {
+            LineStyle::Solid => &[],
+            LineStyle::Dashed => &[6.0, 4.0],
+            LineStyle::Dotted => &[1.5, 3.0],
+        };
+        let pattern: Array = dash.iter().map(|d| JsValue::from(d * dpr)).collect();
+        plot.ctx.set_fill_style_str(color);
+        plot.ctx.set_stroke_style_str(color);
+        plot.ctx.set_line_width(dpr);
+        for e in &a.events {
+            let Some(x0) = plot.pos(e.at, "x") else {
+                continue;
+            };
+            if let Some(x1) = e.end.and_then(|end| plot.pos(end, "x")) {
+                plot.ctx.set_global_alpha(0.12);
+                plot.ctx
+                    .fill_rect(x0, plot.top, (x1 - x0).max(dpr), plot.height);
+            }
+            // Faint lines, so dozens of events don't drown the data; the
+            // ticks at the foot stay solid.
+            plot.ctx.set_global_alpha(0.4);
+            let _ = plot.ctx.set_line_dash(&pattern);
+            plot.ctx.begin_path();
+            plot.ctx.move_to(x0, plot.top);
+            plot.ctx.line_to(x0, bottom);
+            plot.ctx.stroke();
+            // A small tick at the foot, so the event is visible in dense data.
+            plot.ctx.set_global_alpha(1.0);
+            plot.ctx.begin_path();
+            plot.ctx.move_to(x0, bottom - 6.0 * dpr);
+            plot.ctx.line_to(x0 - 4.0 * dpr, bottom);
+            plot.ctx.line_to(x0 + 4.0 * dpr, bottom);
+            plot.ctx.close_path();
+            plot.ctx.fill();
+        }
+    }
+    plot.ctx.restore();
 }
 
 /// A date (`2026-04-06`) in the dashboard's time zone.

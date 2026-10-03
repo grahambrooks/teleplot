@@ -325,6 +325,29 @@ impl Dashboard {
             }));
     }
 
+    /// Adds a by-value annotation layer to the Lens XY panel added last; its
+    /// query annotations search `data_view`.
+    fn annotations(&mut self, index: &str, data_view: &str, annotations: Vec<Value>) {
+        let layer = format!("events-{index}");
+        let panel = self.panels.last_mut().expect("a panel");
+        let attributes = &mut panel["embeddableConfig"]["attributes"];
+        let name = format!("xy-visualization-layer-{layer}");
+        attributes["references"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({ "type": "index-pattern", "id": data_view, "name": name }));
+        self.references.push(json!({
+            "type": "index-pattern", "id": data_view, "name": format!("{index}:{name}")
+        }));
+        attributes["state"]["visualization"]["layers"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({
+                "layerId": layer, "layerType": "annotations",
+                "ignoreGlobalFilters": true, "annotations": annotations
+            }));
+    }
+
     /// A panel that references a saved object (Lens or legacy visualization).
     fn by_ref(&mut self, index: &str, grid: Grid, kind: &str, id: &str) {
         let name = format!("panel_{index}");
@@ -808,6 +831,31 @@ fn delivery_overview() -> Value {
                 metric("average", "change_lead_time_hours", "Average over the range"),
                 json!({ "axisMode": "left", "color": "#D6BF57", "lineStyle": "dotted", "lineWidth": 2, "fill": "none", "textVisibility": true }),
             ),
+        ],
+    );
+
+    d.annotations(
+        "lead-target",
+        DV_INCIDENTS,
+        vec![
+            json!({
+                "type": "query", "id": "sev1", "label": "Sev1 incidents",
+                "key": { "type": "point_in_time" }, "timeField": "created_at",
+                "filter": { "type": "kibana_query", "query": "severity : sev1", "language": "kuery" },
+                "textField": "team", "textVisibility": true,
+                "color": "#B877D9", "lineStyle": "dashed", "lineWidth": 2, "icon": "alert"
+            }),
+            json!({
+                "type": "manual", "id": "freeze", "label": "Release freeze",
+                "key": { "type": "range", "timestamp": "2026-07-01T00:00:00.000Z", "endTimestamp": "2026-07-08T00:00:00.000Z" },
+                "color": "#D6BF5733", "outside": false
+            }),
+            json!({
+                "type": "manual", "id": "reorg", "label": "Reorg",
+                "key": { "type": "point_in_time", "timestamp": "2026-08-17T00:00:00.000Z" },
+                "color": "#54B399", "lineStyle": "solid", "lineWidth": 2, "icon": "triangle",
+                "textVisibility": true
+            }),
         ],
     );
 

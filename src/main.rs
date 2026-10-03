@@ -292,6 +292,12 @@ async fn query(
                     println!("  … {} rows", layer_data.rows);
                 }
             }
+            for a in &panel_data.annotations {
+                match &a.error {
+                    Some(e) => println!("  annotation {}: error: {e}", a.label),
+                    None => println!("  annotation {}: {} events", a.label, a.events.len()),
+                }
+            }
         }
         println!();
     }

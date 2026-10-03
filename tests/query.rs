@@ -57,6 +57,7 @@ fn searches(d: &Dashboard, stats: &HashMap<(String, String), (f64, f64)>) -> Val
         fields: &fields,
         stats,
         settings: Settings::default(),
+        annotations: &d.annotations,
     };
     let mut out = serde_json::Map::new();
     for panel in &d.panels {
