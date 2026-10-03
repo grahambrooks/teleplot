@@ -1,0 +1,100 @@
+src/kibana/legacy.rs
+  s_ae1a5b1be5a92c::t_77330bb89c7297 125
+  s_ae1a5b1be5a92c::t_d5892c97bea443 116-117,124,126
+fixtures/README.md
+  s_ae1a5b1be5a92c::t_11c283e4c156c2 26-27
+examples/kibana_fixtures.rs
+  s_ae1a5b1be5a92c::t_76b13926d0a6c4 351-381,1067-1163
+  s_ae1a5b1be5a92c::t_731b5f5de1594a 1164
+src/ui/panels.rs
+  s_ae1a5b1be5a92c::t_bad0624feb479d 875,892
+  s_ae1a5b1be5a92c::t_d5892c97bea443 681
+  s_ae1a5b1be5a92c::t_9fc108265f81c4 806
+  s_ae1a5b1be5a92c::t_77330bb89c7297 345,388,410-411,487-494,496-497
+  s_ae1a5b1be5a92c::t_9552f282e6c672 661-662,665-668,672-677,684-689,715-728,732,736-737,744-750,755,762-771,774-805,848,850,861-873,876-879,884-888,890-891,893-894,903-904
+  s_ae1a5b1be5a92c::t_a1405488f70d63 901-902,905-920
+  s_ae1a5b1be5a92c::t_24bad58c326a40 333,342,344,346,354,356-361,364-365,368,370-387,389-392,400,402-405,407-409,412-413,416-420,428-430,432-454,456,474,476-478,480,482-486,495,498-499,501-523,527-528,530,921
+  s_ae1a5b1be5a92c::t_5f6b17c1b76e57 889
+  s_ae1a5b1be5a92c::t_f35d98cf7f2bd0 922
+dashboards/delivery-overview.yaml
+  s_ae1a5b1be5a92c::t_3d5beebf5de78f 75-84,113-120,387-417
+  s_ae1a5b1be5a92c::t_5f6b17c1b76e57 108
+fixtures/make-fixtures.sh
+  s_ae1a5b1be5a92c::t_17d318a72e7451 41
+fixtures/kibana/8.19/sample-data.ndjson
+  s_ae1a5b1be5a92c::t_3d5beebf5de78f 1-16
+style/main.css
+  s_ae1a5b1be5a92c::t_95df6454460ae6 202,499-500
+  s_ae1a5b1be5a92c::t_77330bb89c7297 494-496
+  s_ae1a5b1be5a92c::t_24bad58c326a40 485-493,498,501-502
+  s_ae1a5b1be5a92c::t_d7594733511d0f 497
+  s_ae1a5b1be5a92c::t_9552f282e6c672 503-507
+src/model/table.rs
+  s_ae1a5b1be5a92c::t_d5892c97bea443 150-151
+src/ui/series.rs
+  s_ae1a5b1be5a92c::t_cfa92b7f776197 1261-1318
+  s_ae1a5b1be5a92c::t_136807f9e56c12 389-402,407-429,490-491,498-501,507,522-523,530-534,941
+  s_ae1a5b1be5a92c::t_24bad58c326a40 403-406,430-489,492-497,502,504-506,508-521,524-529
+tests/elasticsearch.rs
+  s_ae1a5b1be5a92c::t_c2b821e8982327 221-243,246-249,251-252,254-298
+  s_ae1a5b1be5a92c::t_e786330c33dd62 244-245,250,253
+docs/charting-plan.md
+  s_ae1a5b1be5a92c::t_11c283e4c156c2 7
+docs/dashboards.md
+  s_ae1a5b1be5a92c::t_3f06cd6ef28f0b 61,63-64,274-331
+  s_ae1a5b1be5a92c::t_063e666bbb202d 332
+docs/roadmap.md
+  s_ae1a5b1be5a92c::t_11c283e4c156c2 8,73,77-82
+src/kibana/lens.rs
+  s_ae1a5b1be5a92c::t_d5892c97bea443 13-16,310,317,322,324-339,359-373,473-562
+  s_ae1a5b1be5a92c::t_77330bb89c7297 319-320
+  s_ae1a5b1be5a92c::t_5f6b17c1b76e57 104-123
+  s_ae1a5b1be5a92c::t_ebe1f954b6acd1 318,321
+  s_ae1a5b1be5a92c::t_2687e68e9c969e 563
+src/query/mod.rs
+  s_ae1a5b1be5a92c::t_d5892c97bea443 1939-1940
+src/lint/mod.rs
+  s_ae1a5b1be5a92c::t_12be1f58180656 434-457
+  s_ae1a5b1be5a92c::t_24bad58c326a40 410-413
+  s_ae1a5b1be5a92c::t_f4b24b659ba85e 458
+src/model/mod.rs
+  s_ae1a5b1be5a92c::t_cfa92b7f776197 1185-1251
+  s_ae1a5b1be5a92c::t_ebe1f954b6acd1 369-371,463-471
+  s_ae1a5b1be5a92c::t_d5892c97bea443 433
+  s_ae1a5b1be5a92c::t_1a85307e9978f9 445-449,746
+  s_ae1a5b1be5a92c::t_0f89488d82d4d5 366-368,372-384,392-397,434-444,450-462,472-615,759-763
+tests/snapshots/kibana__8_19_delivery_ndjson.snap
+  s_ae1a5b1be5a92c::t_0424e2270f193c 829-989
+tests/snapshots/kibana__8_19_sample-data_ndjson.snap
+  s_ae1a5b1be5a92c::t_bc8976f71c4f1c 212,427-436,1081-1099,1531-1551,1709-1727
+tests/snapshots/kibana__9_5_delivery_ndjson.snap
+  s_ae1a5b1be5a92c::t_28afda42aa0f7c 829-989
+tests/snapshots/kibana__9_5_sample-data_ndjson.snap
+  s_ae1a5b1be5a92c::t_dbe43d51b9bea6 212,427-442,1087-1115,1548-1576,1700-1728
+tests/snapshots/query__native-delivery-overview.snap
+  s_ae1a5b1be5a92c::t_1d9c7406aecc3b 779-834,1153-1218,1681-1747
+tests/snapshots/query__teleplot-delivery-overview.snap
+  s_ae1a5b1be5a92c::t_12d7a5b5f691dd 891-1000,1211-1382
+fixtures/kibana/8.19/delivery.ndjson
+  s_ae1a5b1be5a92c::t_964c5ff5bd7687 1-12
+fixtures/kibana/9.5/delivery.ndjson
+  s_ae1a5b1be5a92c::t_b77b49cdc915bf 1-12
+fixtures/kibana/9.5/sample-data.ndjson
+  s_ae1a5b1be5a92c::t_4a292a29adaccd 1-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "21c95a4c0e8c8dd8bd3d7a7fc7fbe466ec5a9e92",
+  "prompts": {},
+  "sessions": {
+    "s_ae1a5b1be5a92c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70378e7a-4351-4fcf-99d5-ebdcf2e157f9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
