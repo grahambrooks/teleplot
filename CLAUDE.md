@@ -32,7 +32,8 @@ Ingestion/ETL · writing to ES (except the dev-only fixture seeder) · UI editin
 ## Development
 
 * `make dev` — `cargo leptos watch` with live reload on http://127.0.0.1:3000
-* `cargo run` — serves on :3000 using the last client bundle in `target/site` (run `cargo leptos build` first if there is none)
+* Don't serve the UI with plain `cargo run` in debug: cargo-leptos builds the debug client with `--cfg erase_components`, plain cargo builds the server without it, and hydration panics (blank page). Use `make dev`, or `cargo leptos build` then `target/debug/teleplot serve`
+* `teleplot.yaml` (gitignored, per machine) points at ES; `make dev` reads it from the repo root. Local ES: `docker compose -f fixtures/docker-compose.yml up -d es8` then `cargo run --example seed`
 * `make pre-commit` — fmt, clippy (server and WASM client), tests. Run before every commit; CI runs the same
 * `make smoke` — release build, then checks that the binary serves the whole UI from an empty directory
 * `make deny` — cargo-deny supply-chain checks
