@@ -1,0 +1,21 @@
+.github/workflows/ci.yml
+  s_a16a72bbb1a561::t_cdfab5e73e51d7 10-12,18-22
+examples/seed.rs
+  s_a16a72bbb1a561::t_8df9a2bbe5fdb1 613-625
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e37f687c90109d3ba9d0c0ced856a9279a66c40c",
+  "prompts": {},
+  "sessions": {
+    "s_a16a72bbb1a561": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c4825dcb-6aec-4b49-b368-aeeb721d6552",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
