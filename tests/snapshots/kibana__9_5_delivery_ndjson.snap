@@ -1,0 +1,1105 @@
+---
+source: tests/kibana.rs
+expression: yaml(&read(path))
+---
+---
+id: teleplot-delivery-overview
+title: '[Delivery] Overview (DORA)'
+description: DORA throughput and instability metrics
+time:
+  from: now-90d/d
+  to: now
+panels:
+- id: intro
+  grid:
+    x: 0
+    y: 0
+    w: 48
+    h: 4
+  content:
+    type: markdown
+    text: |-
+      ## Delivery overview
+      DORA metrics across all teams. Medians and percentiles, not averages: delivery durations are long-tailed.
+- id: deploys-per-week
+  title: Deployment frequency
+  grid:
+    x: 0
+    y: 4
+    w: 12
+    h: 7
+  content:
+    type: chart
+    kind: metric
+    query:
+      language: kql
+      text: 'is_rework : false'
+    layers:
+    - id: layer-deploys-per-week
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      columns:
+      - id: dpwX0
+        label: Part of count() / (time_range() / 604800000)
+        op: count
+        helper: true
+      - id: dpwX1
+        label: Part of count() / (time_range() / 604800000)
+        op: time_range
+        helper: true
+      - id: dpw
+        label: Deployments / week
+        op: formula
+        text: count() / (time_range() / 604800000)
+        expr:
+          call: divide
+          args:
+          - dpwX0
+          - call: divide
+            args:
+            - dpwX1
+            - 604800000.0
+        format:
+          kind: number
+          decimals: 1
+      - id: dpw-prev
+        label: Deployments in previous period
+        op: count
+        time_shift: previous
+      encoding:
+        as: metric
+        value: dpw
+        secondary: dpw-prev
+- id: lead-time
+  title: Change lead time (median)
+  grid:
+    x: 12
+    y: 4
+    w: 12
+    h: 7
+  content:
+    type: chart
+    kind: metric
+    query:
+      language: kql
+      text: 'is_rework : false'
+    layers:
+    - id: layer-lead-time
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      columns:
+      - id: lt-median
+        label: Median lead time
+        op: median
+        field: change_lead_time_hours
+        format:
+          kind: number
+          decimals: 1
+          suffix: ' h'
+      encoding:
+        as: metric
+        value: lt-median
+- id: cfr
+  title: Change fail rate
+  grid:
+    x: 24
+    y: 4
+    w: 12
+    h: 7
+  content:
+    type: chart
+    kind: metric
+    query:
+      language: kql
+      text: 'is_rework : false'
+    layers:
+    - id: layer-cfr
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      columns:
+      - id: cfr-fX0
+        label: 'Part of count(kql=''result : "failure"'') / count()'
+        op: count
+        filter:
+          language: kql
+          text: 'result : "failure"'
+        helper: true
+      - id: cfr-fX1
+        label: 'Part of count(kql=''result : "failure"'') / count()'
+        op: count
+        helper: true
+      - id: cfr-f
+        label: Change fail rate
+        op: formula
+        text: 'count(kql=''result : "failure"'') / count()'
+        expr:
+          call: divide
+          args:
+          - cfr-fX0
+          - cfr-fX1
+        format:
+          kind: percent
+          decimals: 1
+      encoding:
+        as: metric
+        value: cfr-f
+- id: recovery
+  title: Failed deployment recovery time
+  grid:
+    x: 36
+    y: 4
+    w: 12
+    h: 7
+  content:
+    type: chart
+    kind: metric
+    query:
+      language: kql
+      text: 'caused_by_deployment_id : *'
+    layers:
+    - id: layer-recovery
+      data_view:
+        index: delivery-incidents
+        time_field: created_at
+      columns:
+      - id: rec-median
+        label: Median recovery
+        op: median
+        field: recovery_hours
+        format:
+          kind: number
+          decimals: 1
+          suffix: ' h'
+      encoding:
+        as: metric
+        value: rec-median
+- id: deploys-weekly
+  title: Deployments per week by result
+  grid:
+    x: 0
+    y: 11
+    w: 24
+    h: 12
+  content:
+    type: chart
+    kind: xy
+    layers:
+    - id: layer-deploys-weekly
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      columns:
+      - id: dw-split
+        label: Top 3 values of result
+        op: terms
+        fields:
+        - result
+        size: 3
+        order:
+          by: column
+          column: dw-y
+          ascending: false
+        other_bucket: true
+      - id: dw-x
+        label: deployed_at
+        op: date_histogram
+        field: deployed_at
+        interval: 1w
+        include_empty: true
+      - id: dw-y
+        label: Deployments
+        op: count
+      encoding:
+        as: xy
+        series: bar_stacked
+        x: dw-x
+        y:
+        - dw-y
+        split: dw-split
+- id: lead-percentiles
+  title: Lead time percentiles (weekly)
+  grid:
+    x: 24
+    y: 11
+    w: 24
+    h: 12
+  content:
+    type: chart
+    kind: xy
+    query:
+      language: kql
+      text: 'is_rework : false'
+    layers:
+    - id: layer-lead-percentiles
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      columns:
+      - id: lp-x
+        label: deployed_at
+        op: date_histogram
+        field: deployed_at
+        interval: 1w
+        include_empty: true
+      - id: lp-50
+        label: p50
+        op: percentile
+        field: change_lead_time_hours
+        percent: 50.0
+      - id: lp-75
+        label: p75
+        op: percentile
+        field: change_lead_time_hours
+        percent: 75.0
+      - id: lp-95
+        label: p95
+        op: percentile
+        field: change_lead_time_hours
+        percent: 95.0
+      encoding:
+        as: xy
+        series: line
+        x: lp-x
+        y:
+        - lp-50
+        - lp-75
+        - lp-95
+- id: cfr-weekly
+  title: Change fail rate (weekly, 4-week moving average)
+  grid:
+    x: 0
+    y: 23
+    w: 24
+    h: 12
+  content:
+    type: chart
+    kind: xy
+    query:
+      language: kql
+      text: 'is_rework : false'
+    layers:
+    - id: layer-cfr-weekly
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      columns:
+      - id: cw-x
+        label: deployed_at
+        op: date_histogram
+        field: deployed_at
+        interval: 1w
+        include_empty: true
+      - id: cw-fX0
+        label: 'Part of count(kql=''result : "failure"'') / count()'
+        op: count
+        filter:
+          language: kql
+          text: 'result : "failure"'
+        helper: true
+      - id: cw-fX1
+        label: 'Part of count(kql=''result : "failure"'') / count()'
+        op: count
+        helper: true
+      - id: cw-f
+        label: Change fail rate
+        op: formula
+        text: 'count(kql=''result : "failure"'') / count()'
+        expr:
+          call: divide
+          args:
+          - cw-fX0
+          - cw-fX1
+        format:
+          kind: percent
+          decimals: 1
+      - id: cw-avg
+        label: 4-week moving average
+        op: moving_average
+        of: cw-f
+        window: 4
+        format:
+          kind: percent
+          decimals: 1
+      encoding:
+        as: xy
+        series: line
+        x: cw-x
+        y:
+        - cw-f
+        - cw-avg
+- id: rework
+  title: Deployment rework rate (monthly)
+  grid:
+    x: 24
+    y: 23
+    w: 24
+    h: 12
+  content:
+    type: chart
+    kind: xy
+    layers:
+    - id: layer-rework
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      columns:
+      - id: rw-x
+        label: deployed_at
+        op: date_histogram
+        field: deployed_at
+        interval: 1M
+        include_empty: true
+      - id: rw-fX0
+        label: 'Part of count(kql=''is_rework : true'') / count()'
+        op: count
+        filter:
+          language: kql
+          text: 'is_rework : true'
+        helper: true
+      - id: rw-fX1
+        label: 'Part of count(kql=''is_rework : true'') / count()'
+        op: count
+        helper: true
+      - id: rw-f
+        label: Deployment rework rate
+        op: formula
+        text: 'count(kql=''is_rework : true'') / count()'
+        expr:
+          call: divide
+          args:
+          - rw-fX0
+          - rw-fX1
+        format:
+          kind: percent
+          decimals: 1
+      encoding:
+        as: xy
+        series: bar
+        x: rw-x
+        y:
+        - rw-f
+- id: teams
+  title: DORA by team
+  grid:
+    x: 0
+    y: 35
+    w: 48
+    h: 14
+  content:
+    type: chart
+    kind: table
+    query:
+      language: kql
+      text: 'is_rework : false'
+    layers:
+    - id: layer-teams
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      columns:
+      - id: tt-team
+        label: Top 20 values of team
+        op: terms
+        fields:
+        - team
+        size: 20
+        order:
+          by: column
+          column: tt-n
+          ascending: false
+        other_bucket: true
+      - id: tt-n
+        label: Deployments
+        op: count
+      - id: tt-lead
+        label: Median lead time
+        op: median
+        field: change_lead_time_hours
+        format:
+          kind: number
+          decimals: 1
+          suffix: ' h'
+      - id: tt-cfrX0
+        label: 'Part of count(kql=''result : "failure"'') / count()'
+        op: count
+        filter:
+          language: kql
+          text: 'result : "failure"'
+        helper: true
+      - id: tt-cfrX1
+        label: 'Part of count(kql=''result : "failure"'') / count()'
+        op: count
+        helper: true
+      - id: tt-cfr
+        label: Change fail rate
+        op: formula
+        text: 'count(kql=''result : "failure"'') / count()'
+        expr:
+          call: divide
+          args:
+          - tt-cfrX0
+          - tt-cfrX1
+        format:
+          kind: percent
+          decimals: 1
+      encoding:
+        as: table
+        columns:
+        - tt-team
+        - tt-n
+        - tt-lead
+        - tt-cfr
+---
+id: teleplot-pr-flow
+title: '[Delivery] PR flow'
+description: Pull request throughput, cycle time and AI assistance
+panels:
+- id: contributors
+  title: Active contributors
+  grid:
+    x: 0
+    y: 0
+    w: 12
+    h: 7
+  content:
+    type: chart
+    kind: metric
+    layers:
+    - id: layer-contributors
+      data_view:
+        index: delivery-prs
+        time_field: merged_at
+      columns:
+      - id: ac
+        label: Contributors
+        op: unique_count
+        field: author
+      encoding:
+        as: metric
+        value: ac
+- id: throughput
+  title: PRs merged
+  grid:
+    x: 12
+    y: 0
+    w: 12
+    h: 7
+  content:
+    type: chart
+    kind: metric
+    query:
+      language: kql
+      text: 'state : "merged"'
+    layers:
+    - id: layer-throughput
+      data_view:
+        index: delivery-prs
+        time_field: merged_at
+      columns:
+      - id: tp
+        label: Merged PRs
+        op: count
+      - id: tp-prev
+        label: Previous period
+        op: count
+        time_shift: previous
+      encoding:
+        as: metric
+        value: tp
+        secondary: tp-prev
+- id: ai-share
+  title: AI-assisted PRs
+  grid:
+    x: 24
+    y: 0
+    w: 12
+    h: 14
+  content:
+    type: chart
+    kind: donut
+    layers:
+    - id: layer-ai-share
+      data_view:
+        index: delivery-prs
+        time_field: merged_at
+      columns:
+      - id: ai-t
+        label: Top 2 values of ai_assisted
+        op: terms
+        fields:
+        - ai_assisted
+        size: 2
+        order:
+          by: column
+          column: ai-n
+          ascending: false
+        other_bucket: true
+      - id: ai-n
+        label: PRs
+        op: count
+      encoding:
+        as: pie
+        groups:
+        - ai-t
+        values:
+        - ai-n
+- id: last-pr
+  title: Most recent merged PR
+  grid:
+    x: 36
+    y: 0
+    w: 12
+    h: 7
+  content:
+    type: chart
+    kind: metric
+    query:
+      language: kql
+      text: 'state : "merged"'
+    layers:
+    - id: layer-last-pr
+      data_view:
+        index: delivery-prs
+        time_field: merged_at
+      columns:
+      - id: lv
+        label: Latest PR
+        op: last_value
+        field: pr_id
+        sort_field: merged_at
+      encoding:
+        as: metric
+        value: lv
+- id: phases
+  title: Cycle time by phase (weekly median)
+  grid:
+    x: 0
+    y: 7
+    w: 24
+    h: 12
+  content:
+    type: chart
+    kind: xy
+    layers:
+    - id: layer-phases
+      data_view:
+        index: delivery-prs
+        time_field: merged_at
+      columns:
+      - id: ph-x
+        label: merged_at
+        op: date_histogram
+        field: merged_at
+        interval: 1w
+        include_empty: true
+      - id: ph-c
+        label: Coding
+        op: median
+        field: coding_hours
+      - id: ph-p
+        label: Pickup
+        op: median
+        field: pickup_hours
+      - id: ph-r
+        label: Review
+        op: median
+        field: review_hours
+      - id: ph-d
+        label: Deploy
+        op: median
+        field: deploy_hours
+      encoding:
+        as: xy
+        series: bar_stacked
+        x: ph-x
+        y:
+        - ph-c
+        - ph-p
+        - ph-r
+        - ph-d
+- id: cycle-pct
+  title: Cycle time p85 change
+  grid:
+    x: 36
+    y: 7
+    w: 12
+    h: 7
+  content:
+    type: chart
+    kind: xy
+    layers:
+    - id: layer-cycle-pct
+      data_view:
+        index: delivery-prs
+        time_field: merged_at
+      columns:
+      - id: cp-x
+        label: merged_at
+        op: date_histogram
+        field: merged_at
+        interval: 1M
+        include_empty: true
+      - id: cp-85
+        label: p85
+        op: percentile
+        field: cycle_time_hours
+        percent: 85.0
+        helper: true
+      - id: cp-diff
+        label: Change in p85
+        op: differences
+        of: cp-85
+      encoding:
+        as: xy
+        series: bar
+        x: cp-x
+        y:
+        - cp-diff
+- id: by-team
+  title: Merged PRs per week by team
+  grid:
+    x: 24
+    y: 14
+    w: 24
+    h: 12
+  content:
+    type: chart
+    kind: xy
+    layers:
+    - id: layer-by-team
+      data_view:
+        index: delivery-prs
+        time_field: merged_at
+      columns:
+      - id: bt-split
+        label: Top 10 values of team
+        op: terms
+        fields:
+        - team
+        size: 10
+        order:
+          by: column
+          column: bt-y
+          ascending: false
+        other_bucket: true
+      - id: bt-x
+        label: merged_at
+        op: date_histogram
+        field: merged_at
+        interval: 1w
+        include_empty: true
+      - id: bt-y
+        label: PRs
+        op: count
+      encoding:
+        as: xy
+        series: area_stacked
+        x: bt-x
+        y:
+        - bt-y
+        split: bt-split
+- id: size-mix
+  title: PR size mix
+  grid:
+    x: 0
+    y: 19
+    w: 24
+    h: 12
+  content:
+    type: chart
+    kind: xy
+    layers:
+    - id: layer-size-mix
+      data_view:
+        index: delivery-prs
+        time_field: merged_at
+      columns:
+      - id: sm-split
+        label: Size
+        op: filters
+        filters:
+        - label: Small
+          query:
+            language: kql
+            text: lines_changed < 100
+        - label: Medium
+          query:
+            language: kql
+            text: lines_changed >= 100 and lines_changed < 500
+        - label: Large
+          query:
+            language: kql
+            text: lines_changed >= 500
+      - id: sm-x
+        label: merged_at
+        op: date_histogram
+        field: merged_at
+        interval: 1M
+        include_empty: true
+      - id: sm-y
+        label: PRs
+        op: count
+      encoding:
+        as: xy
+        series: bar_percentage_stacked
+        x: sm-x
+        y:
+        - sm-y
+        split: sm-split
+- id: cumulative
+  title: Cumulative PRs merged (AI-assisted vs all)
+  grid:
+    x: 24
+    y: 26
+    w: 24
+    h: 10
+  content:
+    type: chart
+    kind: xy
+    layers:
+    - id: layer-cumulative
+      data_view:
+        index: delivery-prs
+        time_field: merged_at
+      columns:
+      - id: cu-x
+        label: merged_at
+        op: date_histogram
+        field: merged_at
+        interval: 1d
+        include_empty: true
+      - id: cu-n
+        op: count
+        helper: true
+      - id: cu-sum
+        label: All PRs
+        op: cumulative_sum
+        of: cu-n
+      - id: cu-ai
+        op: count
+        filter:
+          language: kql
+          text: 'ai_assisted : true'
+        helper: true
+      - id: cu-ai-sum
+        label: AI-assisted
+        op: cumulative_sum
+        of: cu-ai
+      encoding:
+        as: xy
+        series: line
+        x: cu-x
+        y:
+        - cu-sum
+        - cu-ai-sum
+- id: distribution
+  title: Cycle time distribution
+  grid:
+    x: 0
+    y: 31
+    w: 24
+    h: 12
+  content:
+    type: chart
+    kind: xy
+    layers:
+    - id: layer-distribution
+      data_view:
+        index: delivery-prs
+        time_field: merged_at
+      columns:
+      - id: ds-x
+        label: Cycle time (h)
+        op: histogram
+        field: cycle_time_hours
+      - id: ds-y
+        label: PRs
+        op: count
+      encoding:
+        as: xy
+        series: bar
+        x: ds-x
+        y:
+        - ds-y
+- id: lens-ref
+  title: Review load by team (by reference)
+  grid:
+    x: 24
+    y: 36
+    w: 24
+    h: 12
+  content:
+    type: chart
+    kind: xy
+    layers:
+    - id: layer-teleplot-lens-review-load
+      data_view:
+        index: delivery-prs
+        time_field: merged_at
+      columns:
+      - id: rl-team
+        label: Top 10 values of team
+        op: terms
+        fields:
+        - team
+        size: 10
+        order:
+          by: column
+          column: rl-n
+          ascending: false
+        other_bucket: true
+      - id: rl-n
+        label: PRs awaiting review
+        op: count
+      encoding:
+        as: xy
+        series: bar_horizontal
+        x: rl-team
+        y:
+        - rl-n
+- id: legacy-line
+  title: Cycle time p50/p85 (legacy line)
+  grid:
+    x: 0
+    y: 43
+    w: 24
+    h: 12
+  content:
+    type: chart
+    kind: xy
+    layers:
+    - id: layer
+      data_view:
+        index: delivery-prs
+        time_field: merged_at
+      columns:
+      - id: '1.50'
+        label: p50 of cycle_time_hours
+        op: percentile
+        field: cycle_time_hours
+        percent: 50.0
+      - id: '1.85'
+        label: p85 of cycle_time_hours
+        op: percentile
+        field: cycle_time_hours
+        percent: 85.0
+      - id: '2'
+        op: date_histogram
+        field: merged_at
+        interval: 1w
+        include_empty: false
+      encoding:
+        as: xy
+        series: line
+        x: '2'
+        y:
+        - '1.50'
+        - '1.85'
+---
+id: teleplot-investment
+title: '[Delivery] Investment and flow'
+description: Where effort goes, and how efficiently work flows
+time:
+  from: now-6M/M
+  to: now
+query:
+  language: kql
+  text: 'NOT status : "todo"'
+filters:
+- field: type
+  negate: true
+  query:
+    match_phrase:
+      type: risk
+controls:
+- id: team-control
+  title: Team
+  field: team
+  data_view:
+    index: delivery-workitems
+    time_field: done_at
+panels:
+- id: allocation
+  title: Investment allocation (monthly)
+  grid:
+    x: 0
+    y: 0
+    w: 32
+    h: 14
+  content:
+    type: chart
+    kind: xy
+    layers:
+    - id: layer-allocation
+      data_view:
+        index: delivery-workitems
+        time_field: done_at
+      columns:
+      - id: al-split
+        label: Top 4 values of type
+        op: terms
+        fields:
+        - type
+        size: 4
+        order:
+          by: column
+          column: al-y
+          ascending: false
+        other_bucket: true
+      - id: al-x
+        label: done_at
+        op: date_histogram
+        field: done_at
+        interval: 1M
+        include_empty: true
+      - id: al-y
+        label: Story points
+        op: sum
+        field: story_points
+      encoding:
+        as: xy
+        series: bar_percentage_stacked
+        x: al-x
+        y:
+        - al-y
+        split: al-split
+- id: legacy-metric
+  title: Items done (legacy metric)
+  grid:
+    x: 32
+    y: 0
+    w: 16
+    h: 7
+  content:
+    type: chart
+    kind: metric
+    layers:
+    - id: layer
+      data_view:
+        index: delivery-workitems
+        time_field: done_at
+      columns:
+      - id: '1'
+        op: count
+      encoding:
+        as: metric
+        value: '1'
+- id: legacy-pie
+  title: Work by type (legacy pie)
+  grid:
+    x: 32
+    y: 7
+    w: 16
+    h: 14
+  content:
+    type: chart
+    kind: donut
+    layers:
+    - id: layer
+      data_view:
+        index: delivery-workitems
+        time_field: done_at
+      columns:
+      - id: '1'
+        op: count
+      - id: '2'
+        op: terms
+        fields:
+        - type
+        size: 5
+        order:
+          by: column
+          column: '1'
+          ascending: false
+      encoding:
+        as: pie
+        groups:
+        - '2'
+        values:
+        - '1'
+- id: efficiency
+  title: Flow efficiency and flow time
+  grid:
+    x: 0
+    y: 14
+    w: 32
+    h: 12
+  content:
+    type: chart
+    kind: xy
+    layers:
+    - id: layer-efficiency
+      data_view:
+        index: delivery-workitems
+        time_field: done_at
+      columns:
+      - id: ef-x
+        label: done_at
+        op: date_histogram
+        field: done_at
+        interval: 1w
+        include_empty: true
+      - id: ef-e
+        label: Flow efficiency
+        op: average
+        field: flow_efficiency
+        format:
+          kind: percent
+          decimals: 1
+      - id: ef-t
+        label: Median flow time (days)
+        op: median
+        field: flow_time_days
+      encoding:
+        as: xy
+        series: line
+        x: ef-x
+        y:
+        - ef-e
+        - ef-t
+- id: legacy-table
+  title: Flow by team (legacy table)
+  grid:
+    x: 0
+    y: 26
+    w: 48
+    h: 12
+  content:
+    type: chart
+    kind: table
+    layers:
+    - id: layer
+      data_view:
+        index: delivery-workitems
+        time_field: done_at
+      columns:
+      - id: '1'
+        label: Items
+        op: count
+      - id: '3'
+        label: Avg flow efficiency
+        op: average
+        field: flow_efficiency
+      - id: '4'
+        label: Median flow time (days)
+        op: median
+        field: flow_time_days
+      - id: '2'
+        op: terms
+        fields:
+        - team
+        size: 20
+        order:
+          by: column
+          column: '1'
+          ascending: false
+      encoding:
+        as: table
+        columns:
+        - '2'
+        - '1'
+        - '3'
+        - '4'

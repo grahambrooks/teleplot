@@ -39,6 +39,17 @@ Ingestion/ETL · writing to ES (except the dev-only fixture seeder) · UI editin
 * `make fixtures` — rebuild Kibana fixtures against dockerised ES/Kibana 8.19 and 9.5 (see `fixtures/README.md`). Fixtures are Kibana's own exports; review the screenshots before committing
 * Hooks: `prek install --hook-type pre-commit --hook-type pre-push`
 
+CLI:
+
+* `teleplot check <export.ndjson>...` — reports, per dashboard, which panels render. Exits 1 if an in-scope panel could not be converted
+* `teleplot convert <export.ndjson> [--out dir]` — writes Teleplot YAML dashboards. The YAML is the serde form of `src/model`
+
+Code map:
+
+* `src/model/` — the dashboard model, shared by server and WASM client. Also the native YAML format
+* `src/kibana/` — Kibana export → model. Panels that can't convert become `Placeholder`s and never fail the dashboard. Each placeholder has a reason: out of scope, broken reference, or unparseable
+* `tests/kibana.rs` — conversion tests over `fixtures/`, plus YAML snapshots in `tests/snapshots/`. Review snapshot diffs with `cargo insta review`
+
 Build gotchas, learned in M0:
 
 * The server embeds `target/site` with rust-embed. In a single `cargo leptos build` the client and server compile concurrently, so the server can embed a missing bundle. `make release` therefore builds `--frontend-only` and then `--server-only`, and `build.rs` re-embeds whenever `target/site` changes

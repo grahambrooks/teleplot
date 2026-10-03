@@ -22,6 +22,7 @@ leptos = "0.8"
 leptos_meta = "0.8"
 leptos_router = "0.8"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 # server only
 axum = { version = "0.8", optional = true }
@@ -29,6 +30,7 @@ clap = { version = "4", features = ["derive"], optional = true }
 leptos_axum = { version = "0.8", optional = true }
 mime_guess = { version = "2", optional = true }
 rust-embed = { version = "8", optional = true }
+serde_yaml_ng = { version = "0.10", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"], optional = true }
 tracing = { version = "0.1", optional = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
@@ -39,12 +41,12 @@ wasm-bindgen = { version = "0.2", optional = true }
 
 [dev-dependencies]
 http-body-util = "0.1"
+insta = { version = "1", features = ["yaml"] }
 jiff = "0.2"
 rand = "0.10"
 rand_chacha = "0.10"
 rand_distr = "0.6"
 reqwest = { version = "0.13", features = ["json", "multipart"] }
-serde_json = "1"
 tower = { version = "0.5", features = ["util"] }
 
 [features]
@@ -58,6 +60,7 @@ ssr = [
     "dep:leptos_axum",
     "dep:mime_guess",
     "dep:rust-embed",
+    "dep:serde_yaml_ng",
     "dep:tokio",
     "dep:tracing",
     "dep:tracing-subscriber",

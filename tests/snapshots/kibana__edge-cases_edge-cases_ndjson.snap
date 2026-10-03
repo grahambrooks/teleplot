@@ -1,0 +1,272 @@
+---
+source: tests/kibana.rs
+expression: yaml(&read(path))
+---
+---
+id: edge-legacy-indexpattern
+title: Lens with pre-8.6 indexpattern datasource
+description: 'Edge case: Lens with pre-8.6 indexpattern datasource'
+time:
+  from: now-90d/d
+  to: now
+panels:
+- id: lead-time
+  title: Change lead time (median)
+  grid:
+    x: 12
+    y: 4
+    w: 12
+    h: 7
+  content:
+    type: chart
+    kind: metric
+    query:
+      language: kql
+      text: 'is_rework : false'
+    layers:
+    - id: layer-lead-time
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      columns:
+      - id: lt-median
+        label: Median lead time
+        op: median
+        field: change_lead_time_hours
+        format:
+          kind: number
+          decimals: 1
+          suffix: ' h'
+      encoding:
+        as: metric
+        value: lt-median
+---
+id: edge-broken-references
+title: Broken and missing references
+description: 'Edge case: Broken and missing references'
+time:
+  from: now-90d/d
+  to: now
+panels:
+- id: lead-time
+  title: Change lead time (median)
+  grid:
+    x: 12
+    y: 4
+    w: 12
+    h: 7
+  content:
+    type: chart
+    kind: metric
+    query:
+      language: kql
+      text: 'is_rework : false'
+    layers:
+    - id: layer-lead-time
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      columns:
+      - id: lt-median
+        label: Median lead time
+        op: median
+        field: change_lead_time_hours
+        format:
+          kind: number
+          decimals: 1
+          suffix: ' h'
+      encoding:
+        as: metric
+        value: lt-median
+- id: dangling
+  grid:
+    x: 0
+    y: 7
+    w: 24
+    h: 8
+  content:
+    type: placeholder
+    kind: lens
+    reason: broken_reference
+    detail: panel reference panel_dangling is not in the dashboard's references
+- id: missing
+  grid:
+    x: 24
+    y: 7
+    w: 24
+    h: 8
+  content:
+    type: placeholder
+    kind: visualization
+    reason: broken_reference
+    detail: visualization does-not-exist is not in this export
+---
+id: edge-unsupported-panels
+title: Unsupported panel types
+description: 'Edge case: Unsupported panel types'
+time:
+  from: now-90d/d
+  to: now
+panels:
+- id: lead-time
+  title: Change lead time (median)
+  grid:
+    x: 12
+    y: 4
+    w: 12
+    h: 7
+  content:
+    type: chart
+    kind: metric
+    query:
+      language: kql
+      text: 'is_rework : false'
+    layers:
+    - id: layer-lead-time
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      columns:
+      - id: lt-median
+        label: Median lead time
+        op: median
+        field: change_lead_time_hours
+        format:
+          kind: number
+          decimals: 1
+          suffix: ' h'
+      encoding:
+        as: metric
+        value: lt-median
+- id: future
+  grid:
+    x: 0
+    y: 0
+    w: 24
+    h: 8
+  content:
+    type: placeholder
+    kind: some_future_embeddable
+    reason: out_of_scope
+    detail: some_future_embeddable panels are not in the MVP
+- id: tsvb
+  title: TSVB
+  grid:
+    x: 24
+    y: 0
+    w: 24
+    h: 8
+  content:
+    type: placeholder
+    kind: tsvb
+    reason: out_of_scope
+    detail: TSVB is not in the MVP
+---
+id: edge-panel-time-range
+title: Per-panel custom time range
+description: 'Edge case: Per-panel custom time range'
+time:
+  from: now-90d/d
+  to: now
+panels:
+- id: lead-time
+  title: Change lead time (median)
+  grid:
+    x: 12
+    y: 4
+    w: 12
+    h: 7
+  time:
+    from: now-7d
+    to: now
+  content:
+    type: chart
+    kind: metric
+    query:
+      language: kql
+      text: 'is_rework : false'
+    layers:
+    - id: layer-lead-time
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      columns:
+      - id: lt-median
+        label: Median lead time
+        op: median
+        field: change_lead_time_hours
+        format:
+          kind: number
+          decimals: 1
+          suffix: ' h'
+      encoding:
+        as: metric
+        value: lt-median
+---
+id: edge-lucene-and-filters
+title: Lucene query with assorted filter pills
+description: 'Edge case: Lucene query with assorted filter pills'
+time:
+  from: now-90d/d
+  to: now
+query:
+  language: lucene
+  text: result:failure OR change_lead_time_hours:[0 TO 24]
+filters:
+- field: team
+  negate: true
+  query:
+    match_phrase:
+      team: data
+- label: disabled filter
+  field: team
+  disabled: true
+  query:
+    match_phrase:
+      team: checkout
+- label: custom DSL
+  field: query
+  query:
+    range:
+      change_lead_time_hours:
+        lt: 500
+- field: group
+  query:
+    bool:
+      minimum_should_match: 1
+      should:
+      - match_phrase:
+          group: payments
+      - match_phrase:
+          group: platform
+panels:
+- id: lead-time
+  title: Change lead time (median)
+  grid:
+    x: 12
+    y: 4
+    w: 12
+    h: 7
+  content:
+    type: chart
+    kind: metric
+    query:
+      language: kql
+      text: 'is_rework : false'
+    layers:
+    - id: layer-lead-time
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      columns:
+      - id: lt-median
+        label: Median lead time
+        op: median
+        field: change_lead_time_hours
+        format:
+          kind: number
+          decimals: 1
+          suffix: ' h'
+      encoding:
+        as: metric
+        value: lt-median

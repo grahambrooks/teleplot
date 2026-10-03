@@ -1,0 +1,1621 @@
+---
+source: tests/kibana.rs
+expression: yaml(&read(path))
+---
+---
+id: 722b74f0-b882-11e8-a6d9-e546fe2bba5f
+title: '[eCommerce] Revenue Dashboard'
+description: Analyze mock eCommerce orders and revenue
+time:
+  from: now-7d
+  to: now
+controls:
+- id: 1ee1617f-fd8e-45e4-bc6a-d5736710ea20
+  title: Manufacturer
+  field: manufacturer.keyword
+  data_view:
+    index: kibana_sample_data_ecommerce
+    time_field: order_date
+- id: afa9fa0f-a002-41a5-bab9-b738316d2590
+  title: Category
+  field: category.keyword
+  data_view:
+    index: kibana_sample_data_ecommerce
+    time_field: order_date
+panels:
+- id: '5'
+  title: '[eCommerce] Promotion Tracking'
+  grid:
+    x: 0
+    y: 21
+    w: 24
+    h: 10
+  content:
+    type: chart
+    kind: xy
+    layers:
+    - id: e3b3cb5c-e3b1-497f-a5d5-fddb0dabc94e
+      data_view:
+        index: kibana_sample_data_ecommerce
+        time_field: order_date
+      columns:
+      - id: f3cc8168-6360-4727-a410-a57f5a325091
+        label: order_date
+        op: date_histogram
+        field: order_date
+        interval: 12h
+        include_empty: true
+      - id: a69956c9-43cd-4756-a3c0-e93cb1502a0b
+        label: Revenue Trousers
+        op: sum
+        field: taxful_total_price
+        filter:
+          language: lucene
+          text: products.product_name:*trouser*
+        format:
+          kind: number
+      encoding:
+        as: xy
+        series: line
+        x: f3cc8168-6360-4727-a410-a57f5a325091
+        y:
+        - a69956c9-43cd-4756-a3c0-e93cb1502a0b
+    - id: 1d08a43c-8913-4692-a3e0-8d77902f6e46
+      data_view:
+        index: kibana_sample_data_ecommerce
+        time_field: order_date
+      columns:
+      - id: 644b06ea-73a3-47b1-9b40-3035844c4621
+        label: order_date
+        op: date_histogram
+        field: order_date
+        interval: 12h
+        include_empty: true
+      - id: 9a3d8abd-81a5-40ae-9616-020d5a5b2ee2
+        label: Revenue Watches
+        op: sum
+        field: taxful_total_price
+        filter:
+          language: lucene
+          text: products.product_name:*watch*
+        format:
+          kind: number
+      encoding:
+        as: xy
+        series: line
+        x: 644b06ea-73a3-47b1-9b40-3035844c4621
+        y:
+        - 9a3d8abd-81a5-40ae-9616-020d5a5b2ee2
+    - id: 9725cdbd-a9f3-479f-a349-0f11244e5239
+      data_view:
+        index: kibana_sample_data_ecommerce
+        time_field: order_date
+      columns:
+      - id: 6749b404-4784-4fd6-8bf6-5712e84c7310
+        label: order_date
+        op: date_histogram
+        field: order_date
+        interval: 12h
+        include_empty: true
+      - id: b5588228-9c46-4a4b-92ee-d140c327bca0
+        label: Revenue Bags
+        op: sum
+        field: taxful_total_price
+        filter:
+          language: lucene
+          text: products.product_name:*bag*
+        format:
+          kind: number
+      encoding:
+        as: xy
+        series: line
+        x: 6749b404-4784-4fd6-8bf6-5712e84c7310
+        y:
+        - b5588228-9c46-4a4b-92ee-d140c327bca0
+    - id: 2031d0f8-01fc-4009-b1ad-a7b7ca9266c0
+      data_view:
+        index: kibana_sample_data_ecommerce
+        time_field: order_date
+      columns:
+      - id: 1b199cb1-b47f-48e6-b209-74eb81b303f5
+        label: order_date
+        op: date_histogram
+        field: order_date
+        interval: 12h
+        include_empty: true
+      - id: 985e05c0-3a0b-4e55-84bb-1f02128388a9
+        label: Revenue Cocktail Dresses
+        op: sum
+        field: taxful_total_price
+        filter:
+          language: lucene
+          text: products.product_name:*cocktail dress*
+        format:
+          kind: number
+      encoding:
+        as: xy
+        series: line
+        x: 1b199cb1-b47f-48e6-b209-74eb81b303f5
+        y:
+        - 985e05c0-3a0b-4e55-84bb-1f02128388a9
+- id: '7'
+  title: Sold Products per Day
+  grid:
+    x: 36
+    y: 7
+    w: 12
+    h: 7
+  time:
+    from: now-7d
+    to: now
+  content:
+    type: chart
+    kind: metric
+    layers:
+    - id: 037375ae-9e23-4dd5-a4f0-5f117bb7dac1
+      data_view:
+        index: kibana_sample_data_ecommerce
+        time_field: order_date
+      columns:
+      - id: c27bd77c-68e2-4d75-8fda-41c45d22f8d4X0
+        label: Part of count() / (time_range() / 1000 / 60 / 60 / 24)
+        op: count
+        helper: true
+      - id: c27bd77c-68e2-4d75-8fda-41c45d22f8d4X1
+        label: Part of count() / (time_range() / 1000 / 60 / 60 / 24)
+        op: time_range
+        helper: true
+      - id: c27bd77c-68e2-4d75-8fda-41c45d22f8d4
+        label: Trxns / day
+        op: formula
+        text: count() / (time_range() / 1000 / 60 / 60 / 24)
+        expr:
+          call: divide
+          args:
+          - c27bd77c-68e2-4d75-8fda-41c45d22f8d4X0
+          - call: divide
+            args:
+            - call: divide
+              args:
+              - call: divide
+                args:
+                - call: divide
+                  args:
+                  - c27bd77c-68e2-4d75-8fda-41c45d22f8d4X1
+                  - 1000.0
+                - 60.0
+              - 60.0
+            - 24.0
+        format:
+          kind: number
+          compact: true
+      - id: ce816876-e92d-4b1a-bbb0-ed7637fc0eea
+        label: 'Static value: 300'
+        op: static_value
+        value: 300.0
+      encoding:
+        as: metric
+        value: c27bd77c-68e2-4d75-8fda-41c45d22f8d4
+        max: ce816876-e92d-4b1a-bbb0-ed7637fc0eea
+- id: '10'
+  title: '[eCommerce] Orders'
+  grid:
+    x: 0
+    y: 54
+    w: 48
+    h: 18
+  content:
+    type: placeholder
+    kind: search
+    reason: out_of_scope
+    detail: search panels are not in the MVP
+- id: '11'
+  title: '[eCommerce] Orders by Country'
+  grid:
+    x: 0
+    y: 31
+    w: 24
+    h: 14
+  content:
+    type: placeholder
+    kind: map
+    reason: out_of_scope
+    detail: map panels are not in the MVP
+- id: a71cf076-6895-491c-8878-63592e429ed5
+  title: '[eCommerce] Markdown'
+  grid:
+    x: 0
+    y: 0
+    w: 24
+    h: 7
+  content:
+    type: markdown
+    text: |-
+      ## Sample eCommerce Data
+      This dashboard contains sample data for you to play with. You can view it, search it, and interact with the visualizations. For more information about Kibana, check our [docs](https://www.elastic.co/guide/en/kibana/current/index.html).
+- id: 75283285-dffd-48a7-a0c2-2235184b5282
+  grid:
+    x: 24
+    y: 0
+    w: 12
+    h: 7
+  content:
+    type: chart
+    kind: metric
+    layers:
+    - id: c7478794-6767-4286-9d65-1c0ecd909dd8
+      data_view:
+        index: kibana_sample_data_ecommerce
+        time_field: order_date
+      columns:
+      - id: 041db33b-5c9c-47f3-a5d3-ef5e255d1663
+        label: Sum of revenue
+        op: sum
+        field: taxful_total_price
+      encoding:
+        as: metric
+        value: 041db33b-5c9c-47f3-a5d3-ef5e255d1663
+- id: 58774330-b1b3-42dd-a04c-fbce9cc4d288
+  grid:
+    x: 36
+    y: 0
+    w: 12
+    h: 7
+  content:
+    type: chart
+    kind: metric
+    layers:
+    - id: 4fb42a8e-b133-43c8-805c-a38472053938
+      data_view:
+        index: kibana_sample_data_ecommerce
+        time_field: order_date
+      columns:
+      - id: 020bbfdf-9ef8-4802-aa9e-342d2ea0bebf
+        label: Median spending
+        op: median
+        field: taxful_total_price
+      encoding:
+        as: metric
+        value: 020bbfdf-9ef8-4802-aa9e-342d2ea0bebf
+- id: b63ec47d-aace-4980-b928-6be8adafa5a4
+  grid:
+    x: 24
+    y: 7
+    w: 12
+    h: 7
+  content:
+    type: chart
+    kind: metric
+    layers:
+    - id: 667067a2-7cdf-4f0e-a9fe-eb4f4f1f2f17
+      data_view:
+        index: kibana_sample_data_ecommerce
+        time_field: order_date
+      columns:
+      - id: c52c2003-ae58-4604-bae7-52ba0fb38a01
+        label: Avg. items sold
+        op: average
+        field: total_quantity
+        format:
+          kind: number
+          decimals: 1
+          compact: true
+      encoding:
+        as: metric
+        value: c52c2003-ae58-4604-bae7-52ba0fb38a01
+- id: d9495793-80ba-4a9a-b0e3-d1155ec99b09
+  title: Transactions per day
+  grid:
+    x: 0
+    y: 14
+    w: 24
+    h: 7
+  content:
+    type: chart
+    kind: xy
+    layers:
+    - id: b6093a53-884f-42c2-9fcc-ba56cfb66c53
+      data_view:
+        index: kibana_sample_data_ecommerce
+        time_field: order_date
+      columns:
+      - id: 15c45f89-a149-443a-a830-aa8c3a9317db
+        label: order_date
+        op: date_histogram
+        field: order_date
+        interval: 1d
+        include_empty: true
+      - id: 2b41b3d8-2f62-407a-a866-960f254c679d
+        label: Total items
+        op: sum
+        field: products.quantity
+      - id: eadae280-2da3-4d1d-a0e1-f9733f89c15b
+        label: Last week
+        op: sum
+        field: products.quantity
+        time_shift: 1w
+      - id: ddc92e50-4d5c-413e-b91b-3e504889fa65
+        label: Transactions
+        op: count
+      - id: 5e31e5d3-2aaa-4475-a130-3b69bf2f748a
+        label: Tx. last week
+        op: count
+        time_shift: 1w
+      encoding:
+        as: xy
+        series: line
+        x: 15c45f89-a149-443a-a830-aa8c3a9317db
+        y:
+        - 2b41b3d8-2f62-407a-a866-960f254c679d
+        - eadae280-2da3-4d1d-a0e1-f9733f89c15b
+        - 5e31e5d3-2aaa-4475-a130-3b69bf2f748a
+        - ddc92e50-4d5c-413e-b91b-3e504889fa65
+- id: bda054f7-2d06-4936-b461-365d1be621fa
+  title: Daily comparison
+  grid:
+    x: 24
+    y: 31
+    w: 24
+    h: 14
+  content:
+    type: chart
+    kind: table
+    layers:
+    - id: 0731ee8b-31c5-4be9-92d9-69ee760465d7
+      data_view:
+        index: kibana_sample_data_ecommerce
+        time_field: order_date
+      columns:
+      - id: 7bf8f089-1542-40bd-b349-45fdfc309ac6
+        label: order_date
+        op: date_histogram
+        field: order_date
+        interval: 1d
+        include_empty: true
+      - id: 826b2f39-b616-40b2-a222-972fdc1d7596
+        label: This week
+        op: sum
+        field: taxful_total_price
+      - id: cfd45c47-fc41-430c-9e7a-b71dc0c916b0
+        label: 1 week ago
+        op: sum
+        field: taxful_total_price
+        time_shift: 1w
+      - id: bf51c1af-443e-49f4-a21f-54c87bfc5677
+        label: Difference
+        op: formula
+        text: sum(taxful_total_price) - sum(taxful_total_price, shift='1w')
+        expr:
+          call: subtract
+          args:
+          - bf51c1af-443e-49f4-a21f-54c87bfc5677X0
+          - bf51c1af-443e-49f4-a21f-54c87bfc5677X1
+        format:
+          kind: number
+          decimals: 2
+      - id: bf51c1af-443e-49f4-a21f-54c87bfc5677X0
+        label: Part of Difference
+        op: sum
+        field: taxful_total_price
+        helper: true
+      - id: bf51c1af-443e-49f4-a21f-54c87bfc5677X1
+        label: Part of Difference
+        op: sum
+        field: taxful_total_price
+        time_shift: 1w
+        helper: true
+      encoding:
+        as: table
+        columns:
+        - 7bf8f089-1542-40bd-b349-45fdfc309ac6
+        - 826b2f39-b616-40b2-a222-972fdc1d7596
+        - cfd45c47-fc41-430c-9e7a-b71dc0c916b0
+        - bf51c1af-443e-49f4-a21f-54c87bfc5677
+- id: d68e91dd-1539-48b0-9279-b43bba2054fe
+  title: Top products this week
+  grid:
+    x: 0
+    y: 45
+    w: 24
+    h: 9
+  content:
+    type: chart
+    kind: xy
+    layers:
+    - id: 5ed846c2-a70b-4d9c-a244-f254bef763b8
+      data_view:
+        index: kibana_sample_data_ecommerce
+        time_field: order_date
+      columns:
+      - id: d77cdd24-dedc-48dd-9a4b-d34c6f1a6c46
+        label: Product name
+        op: terms
+        fields:
+        - products.product_name.keyword
+        size: 5
+        order:
+          by: column
+          column: 7ac31901-277a-46e2-8128-8d684b2c1127
+          ascending: false
+      - id: 7ac31901-277a-46e2-8128-8d684b2c1127
+        label: Items
+        op: count
+      encoding:
+        as: xy
+        series: bar_horizontal
+        x: d77cdd24-dedc-48dd-9a4b-d34c6f1a6c46
+        y:
+        - 7ac31901-277a-46e2-8128-8d684b2c1127
+- id: 39d96714-152f-414b-992c-ce2492fc69f3
+  title: Top products last week
+  grid:
+    x: 24
+    y: 45
+    w: 24
+    h: 9
+  time:
+    from: now-2w
+    to: now-1w
+  content:
+    type: chart
+    kind: xy
+    layers:
+    - id: 5ed846c2-a70b-4d9c-a244-f254bef763b8
+      data_view:
+        index: kibana_sample_data_ecommerce
+        time_field: order_date
+      columns:
+      - id: d77cdd24-dedc-48dd-9a4b-d34c6f1a6c46
+        label: Product name
+        op: terms
+        fields:
+        - products.product_name.keyword
+        size: 5
+        order:
+          by: column
+          column: 7ac31901-277a-46e2-8128-8d684b2c1127
+          ascending: false
+      - id: 7ac31901-277a-46e2-8128-8d684b2c1127
+        label: Items
+        op: count
+      encoding:
+        as: xy
+        series: bar_horizontal
+        x: d77cdd24-dedc-48dd-9a4b-d34c6f1a6c46
+        y:
+        - 7ac31901-277a-46e2-8128-8d684b2c1127
+- id: cd47b7cb-0ac0-43e0-b8c6-53489648bdef
+  title: Breakdown by category
+  grid:
+    x: 24
+    y: 14
+    w: 24
+    h: 17
+  content:
+    type: chart
+    kind: xy
+    layers:
+    - id: 97c63ea6-9305-4755-97d1-0f26817c6f9a
+      data_view:
+        index: kibana_sample_data_ecommerce
+        time_field: order_date
+      columns:
+      - id: 9f61a7df-198e-4754-b34c-81ed544136ba
+        label: Top values of category.keyword
+        op: terms
+        fields:
+        - category.keyword
+        size: 10
+        order:
+          by: column
+          column: 5575214b-7f21-4b6c-8bc1-34433c6a0c58
+          ascending: false
+        other_bucket: true
+      - id: ebcb19af-0900-4439-949f-d8cd9bccde19
+        label: order_date
+        op: date_histogram
+        field: order_date
+        interval: 1d
+        include_empty: true
+      - id: 5575214b-7f21-4b6c-8bc1-34433c6a0c58
+        label: Count of records
+        op: count
+      encoding:
+        as: xy
+        series: bar_percentage_stacked
+        x: ebcb19af-0900-4439-949f-d8cd9bccde19
+        y:
+        - 5575214b-7f21-4b6c-8bc1-34433c6a0c58
+        split: 9f61a7df-198e-4754-b34c-81ed544136ba
+- id: bdb525ab-270b-46f1-a847-dd29be19aadb
+  title: '% of target revenue ($10k)'
+  grid:
+    x: 0
+    y: 7
+    w: 24
+    h: 7
+  content:
+    type: chart
+    kind: xy
+    layers:
+    - id: c7478794-6767-4286-9d65-1c0ecd909dd8
+      data_view:
+        index: kibana_sample_data_ecommerce
+        time_field: order_date
+      columns:
+      - id: 8289349e-6d1b-4abf-b164-0208183d2c34
+        label: order_date
+        op: date_histogram
+        field: order_date
+        interval: 1d
+        include_empty: true
+      - id: 041db33b-5c9c-47f3-a5d3-ef5e255d1663
+        label: '% of target ($10k)'
+        op: formula
+        text: sum(taxful_total_price) / 10000 - 1
+        expr:
+          call: subtract
+          args:
+          - call: divide
+            args:
+            - 041db33b-5c9c-47f3-a5d3-ef5e255d1663X0
+            - 10000.0
+          - 1.0
+        format:
+          kind: percent
+          decimals: 0
+      - id: 041db33b-5c9c-47f3-a5d3-ef5e255d1663X0
+        label: Part of Weekly revenue
+        op: sum
+        field: taxful_total_price
+        helper: true
+      encoding:
+        as: xy
+        series: bar_stacked
+        x: 8289349e-6d1b-4abf-b164-0208183d2c34
+        y:
+        - 041db33b-5c9c-47f3-a5d3-ef5e255d1663
+---
+id: 7adfa750-4c81-11e8-b3d7-01146121b73d
+title: '[Flights] Global Flight Dashboard'
+description: Analyze mock flight data for ES-Air, Logstash Airways, Kibana Airlines and JetBeats
+time:
+  from: now-7d
+  to: now
+controls:
+- id: 85b632c8-3b7b-408d-8223-b0caccf75bd3
+  title: Origin City
+  field: OriginCityName
+  data_view:
+    index: kibana_sample_data_flights
+    time_field: timestamp
+- id: d4dc9d2b-5850-402a-921d-8a2cd0107156
+  title: Destination City
+  field: DestCityName
+  data_view:
+    index: kibana_sample_data_flights
+    time_field: timestamp
+panels:
+- id: '4'
+  title: '[Flights] Flight Log'
+  grid:
+    x: 0
+    y: 69
+    w: 48
+    h: 15
+  content:
+    type: placeholder
+    kind: search
+    reason: out_of_scope
+    detail: search panels are not in the MVP
+- id: '7'
+  title: '[Flights] Delays & Cancellations'
+  grid:
+    x: 0
+    y: 16
+    w: 24
+    h: 9
+  content:
+    type: chart
+    kind: xy
+    layers:
+    - id: dc8cf715-b56b-4dd7-a624-7c3ef9e2f2ce
+      data_view:
+        index: kibana_sample_data_flights
+        time_field: timestamp
+      columns:
+      - id: 6944431b-f90a-4dab-a282-0961cb97edd1
+        label: timestamp
+        op: date_histogram
+        field: timestamp
+        interval: auto
+        include_empty: true
+      - id: b9d6187b-8a7e-4c49-bffd-7a60cc075a4aX0
+        label: Part of count(lucene='FlightDelay:true') / count(kql='*')
+        op: count
+        filter:
+          language: lucene
+          text: FlightDelay:true
+        helper: true
+      - id: b9d6187b-8a7e-4c49-bffd-7a60cc075a4aX1
+        label: Part of count(lucene='FlightDelay:true') / count(kql='*')
+        op: count
+        filter:
+          language: kql
+          text: '*'
+        helper: true
+      - id: b9d6187b-8a7e-4c49-bffd-7a60cc075a4a
+        label: Percent Delays
+        op: formula
+        text: count(lucene='FlightDelay:true') / count(kql='*')
+        expr:
+          call: divide
+          args:
+          - b9d6187b-8a7e-4c49-bffd-7a60cc075a4aX0
+          - b9d6187b-8a7e-4c49-bffd-7a60cc075a4aX1
+        format:
+          kind: percent
+      encoding:
+        as: xy
+        series: area
+        x: 6944431b-f90a-4dab-a282-0961cb97edd1
+        y:
+        - b9d6187b-8a7e-4c49-bffd-7a60cc075a4a
+- id: '10'
+  title: '[Flights] Delay Buckets'
+  grid:
+    x: 0
+    y: 58
+    w: 24
+    h: 11
+  content:
+    type: chart
+    kind: xy
+    filters:
+    - field: FlightDelayMin
+      negate: true
+      query:
+        match:
+          FlightDelayMin:
+            query: 0
+            type: phrase
+    layers:
+    - id: 247b176d-e81d-47dc-bbd1-4de85d098961
+      data_view:
+        index: kibana_sample_data_flights
+        time_field: timestamp
+      columns:
+      - id: c7936be7-e59b-424e-a912-69ba820d8e24
+        label: Flight Delay Minutes
+        op: histogram
+        field: FlightDelayMin
+      - id: c84f9fa9-e2a1-4845-8fcf-f5a34f5f92da
+        label: Count
+        op: count
+      encoding:
+        as: xy
+        series: bar_stacked
+        x: c7936be7-e59b-424e-a912-69ba820d8e24
+        y:
+        - c84f9fa9-e2a1-4845-8fcf-f5a34f5f92da
+- id: '23'
+  title: '[Flights] Origin Time Delayed'
+  grid:
+    x: 0
+    y: 36
+    w: 24
+    h: 22
+  content:
+    type: placeholder
+    kind: map
+    reason: out_of_scope
+    detail: map panels are not in the MVP
+- id: '31'
+  title: '[Flights] Airport Connections (Hover Over Airport)'
+  grid:
+    x: 24
+    y: 36
+    w: 24
+    h: 22
+  content:
+    type: placeholder
+    kind: vega
+    reason: out_of_scope
+    detail: legacy vega visualizations are not in the MVP
+- id: 6afc61f7-e2d5-45a3-9e7a-281160ad3eb9
+  grid:
+    x: 0
+    y: 0
+    w: 24
+    h: 8
+  content:
+    type: markdown
+    text: |-
+      ## Sample Flight data
+      This dashboard contains sample data for you to play with. You can view it, search it, and interact with the visualizations. For more information about Kibana, check our [docs](https://www.elastic.co/guide/en/kibana/current/index.html).
+- id: 392b4936-f753-47bc-a98d-a4e41a0a4cd4
+  grid:
+    x: 24
+    y: 0
+    w: 8
+    h: 8
+  content:
+    type: chart
+    kind: metric
+    layers:
+    - id: 8fa993db-c147-4954-adf7-4ff264d42576
+      data_view:
+        index: kibana_sample_data_flights
+        time_field: timestamp
+      columns:
+      - id: 81124c45-6ab6-42f4-8859-495d55eb8065
+        label: Total flights
+        op: count
+      encoding:
+        as: metric
+        value: 81124c45-6ab6-42f4-8859-495d55eb8065
+- id: 9271deff-5a61-4665-83fc-f9fdc6bf0c0b
+  grid:
+    x: 32
+    y: 0
+    w: 8
+    h: 4
+  content:
+    type: chart
+    kind: metric
+    layers:
+    - id: b4712d43-1e84-4f5b-878d-8e38ba748317
+      data_view:
+        index: kibana_sample_data_flights
+        time_field: timestamp
+      columns:
+      - id: 7e8fe9b1-f45c-4f3d-9561-30febcd357ec
+        label: Delayed
+        op: formula
+        text: 'count(kql=''FlightDelay : true'') / count()'
+        expr:
+          call: divide
+          args:
+          - 7e8fe9b1-f45c-4f3d-9561-30febcd357ecX0
+          - 7e8fe9b1-f45c-4f3d-9561-30febcd357ecX1
+        format:
+          kind: percent
+          decimals: 1
+          compact: true
+      - id: 7e8fe9b1-f45c-4f3d-9561-30febcd357ecX0
+        label: 'Part of count(kql=''FlightDelay : true'') / count()'
+        op: count
+        filter:
+          language: kql
+          text: 'FlightDelay : true'
+        helper: true
+      - id: 7e8fe9b1-f45c-4f3d-9561-30febcd357ecX1
+        label: 'Part of count(kql=''FlightDelay : true'') / count()'
+        op: count
+        helper: true
+      encoding:
+        as: metric
+        value: 7e8fe9b1-f45c-4f3d-9561-30febcd357ec
+- id: aa591c29-1a31-4ee1-a71d-b829c06fd162
+  grid:
+    x: 40
+    y: 0
+    w: 8
+    h: 4
+  content:
+    type: chart
+    kind: metric
+    filters:
+    - field: FlightDelay
+      query:
+        match_phrase:
+          FlightDelay: true
+    layers:
+    - id: b4712d43-1e84-4f5b-878d-8e38ba748317
+      data_view:
+        index: kibana_sample_data_flights
+        time_field: timestamp
+      columns:
+      - id: c7851241-5526-499a-960b-357af8c2ce5b
+        label: Delayed vs 1 week earlier
+        op: formula
+        text: count() / count(shift='1w') - 1
+        expr:
+          call: subtract
+          args:
+          - call: divide
+            args:
+            - c7851241-5526-499a-960b-357af8c2ce5bX0
+            - c7851241-5526-499a-960b-357af8c2ce5bX1
+          - 1.0
+        format:
+          kind: percent
+          decimals: 1
+          compact: true
+      - id: c7851241-5526-499a-960b-357af8c2ce5bX0
+        label: Part of Delayed
+        op: count
+        helper: true
+      - id: c7851241-5526-499a-960b-357af8c2ce5bX1
+        label: Part of Delayed
+        op: count
+        time_shift: 1w
+        helper: true
+      encoding:
+        as: metric
+        value: c7851241-5526-499a-960b-357af8c2ce5b
+- id: b766e3b8-4544-46ed-99e6-9ecc4847e2a2
+  grid:
+    x: 32
+    y: 4
+    w: 8
+    h: 4
+  content:
+    type: chart
+    kind: metric
+    layers:
+    - id: b4712d43-1e84-4f5b-878d-8e38ba748317
+      data_view:
+        index: kibana_sample_data_flights
+        time_field: timestamp
+      columns:
+      - id: 7e8fe9b1-f45c-4f3d-9561-30febcd357ec
+        label: Cancelled
+        op: formula
+        text: 'count(kql=''Cancelled : true'') / count()'
+        expr:
+          call: divide
+          args:
+          - 7e8fe9b1-f45c-4f3d-9561-30febcd357ecX0
+          - 7e8fe9b1-f45c-4f3d-9561-30febcd357ecX1
+        format:
+          kind: percent
+          decimals: 1
+          compact: true
+      - id: 7e8fe9b1-f45c-4f3d-9561-30febcd357ecX0
+        label: Part of Cancelled
+        op: count
+        filter:
+          language: kql
+          text: 'Cancelled : true'
+        helper: true
+      - id: 7e8fe9b1-f45c-4f3d-9561-30febcd357ecX1
+        label: Part of Cancelled
+        op: count
+        helper: true
+      encoding:
+        as: metric
+        value: 7e8fe9b1-f45c-4f3d-9561-30febcd357ec
+- id: 2e33ade5-96e5-40b4-b460-493e5d4fa834
+  grid:
+    x: 40
+    y: 4
+    w: 8
+    h: 4
+  content:
+    type: chart
+    kind: metric
+    filters:
+    - field: Cancelled
+      query:
+        match_phrase:
+          Cancelled: true
+    layers:
+    - id: b4712d43-1e84-4f5b-878d-8e38ba748317
+      data_view:
+        index: kibana_sample_data_flights
+        time_field: timestamp
+      columns:
+      - id: c7851241-5526-499a-960b-357af8c2ce5b
+        label: Cancelled vs 1 week earlier
+        op: formula
+        text: count() / count(shift='1w') - 1
+        expr:
+          call: subtract
+          args:
+          - call: divide
+            args:
+            - c7851241-5526-499a-960b-357af8c2ce5bX0
+            - c7851241-5526-499a-960b-357af8c2ce5bX1
+          - 1.0
+        format:
+          kind: percent
+          decimals: 1
+          compact: true
+      - id: c7851241-5526-499a-960b-357af8c2ce5bX0
+        label: Part of Delayed vs 1 week earlier
+        op: count
+        helper: true
+      - id: c7851241-5526-499a-960b-357af8c2ce5bX1
+        label: Part of Delayed vs 1 week earlier
+        op: count
+        time_shift: 1w
+        helper: true
+      encoding:
+        as: metric
+        value: c7851241-5526-499a-960b-357af8c2ce5b
+- id: 086ac2e9-dd16-4b45-92b8-1e43ff7e3f65
+  title: '[Flights] Flight count'
+  grid:
+    x: 0
+    y: 8
+    w: 24
+    h: 8
+  content:
+    type: chart
+    kind: xy
+    layers:
+    - id: 03c34665-471c-49c7-acf1-5a11f517421c
+      data_view:
+        index: kibana_sample_data_flights
+        time_field: timestamp
+      columns:
+      - id: a5b94e30-4e77-4b0a-9187-1d8b13de1456
+        label: timestamp
+        op: date_histogram
+        field: timestamp
+        interval: auto
+        include_empty: true
+      - id: 3e267327-7317-4310-aee3-320e0f7c1e70
+        label: Count of records
+        op: count
+      encoding:
+        as: xy
+        series: bar_stacked
+        x: a5b94e30-4e77-4b0a-9187-1d8b13de1456
+        y:
+        - 3e267327-7317-4310-aee3-320e0f7c1e70
+- id: fb86b32f-fb7a-45cf-9511-f366fef51bbd
+  title: '[Flights] Most delayed cities'
+  grid:
+    x: 24
+    y: 8
+    w: 24
+    h: 28
+  content:
+    type: chart
+    kind: table
+    layers:
+    - id: f26e8f7a-4118-4227-bea0-5c02d8b270f7
+      data_view:
+        index: kibana_sample_data_flights
+        time_field: timestamp
+      columns:
+      - id: 3dd24cb4-45ef-4dd8-b22a-d7b802cb6da0
+        label: Top values of OriginCityName
+        op: terms
+        fields:
+        - OriginCityName
+        size: 1000
+        order:
+          by: alphabetical
+          ascending: true
+        other_bucket: true
+      - id: 52f6f2e9-6242-4c44-be63-b799150e7e60
+        label: Delay %
+        op: formula
+        text: 'count(kql=''FlightDelay : true '') / count()'
+        expr:
+          call: divide
+          args:
+          - 52f6f2e9-6242-4c44-be63-b799150e7e60X0
+          - 52f6f2e9-6242-4c44-be63-b799150e7e60X1
+        format:
+          kind: percent
+          decimals: 0
+      - id: 52f6f2e9-6242-4c44-be63-b799150e7e60X0
+        label: Part of Delay %
+        op: count
+        filter:
+          language: kql
+          text: 'FlightDelay : true '
+        helper: true
+      - id: 52f6f2e9-6242-4c44-be63-b799150e7e60X1
+        label: Part of Delay %
+        op: count
+        helper: true
+      - id: 7b9f3ece-9da3-4c27-b582-d3f8e8cc31d6X0
+        label: Part of Cancel %
+        op: count
+        filter:
+          language: kql
+          text: 'Cancelled: true'
+        helper: true
+      - id: 7b9f3ece-9da3-4c27-b582-d3f8e8cc31d6X1
+        label: Part of Cancel %
+        op: count
+        helper: true
+      - id: 7b9f3ece-9da3-4c27-b582-d3f8e8cc31d6
+        label: Cancel %
+        op: formula
+        text: 'count(kql=''Cancelled: true'') / count()'
+        expr:
+          call: divide
+          args:
+          - 7b9f3ece-9da3-4c27-b582-d3f8e8cc31d6X0
+          - 7b9f3ece-9da3-4c27-b582-d3f8e8cc31d6X1
+        format:
+          kind: percent
+          decimals: 0
+      encoding:
+        as: table
+        columns:
+        - 3dd24cb4-45ef-4dd8-b22a-d7b802cb6da0
+        - 52f6f2e9-6242-4c44-be63-b799150e7e60
+        - 7b9f3ece-9da3-4c27-b582-d3f8e8cc31d6
+- id: 0cc42484-16f7-42ec-b38c-9bf8be69cde7
+  title: '[Flights] Delay Type'
+  grid:
+    x: 0
+    y: 25
+    w: 24
+    h: 11
+  content:
+    type: chart
+    kind: xy
+    layers:
+    - id: e80cc05e-c52a-4e5f-ac71-4b37274867f5
+      data_view:
+        index: kibana_sample_data_flights
+        time_field: timestamp
+      columns:
+      - id: caf7421e-93a3-439e-ab0a-fbdead93c21c
+        label: Top values of FlightDelayType
+        op: terms
+        fields:
+        - FlightDelayType
+        size: 10
+        order:
+          by: column
+          column: 0233d302-ec81-4fbe-96cb-7fac84cf035c
+          ascending: false
+        other_bucket: true
+      - id: 13ec79e3-9d73-4536-9056-3d92802bb30a
+        label: timestamp
+        op: date_histogram
+        field: timestamp
+        interval: auto
+        include_empty: true
+      - id: 0233d302-ec81-4fbe-96cb-7fac84cf035c
+        label: Count of records
+        op: count
+      encoding:
+        as: xy
+        series: bar_percentage_stacked
+        x: 13ec79e3-9d73-4536-9056-3d92802bb30a
+        y:
+        - 0233d302-ec81-4fbe-96cb-7fac84cf035c
+        split: caf7421e-93a3-439e-ab0a-fbdead93c21c
+- id: 5d53db36-2d5a-4adc-af7b-cec4c1a294e0
+  title: '[Flights] Delay Type'
+  grid:
+    x: 24
+    y: 58
+    w: 12
+    h: 11
+  content:
+    type: chart
+    kind: pie
+    filters:
+    - field: FlightDelayType
+      negate: true
+      query:
+        match_phrase:
+          FlightDelayType: No Delay
+    layers:
+    - id: 0c8e136b-a822-4fb3-836d-e06cbea4eea4
+      data_view:
+        index: kibana_sample_data_flights
+        time_field: timestamp
+      columns:
+      - id: d1cee8bf-34cf-4141-99d7-ff043ee77b56
+        label: Top values of FlightDelayType
+        op: terms
+        fields:
+        - FlightDelayType
+        size: 10
+        order:
+          by: column
+          column: aa152ace-ee2d-447b-b86d-459bef4d7880
+          ascending: false
+        other_bucket: true
+      - id: aa152ace-ee2d-447b-b86d-459bef4d7880
+        label: Count of records
+        op: count
+      encoding:
+        as: pie
+        groups:
+        - d1cee8bf-34cf-4141-99d7-ff043ee77b56
+        values:
+        - aa152ace-ee2d-447b-b86d-459bef4d7880
+- id: ecd89a7c-9124-4472-bdc6-9bdbd70d45d5
+  grid:
+    x: 36
+    y: 58
+    w: 12
+    h: 11
+  content:
+    type: chart
+    kind: xy
+    layers:
+    - id: dffd86e7-01a9-4990-b974-3706608b5532
+      data_view:
+        index: kibana_sample_data_flights
+        time_field: timestamp
+      columns:
+      - id: d99ad4d7-26ff-4d65-a8ce-34656fdafa0a
+        label: Top 10 values of DestWeather
+        op: terms
+        fields:
+        - DestWeather
+        size: 10
+        order:
+          by: column
+          column: 9d212159-afac-41f5-9303-5fb62ff04ba3
+          ascending: false
+        other_bucket: true
+      - id: 9d212159-afac-41f5-9303-5fb62ff04ba3
+        label: Count of records
+        op: count
+      encoding:
+        as: xy
+        series: bar_horizontal
+        y:
+        - 9d212159-afac-41f5-9303-5fb62ff04ba3
+        split: d99ad4d7-26ff-4d65-a8ce-34656fdafa0a
+---
+id: edf84fe0-e1a0-11e7-b6d5-4dc382ef7f5b
+title: '[Logs] Web Traffic'
+description: Analyze mock web traffic log data for Elastic's website
+time:
+  from: now-7d/d
+  to: now
+controls:
+- id: 612f8db8-9ba9-41cf-a809-d133fe9b83a8
+  title: Source Country
+  field: geo.src
+  data_view:
+    index: kibana_sample_data_logs
+    time_field: timestamp
+- id: 9807212f-5078-4c42-879c-6f28b3033fc9
+  title: OS
+  field: machine.os.keyword
+  data_view:
+    index: kibana_sample_data_logs
+    time_field: timestamp
+panels:
+- id: '4'
+  title: '[Logs] Total Requests and Bytes'
+  grid:
+    x: 0
+    y: 14
+    w: 24
+    h: 18
+  content:
+    type: placeholder
+    kind: map
+    reason: out_of_scope
+    detail: map panels are not in the MVP
+- id: '11'
+  grid:
+    x: 36
+    y: 0
+    w: 12
+    h: 7
+  content:
+    type: chart
+    kind: metric
+    layers:
+    - id: 28b89898-3feb-415a-8dd9-74d755ac7c2a
+      data_view:
+        index: kibana_sample_data_logs
+        time_field: timestamp
+      columns:
+      - id: f92c482e-1eee-4c2a-9338-64fb3eec286a
+        label: Unique Visitors
+        op: unique_count
+        field: clientip
+      encoding:
+        as: metric
+        value: f92c482e-1eee-4c2a-9338-64fb3eec286a
+- id: '14'
+  title: '[Logs] Machine OS and Destination Sankey Chart'
+  grid:
+    x: 24
+    y: 14
+    w: 24
+    h: 33
+  content:
+    type: placeholder
+    kind: vega
+    reason: out_of_scope
+    detail: legacy vega visualizations are not in the MVP
+- id: '15'
+  title: '[Logs] Response Codes Over Time + Annotations'
+  grid:
+    x: 0
+    y: 7
+    w: 24
+    h: 7
+  content:
+    type: chart
+    kind: xy
+    layers:
+    - id: b38fe501-4b47-4de8-a423-6656d1162174
+      data_view:
+        index: kibana_sample_data_logs
+        time_field: timestamp
+      columns:
+      - id: 8986e393-d24f-49b0-96ca-118fd66d75e5
+        label: timestamp
+        op: date_histogram
+        field: timestamp
+        interval: auto
+        include_empty: true
+      - id: 43f5bb0f-c6da-43a0-8a0a-50e9838ed34b
+        label: Filters
+        op: filters
+        filters:
+        - label: HTTP 2xx and 3xx
+          query:
+            language: kql
+            text: response.keyword >= 200 and response.keyword < 400
+        - label: HTTP 4xx
+          query:
+            language: kql
+            text: response.keyword >= 400 and response.keyword < 500
+        - label: HTTP 5xx
+          query:
+            language: kql
+            text: response.keyword >= 500
+      - id: 896c5eb2-81c5-44f1-a4a1-57344161ea62
+        label: Response Code Count
+        op: count
+      encoding:
+        as: xy
+        series: area_percentage_stacked
+        x: 8986e393-d24f-49b0-96ca-118fd66d75e5
+        y:
+        - 896c5eb2-81c5-44f1-a4a1-57344161ea62
+        split: 43f5bb0f-c6da-43a0-8a0a-50e9838ed34b
+- id: 343f0bef-0b19-452e-b1c8-59beb18b6f0c
+  grid:
+    x: 0
+    y: 0
+    w: 24
+    h: 7
+  content:
+    type: markdown
+    text: |-
+      ## Sample Logs Data
+      This dashboard contains sample data for you to play with. You can view it, search it, and interact with the visualizations. For more information about Kibana, check our [docs](https://www.elastic.co/guide/en/kibana/current/index.html).
+- id: bb94016e-f4a6-49ca-87a9-296a2869d570
+  grid:
+    x: 24
+    y: 0
+    w: 12
+    h: 7
+  content:
+    type: chart
+    kind: metric
+    layers:
+    - id: 483defd2-775b-4a62-bdef-496c819bb8ed
+      data_view:
+        index: kibana_sample_data_logs
+        time_field: timestamp
+      columns:
+      - id: 37430d12-7452-4cc9-b035-5cfd4061edf0
+        label: Visits
+        op: count
+      encoding:
+        as: metric
+        value: 37430d12-7452-4cc9-b035-5cfd4061edf0
+- id: 8c1456d4-1993-4ba2-b701-04aca02c9fef
+  grid:
+    x: 36
+    y: 7
+    w: 12
+    h: 7
+  content:
+    type: chart
+    kind: metric
+    layers:
+    - id: f3793bb7-3971-4753-866d-4008e77a9f9a
+      data_view:
+        index: kibana_sample_data_logs
+        time_field: timestamp
+      columns:
+      - id: 71c076a6-e782-4866-b8df-5fd85a41f08b
+        label: HTTP 5xx
+        op: formula
+        text: count(kql='response.keyword >= 500') / count()
+        expr:
+          call: divide
+          args:
+          - 71c076a6-e782-4866-b8df-5fd85a41f08bX0
+          - 71c076a6-e782-4866-b8df-5fd85a41f08bX1
+        format:
+          kind: percent
+          decimals: 1
+          compact: true
+      - id: 71c076a6-e782-4866-b8df-5fd85a41f08bX0
+        label: Part of HTTP 5xx
+        op: count
+        filter:
+          language: kql
+          text: response.keyword >= 500
+        helper: true
+      - id: 71c076a6-e782-4866-b8df-5fd85a41f08bX1
+        label: Part of HTTP 5xx
+        op: count
+        helper: true
+      encoding:
+        as: metric
+        value: 71c076a6-e782-4866-b8df-5fd85a41f08b
+- id: 01d8e435-91c0-484f-a11e-856747050b0a
+  grid:
+    x: 24
+    y: 7
+    w: 12
+    h: 7
+  content:
+    type: chart
+    kind: metric
+    layers:
+    - id: f3793bb7-3971-4753-866d-4008e77a9f9a
+      data_view:
+        index: kibana_sample_data_logs
+        time_field: timestamp
+      columns:
+      - id: 71c076a6-e782-4866-b8df-5fd85a41f08b
+        label: HTTP 4xx
+        op: formula
+        text: count(kql='response.keyword >= 400 and response.keyword < 500') / count()
+        expr:
+          call: divide
+          args:
+          - 71c076a6-e782-4866-b8df-5fd85a41f08bX0
+          - 71c076a6-e782-4866-b8df-5fd85a41f08bX1
+        format:
+          kind: percent
+          decimals: 1
+          compact: true
+      - id: 71c076a6-e782-4866-b8df-5fd85a41f08bX0
+        label: Part of HTTP 4xx
+        op: count
+        filter:
+          language: kql
+          text: response.keyword >= 400 and response.keyword < 500
+        helper: true
+      - id: 71c076a6-e782-4866-b8df-5fd85a41f08bX1
+        label: Part of HTTP 4xx
+        op: count
+        helper: true
+      encoding:
+        as: metric
+        value: 71c076a6-e782-4866-b8df-5fd85a41f08b
+- id: 8e59c7cf-6e42-4343-a113-c4a255fcf2ce
+  title: '[Logs] Unique Destination Heatmap'
+  grid:
+    x: 0
+    y: 32
+    w: 24
+    h: 15
+  content:
+    type: placeholder
+    kind: vega
+    reason: out_of_scope
+    detail: legacy vega visualizations are not in the MVP
+- id: 21bb0939-ee09-4021-8848-6552b3a6a788
+  grid:
+    x: 0
+    y: 47
+    w: 24
+    h: 13
+  content:
+    type: chart
+    kind: table
+    layers:
+    - id: c840e93e-2949-4723-ad35-6bdb2d724404
+      data_view:
+        index: kibana_sample_data_logs
+        time_field: timestamp
+      columns:
+      - id: 4e64d6d7-4f92-4d5e-abbb-13796604db30
+        label: Type
+        op: terms
+        fields:
+        - extension.keyword
+        size: 10
+        order:
+          by: column
+          column: fb9a848d-76f3-4005-a067-4259a50b5621
+          ascending: false
+        other_bucket: true
+      - id: fb9a848d-76f3-4005-a067-4259a50b5621
+        label: Bytes (Total)
+        op: sum
+        field: bytes
+        format:
+          kind: bytes
+          decimals: 2
+      - id: a2760bc2-9a6e-46a1-8595-86f61573c7cf
+        label: Bytes (Last Hour)
+        op: sum
+        field: bytes
+        format:
+          kind: bytes
+          decimals: 2
+      - id: 2c8bd8d5-35ff-4386-8d27-3ba882b13e43
+        label: Unique Visits (Total)
+        op: unique_count
+        field: clientip
+      - id: defa6f97-b874-4556-8438-056fb437787b
+        label: Unique count of clientip
+        op: unique_count
+        field: clientip
+      encoding:
+        as: table
+        columns:
+        - 4e64d6d7-4f92-4d5e-abbb-13796604db30
+        - fb9a848d-76f3-4005-a067-4259a50b5621
+        - a2760bc2-9a6e-46a1-8595-86f61573c7cf
+        - 2c8bd8d5-35ff-4386-8d27-3ba882b13e43
+        - defa6f97-b874-4556-8438-056fb437787b
+- id: cbca842c-b9fa-4523-9ce0-14e350866e33
+  title: '[Logs] Bytes distribution'
+  grid:
+    x: 24
+    y: 47
+    w: 24
+    h: 13
+  content:
+    type: chart
+    kind: xy
+    layers:
+    - id: 7d9a32b1-8cc2-410c-83a5-2eb66a3f0321
+      data_view:
+        index: kibana_sample_data_logs
+        time_field: timestamp
+      columns:
+      - id: a8511a62-2b78-4ba4-9425-a417df6e059f
+        label: bytes
+        op: histogram
+        field: bytes
+      - id: b5f3dc78-dba8-4db8-87b6-24a0b9cca260
+        label: '% of visits'
+        op: formula
+        text: count() / overall_sum(count())
+        expr:
+          call: divide
+          args:
+          - b5f3dc78-dba8-4db8-87b6-24a0b9cca260X0
+          - b5f3dc78-dba8-4db8-87b6-24a0b9cca260X2
+        format:
+          kind: percent
+          decimals: 1
+      - id: b5f3dc78-dba8-4db8-87b6-24a0b9cca260X0
+        label: Part of count() / overall_sum(count())
+        op: count
+        helper: true
+      - id: b5f3dc78-dba8-4db8-87b6-24a0b9cca260X1
+        label: Part of count() / overall_sum(count())
+        op: count
+        helper: true
+      - id: b5f3dc78-dba8-4db8-87b6-24a0b9cca260X2
+        label: Part of count() / overall_sum(count())
+        op: overall
+        of: b5f3dc78-dba8-4db8-87b6-24a0b9cca260X1
+        function: sum
+        helper: true
+      encoding:
+        as: xy
+        series: bar_stacked
+        x: a8511a62-2b78-4ba4-9425-a417df6e059f
+        y:
+        - b5f3dc78-dba8-4db8-87b6-24a0b9cca260
+- id: 1d5f0b3f-d9d2-4b26-997b-83bc5ca3090b
+  title: '[Logs] Errors by host'
+  grid:
+    x: 0
+    y: 60
+    w: 48
+    h: 19
+  content:
+    type: chart
+    kind: table
+    layers:
+    - id: c35dc8ee-50d1-4ef7-8b4b-9c21a7e7d3b0
+      data_view:
+        index: kibana_sample_data_logs
+        time_field: timestamp
+      columns:
+      - id: 42783ad7-dbcf-4310-bc06-f21f4eaaac96
+        label: URL
+        op: terms
+        fields:
+        - url.keyword
+        size: 1000
+        order:
+          by: column
+          column: f7835375-4d5b-4839-95ea-41928192a319
+          ascending: false
+        other_bucket: true
+      - id: f7835375-4d5b-4839-95ea-41928192a319
+        label: Visits
+        op: count
+      - id: 791d5a5b-a7ba-4e9e-b533-51b33c7d7747
+        label: Unique
+        op: unique_count
+        field: clientip
+      - id: 07fc84ca-4147-4ba9-879e-d1b4e086e1da
+        label: HTTP 4xx
+        op: formula
+        text: count(kql='response.keyword >= 400 and response.keyword < 500') / count()
+        expr:
+          call: divide
+          args:
+          - 07fc84ca-4147-4ba9-879e-d1b4e086e1daX0
+          - 07fc84ca-4147-4ba9-879e-d1b4e086e1daX1
+        format:
+          kind: percent
+          decimals: 1
+      - id: 491285fd-0196-402c-9b7f-4660fdc1c22a
+        label: HTTP 5xx
+        op: formula
+        text: count(kql='response.keyword >= 500') / count()
+        expr:
+          call: divide
+          args:
+          - 491285fd-0196-402c-9b7f-4660fdc1c22aX0
+          - 491285fd-0196-402c-9b7f-4660fdc1c22aX1
+        format:
+          kind: percent
+          decimals: 1
+      - id: 491285fd-0196-402c-9b7f-4660fdc1c22aX0
+        label: Part of HTTP 5xx
+        op: count
+        filter:
+          language: kql
+          text: response.keyword >= 500
+        helper: true
+      - id: 491285fd-0196-402c-9b7f-4660fdc1c22aX1
+        label: Part of HTTP 5xx
+        op: count
+        helper: true
+      - id: 07fc84ca-4147-4ba9-879e-d1b4e086e1daX0
+        label: Part of HTTP 4xx
+        op: count
+        filter:
+          language: kql
+          text: response.keyword >= 400 and response.keyword < 500
+        helper: true
+      - id: 07fc84ca-4147-4ba9-879e-d1b4e086e1daX1
+        label: Part of HTTP 4xx
+        op: count
+        helper: true
+      - id: 611e3509-e834-4fdd-b573-44e959e95d27
+        label: 95th percentile of bytes
+        op: percentile
+        field: bytes
+        percent: 95.0
+        format:
+          kind: bytes
+          decimals: 0
+      - id: 9f79ecca-123f-4098-a658-6b0e998da003
+        label: Median of bytes
+        op: median
+        field: bytes
+        format:
+          kind: bytes
+          decimals: 0
+      encoding:
+        as: table
+        columns:
+        - 42783ad7-dbcf-4310-bc06-f21f4eaaac96
+        - f7835375-4d5b-4839-95ea-41928192a319
+        - 491285fd-0196-402c-9b7f-4660fdc1c22a
+        - 07fc84ca-4147-4ba9-879e-d1b4e086e1da
+        - 791d5a5b-a7ba-4e9e-b533-51b33c7d7747
+        - 611e3509-e834-4fdd-b573-44e959e95d27
+        - 9f79ecca-123f-4098-a658-6b0e998da003

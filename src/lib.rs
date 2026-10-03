@@ -3,7 +3,13 @@
 //! One crate builds twice: the server binary (`ssr`) and the browser client
 //! (`hydrate`, compiled to WASM). Modules shared by both live outside `server`.
 
+pub mod model;
 pub mod ui;
+
+#[cfg(feature = "ssr")]
+pub mod kibana;
+#[cfg(feature = "ssr")]
+pub mod report;
 
 #[cfg(feature = "ssr")]
 pub mod server;

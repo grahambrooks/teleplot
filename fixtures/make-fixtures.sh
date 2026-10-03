@@ -9,6 +9,9 @@ cd "$(dirname "$0")/.."
 
 COMPOSE="docker compose -f fixtures/docker-compose.yml"
 END=2026-10-01   # fixed so the seeded data, and so the fixtures, are reproducible
+# Kibana's sample dashboards (eCommerce, Flights, Logs), exported by id so
+# nothing else in the Kibana instance leaks into the fixture.
+SAMPLE_DASHBOARDS='[{"type":"dashboard","id":"722b74f0-b882-11e8-a6d9-e546fe2bba5f"},{"type":"dashboard","id":"7adfa750-4c81-11e8-b3d7-01146121b73d"},{"type":"dashboard","id":"edf84fe0-e1a0-11e7-b6d5-4dc382ef7f5b"}]'
 
 build() {
   local profile=$1 es=$2 kibana=$3 version=$4 dir=$5
@@ -23,7 +26,7 @@ build() {
   done
   curl -sf -X POST "localhost:$kibana/api/saved_objects/_export" \
     -H 'kbn-xsrf: true' -H 'content-type: application/json' \
-    -d '{"type":["dashboard"],"includeReferencesDeep":true}' \
+    -d "{\"objects\":$SAMPLE_DASHBOARDS,\"includeReferencesDeep\":true}" \
     >"fixtures/kibana/$dir/sample-data.ndjson"
 
   cargo run -q --example kibana_fixtures -- \
