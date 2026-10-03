@@ -2,6 +2,7 @@
 
 mod api;
 mod clock;
+mod compare;
 mod dashboard;
 mod export;
 pub mod format;

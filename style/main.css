@@ -189,6 +189,20 @@ a { color: inherit; text-decoration: none; }
   font: 13px ui-monospace, Menlo, monospace;
 }
 .option { display: flex; gap: 8px; align-items: center; padding: 3px 0; cursor: pointer; }
+
+/* The viewer's ad-hoc filter pills. */
+.adhoc { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 4px 2px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  font-size: 12px;
+}
+.pill.negated { border-color: var(--danger, #f2495c); }
+.pill .link { font-size: 12px; }
+.adhoc-picker { left: 0; right: auto; min-width: 260px; }
+.adhoc-picker select { background: var(--canvas); color: var(--text); border: 1px solid var(--border-strong); padding: 4px; }
 .option span:nth-child(2) { flex: 1; }
 
 /* Kibana's grid: 48 columns, 20px rows, 8px gutters. */
@@ -454,3 +468,17 @@ html.printing .panel { break-inside: avoid; }
   html, body { background: #fff; }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+
+/* Compare (BubbleUp). */
+.panel-action.active { border-color: var(--accent); color: var(--accent); }
+.modal.compare { max-width: 760px; }
+.compare-heading { font-size: 13px; margin: 8px 0 0; }
+.compare-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+.compare-field { border: 1px solid var(--border); border-radius: 2px; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+.compare-field-name { display: flex; justify-content: space-between; align-items: baseline; }
+.compare-value { display: grid; grid-template-columns: 110px 1fr 80px; gap: 8px; align-items: center; font-size: 12px; }
+.compare-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compare-bars { display: flex; flex-direction: column; gap: 2px; }
+.compare-bars .bar { display: block; height: 5px; min-width: 1px; border-radius: 1px; }
+.compare-bars .bar.selected { background: var(--accent); }
+.compare-bars .bar.baseline { background: var(--text-muted); opacity: 0.6; }

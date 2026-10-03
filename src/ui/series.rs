@@ -571,6 +571,9 @@ pub struct Heatmap {
     pub x_ends: Vec<f64>,
     /// Row labels, bottom to top.
     pub y: Vec<String>,
+    /// For log-histogram rows: where each row's values start and end
+    /// (`ny + 1` edges; `None` where a bucket is open-ended). Empty otherwise.
+    pub y_edges: Vec<Option<f64>>,
     /// `cells[x][y]`.
     pub cells: Vec<Vec<Option<f64>>>,
     pub label: String,
@@ -627,6 +630,7 @@ pub fn heatmap(chart: &Chart, data: &PanelData) -> Heatmap {
         x: XAxis::Category(Vec::new()),
         x_ends: Vec::new(),
         y: Vec::new(),
+        y_edges: Vec::new(),
         cells: Vec::new(),
         label: String::new(),
         format: None,
@@ -685,6 +689,11 @@ pub fn heatmap(chart: &Chart, data: &PanelData) -> Heatmap {
     }) = y_column.map(|c| &c.op)
     {
         let bounds = crate::model::log_bounds(*min, *max, *per_decade);
+        // Rows are the buckets in order; the first and last are open.
+        let n = y_keys.len();
+        out.y_edges = (0..=n)
+            .map(|j| (j > 0 && j < n).then(|| bounds.get(j).copied()).flatten())
+            .collect();
         let format = y_column.and_then(|c| c.display_format());
         for (label, key) in out.y.iter_mut().zip(&y_keys) {
             if let Some(range) = key

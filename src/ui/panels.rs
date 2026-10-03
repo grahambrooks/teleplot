@@ -5,6 +5,7 @@ use leptos::prelude::*;
 use super::format;
 use super::series::{self, XAxis, cell_text, threshold_for};
 use super::theme::{palette, threshold_color};
+use crate::model::api::Selection;
 use crate::model::{
     Cell, Chart, ChartKind, Column, Encoding, Layer, LineStyle, Operation, Panel, PanelContent,
     PanelData, Placeholder, PlaceholderReason, ReferenceAxis,
@@ -29,6 +30,11 @@ pub struct PanelContext {
     pub drill: Callback<(String, String)>,
     /// Opens the inspector on a panel (by id).
     pub inspect: Callback<String>,
+    /// Compares a box selected on a panel (by id) with the panel's baseline.
+    pub compare: Callback<(String, Selection)>,
+    /// Set per panel: its id, and whether a drag selects a box to compare
+    /// (instead of zooming the dashboard).
+    pub comparing: Option<(String, RwSignal<bool>)>,
 }
 
 impl PanelContext {
@@ -113,6 +119,14 @@ pub fn PanelView(
     };
     let inspect = ctx.inspect;
     let panel_id = panel.id.clone();
+    // Charts over time can compare a drag-selected box with the rest (BubbleUp).
+    let comparable = matches!(&panel.content, PanelContent::Chart(c)
+        if c.has_time_axis() && c.layers.iter().all(|l| l.esql.is_none()));
+    let comparing = RwSignal::new(false);
+    let mut ctx = ctx;
+    if comparable {
+        ctx.comparing = Some((panel.id.clone(), comparing));
+    }
     let section = NodeRef::<leptos::html::Section>::new();
     let body = match panel.content.clone() {
         PanelContent::Chart(chart) => view! { <ChartBody chart data ctx/> }.into_any(),
@@ -139,6 +153,11 @@ pub fn PanelView(
                                     }
                                 }>"CSV"</button>
                             }
+                        })}
+                        {comparable.then(|| view! {
+                            <button class="panel-action" class:active=move || comparing.get()
+                                title="Compare: drag a box on the chart to see what sets those documents apart from the rest"
+                                on:click=move |_| comparing.update(|c| *c = !*c)>"Compare"</button>
                         })}
                         {is_chart.then(|| {
                             let id = panel_id.clone();
@@ -827,12 +846,38 @@ fn CanvasChart(drawing: Drawing, ctx: PanelContext) -> impl IntoView {
                 |el: &web_sys::HtmlElement| (el.client_width() as f64, el.client_height() as f64);
             let (width, height) = size(&el);
             let zoom = ctx.on_zoom;
+            // In compare mode a drag selects a box (x and y) to compare.
+            let on_box = ctx.comparing.as_ref().filter(|(_, on)| on.get()).map(|(panel, _)| {
+                let (panel, compare) = (panel.clone(), ctx.compare);
+                let rows = drawing.with_value(|d| match d {
+                    Drawing::Heatmap(hm) => Some(hm.y_edges.clone()),
+                    Drawing::Xy(_) => None,
+                });
+                let points = drawing.with_value(|d| matches!(d, Drawing::Xy(xy) if xy.series.iter().any(|s| s.style == series::Style::Points)));
+                let on_box: super::uplot::OnBox = Rc::new(move |x0, x1, y0, y1| {
+                    let y = match &rows {
+                        // Heatmap rows: from the bottom row's start to the top row's end.
+                        Some(edges) if !edges.is_empty() => {
+                            let last = edges.len() - 1;
+                            let low = (y0.floor().max(0.0) as usize).min(last);
+                            let high = (y1.ceil().max(0.0) as usize).min(last);
+                            Some((edges[low], edges[high]))
+                        }
+                        Some(_) => None,
+                        None if points => Some((Some(y0), Some(y1))),
+                        None => None,
+                    };
+                    compare.run((panel.clone(), Selection { x: (x0, x1), y }));
+                });
+                on_box
+            });
             let options = super::uplot::Options {
                 width,
                 height,
                 sync_key: &ctx.sync_key,
                 time_zone: &ctx.time_zone.get_untracked(),
                 on_zoom: Some(Rc::new(move |from, to| zoom.run((from, to)))),
+                on_box,
                 dark,
             };
             chart.set_value(None);

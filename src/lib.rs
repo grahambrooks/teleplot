@@ -11,6 +11,8 @@ pub mod model;
 pub mod ui;
 
 #[cfg(feature = "ssr")]
+pub mod compare;
+#[cfg(feature = "ssr")]
 pub mod config;
 #[cfg(feature = "ssr")]
 pub mod dashboards;

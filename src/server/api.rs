@@ -8,7 +8,8 @@ use axum::response::{IntoResponse, Response};
 use super::AppState;
 use crate::engine::Request;
 use crate::model::api::{
-    ApiError, Catalog, ControlValues, DashboardSummary, DataRequest, DataResponse,
+    ApiError, Catalog, CompareRequest, ControlValues, DashboardSummary, DataRequest, DataResponse,
+    FieldList,
 };
 use crate::model::{Dashboard, TimeRange};
 
@@ -75,6 +76,13 @@ fn engine_request(d: &Dashboard, body: DataRequest) -> Request {
         time,
         query: body.query.filter(|q| !q.is_empty()),
         selections,
+        filters: body
+            .filters
+            .iter()
+            // No per-engineer views, even from a hand-written URL.
+            .filter(|f| !f.values.is_empty() && !crate::compare::about_people(&f.field))
+            .map(|f| f.to_filter())
+            .collect(),
     }
 }
 
@@ -155,5 +163,68 @@ pub async fn control_values(
     {
         Ok(values) => Json(ControlValues { values }).into_response(),
         Err(e) => error(StatusCode::BAD_GATEWAY, e),
+    }
+}
+
+/// `GET /api/dashboards/{id}/fields`: what an ad-hoc filter can use.
+pub async fn fields(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    let Some(d) = state.app.catalog.get(&id) else {
+        return error(StatusCode::NOT_FOUND, format!("no dashboard {id}"));
+    };
+    let engine = match &state.app.engine {
+        Ok(e) => e,
+        Err(problem) => return error(StatusCode::SERVICE_UNAVAILABLE, problem.clone()),
+    };
+    Json(FieldList {
+        fields: engine.filterable_fields(&d).await,
+    })
+    .into_response()
+}
+
+/// `POST /api/dashboards/{id}/fields/{field}/values`: values to suggest for
+/// an ad-hoc filter, under the viewer's other filters.
+pub async fn field_values(
+    State(state): State<AppState>,
+    Path((id, field)): Path<(String, String)>,
+    Json(body): Json<DataRequest>,
+) -> Response {
+    let Some(d) = state.app.catalog.get(&id) else {
+        return error(StatusCode::NOT_FOUND, format!("no dashboard {id}"));
+    };
+    let engine = match &state.app.engine {
+        Ok(e) => e,
+        Err(problem) => return error(StatusCode::SERVICE_UNAVAILABLE, problem.clone()),
+    };
+    let request = engine_request(&d, body);
+    match engine
+        .field_values(&d, &field, &request, cache_friendly_now())
+        .await
+    {
+        Ok(values) => Json(ControlValues { values }).into_response(),
+        Err(e) => error(StatusCode::BAD_REQUEST, e),
+    }
+}
+
+/// `POST /api/dashboards/{id}/panels/{panel}/compare`: a selection on a
+/// panel against the panel's baseline (BubbleUp).
+pub async fn compare(
+    State(state): State<AppState>,
+    Path((id, panel)): Path<(String, String)>,
+    Json(body): Json<CompareRequest>,
+) -> Response {
+    let Some(d) = state.app.catalog.get(&id) else {
+        return error(StatusCode::NOT_FOUND, format!("no dashboard {id}"));
+    };
+    let engine = match &state.app.engine {
+        Ok(e) => e,
+        Err(problem) => return error(StatusCode::SERVICE_UNAVAILABLE, problem.clone()),
+    };
+    let request = engine_request(&d, body.request);
+    match engine
+        .compare(&d, &panel, &request, &body.selection, cache_friendly_now())
+        .await
+    {
+        Ok(comparison) => Json(comparison).into_response(),
+        Err(e) => error(StatusCode::BAD_REQUEST, e),
     }
 }

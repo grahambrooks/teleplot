@@ -586,3 +586,158 @@ async fn sample_esql_panels_run_with_the_time_range() {
         );
     }
 }
+
+/// BubbleUp on the seeded data: the slow PRs (a box above 200 hours on the
+/// cycle-time scatter) come mostly from the low-performing teams, and their
+/// review and pickup times are what sets them apart. Authors are never
+/// ranked.
+#[tokio::test]
+async fn comparing_slow_prs_ranks_what_sets_them_apart() {
+    for (version, client) in clusters() {
+        let d = native_overview();
+        let engine = Engine::with_client(client.clone(), TimeZone::UTC, "UTC".into());
+        let request = kibana_range();
+        let range = engine.range(&d, &request, jiff::Timestamp::now()).unwrap();
+        let selection = teleplot::model::api::Selection {
+            x: (range.from_ms as f64, range.to_ms as f64),
+            y: Some((Some(200.0), None)),
+        };
+        let c = engine
+            .compare(
+                &d,
+                "cycle-scatter",
+                &request,
+                &selection,
+                jiff::Timestamp::now(),
+            )
+            .await
+            .unwrap();
+        assert_eq!((c.selected, c.baseline), (542, 2700), "{version}");
+        // Team (and repo, which nests in it) sets them apart: the slow PRs
+        // are mostly the data and experiments teams'.
+        let team = c.fields.iter().position(|f| f.field == "team").unwrap();
+        assert!(team < 2, "{version}: {:?}", c.fields);
+        let data = &c.fields[team].values[0];
+        assert_eq!(data.value, "data", "{version}");
+        assert!(
+            data.selected_share > 3.0 * data.baseline_share,
+            "{version}: {data:?}"
+        );
+        // Their review and coding take several times longer; their size doesn't differ.
+        let first = &c.measures[0];
+        assert!(
+            ["review_hours", "coding_hours"].contains(&first.field.as_str()),
+            "{version}: {first:?}"
+        );
+        assert!(
+            first.selected_median > 3.0 * first.baseline_median,
+            "{version}"
+        );
+        // People are never ranked; IDs are left out.
+        assert!(c.fields.iter().all(|f| f.field != "author"), "{version}");
+        assert!(
+            c.skipped.iter().any(|s| s.starts_with("author")),
+            "{version}"
+        );
+        assert!(
+            c.skipped.iter().any(|s| s.starts_with("pr_id")),
+            "{version}"
+        );
+    }
+}
+
+fn native_overview() -> Dashboard {
+    let path = format!(
+        "{}/dashboards/delivery-overview.yaml",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    teleplot::dashboards::load_file(path.as_ref())
+        .unwrap()
+        .remove(0)
+}
+
+/// Controls chain left to right, as Kibana's do: group → team → repo. A team
+/// narrows the repos on offer; a repo doesn't narrow the teams.
+#[tokio::test]
+async fn controls_narrow_the_ones_after_them() {
+    for (version, client) in clusters() {
+        let d = native_overview();
+        let engine = Engine::with_client(client.clone(), TimeZone::UTC, "UTC".into());
+        let control = |id: &str| d.controls.iter().find(|c| c.id == id).unwrap().clone();
+        let now = jiff::Timestamp::now();
+        let names = |values: Vec<(String, u64)>| -> Vec<String> {
+            values.into_iter().map(|(v, _)| v).collect()
+        };
+
+        let all_repos = names(
+            engine
+                .control_values(&d, &control("repo"), &kibana_range(), now)
+                .await
+                .unwrap(),
+        );
+        let mut request = kibana_range();
+        request.selections = vec![("team".into(), vec!["checkout".into()])];
+        let checkout_repos = names(
+            engine
+                .control_values(&d, &control("repo"), &request, now)
+                .await
+                .unwrap(),
+        );
+        assert!(!checkout_repos.is_empty(), "{version}");
+        assert!(
+            checkout_repos.len() < all_repos.len(),
+            "{version}: {checkout_repos:?} of {all_repos:?}"
+        );
+
+        let mut request = kibana_range();
+        request.selections = vec![("repo".into(), vec![checkout_repos[0].clone()])];
+        let teams = names(
+            engine
+                .control_values(&d, &control("team"), &request, now)
+                .await
+                .unwrap(),
+        );
+        assert_eq!(teams.len(), 8, "{version}: a repo does not narrow teams");
+    }
+}
+
+/// An ad-hoc filter narrows the panels whose data has its field, and leaves
+/// the others alone (deployments have no `ai_assisted`).
+#[tokio::test]
+async fn ad_hoc_filters_apply_where_their_field_exists() {
+    for (version, client) in clusters() {
+        let d = native_overview();
+        let engine = Engine::with_client(client.clone(), TimeZone::UTC, "UTC".into());
+        let now = jiff::Timestamp::now();
+        let before = engine
+            .dashboard_data(&d, &kibana_range(), now)
+            .await
+            .unwrap();
+        let mut request = kibana_range();
+        request.filters = vec![
+            teleplot::model::api::AdHocFilter {
+                field: "ai_assisted".into(),
+                values: vec!["true".into()],
+                negate: false,
+            }
+            .to_filter(),
+        ];
+        let after = engine.dashboard_data(&d, &request, now).await.unwrap();
+        let rows = |data: &HashMap<String, PanelData>, panel: &str| data[panel].layers[0].rows;
+        // The scatter of PRs keeps only AI-assisted ones.
+        assert!(
+            rows(&after, "cycle-scatter") < rows(&before, "cycle-scatter"),
+            "{version}"
+        );
+        assert!(
+            after["cycle-scatter"].layers[0].error.is_none(),
+            "{version}"
+        );
+        // Deployment frequency (deployments have no such field) is unchanged.
+        assert_eq!(
+            after["deploy-frequency"].layers[0].series("per-week"),
+            before["deploy-frequency"].layers[0].series("per-week"),
+            "{version}"
+        );
+    }
+}

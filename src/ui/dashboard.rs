@@ -14,7 +14,9 @@ use leptos_router::params::ParamsMap;
 use super::api::{self, encode};
 use super::inspector::Inspector;
 use super::panels::{PanelContext, PanelView};
-use crate::model::api::{Catalog, ControlValues, DataRequest, DataResponse};
+use crate::model::api::{
+    AdHocFilter, Catalog, ControlValues, DataRequest, DataResponse, FieldList,
+};
 use crate::model::{Control, Dashboard, Query, QueryLanguage};
 
 #[component]
@@ -115,6 +117,11 @@ fn request_from(params: &ParamsMap, dashboard: &Dashboard) -> DataRequest {
             .or_else(|| Some("now".into())),
         query,
         selections,
+        // Ad-hoc filter pills, as JSON: `f=[{"field":"team","values":["checkout"]}]`.
+        filters: params
+            .get("f")
+            .and_then(|f| serde_json::from_str(&f).ok())
+            .unwrap_or_default(),
     }
 }
 
@@ -178,10 +185,30 @@ fn DashboardView(dashboard: Dashboard) -> impl IntoView {
             ])
         })
     };
+    // With chained controls, a change clears the controls after it: their
+    // choices were made under the old selection (team → repo → service).
     let set_control = {
         let go = go.clone();
+        let (ids, chained) = dashboard.with_value(|d| {
+            (
+                d.controls.iter().map(|c| c.id.clone()).collect::<Vec<_>>(),
+                d.chain_controls,
+            )
+        });
         Callback::new(move |(control, values): (String, Vec<String>)| {
-            go(vec![(format!("var-{control}"), Some(values.join(",")))])
+            let mut changes = vec![(format!("var-{control}"), Some(values.join(",")))];
+            if chained && let Some(i) = ids.iter().position(|id| *id == control) {
+                changes.extend(ids[i + 1..].iter().map(|id| (format!("var-{id}"), None)));
+            }
+            go(changes)
+        })
+    };
+    let set_filters = {
+        let go = go.clone();
+        Callback::new(move |filters: Vec<AdHocFilter>| {
+            let encoded =
+                (!filters.is_empty()).then(|| serde_json::to_string(&filters).unwrap_or_default());
+            go(vec![("f".into(), encoded)])
         })
     };
     let on_zoom = Callback::new(move |(from, to): (f64, f64)| {
@@ -207,8 +234,11 @@ fn DashboardView(dashboard: Dashboard) -> impl IntoView {
     });
     let min_samples = dashboard.with_value(|d| d.min_samples);
     let inspecting = RwSignal::new(None::<String>);
+    let comparing = RwSignal::new(None::<(String, crate::model::api::Selection)>);
     let ctx = PanelContext {
         inspect: Callback::new(move |panel: String| inspecting.set(Some(panel))),
+        compare: Callback::new(move |selected| comparing.set(Some(selected))),
+        comparing: None,
         time_zone,
         sync_key: id.clone(),
         on_zoom,
@@ -303,6 +333,7 @@ fn DashboardView(dashboard: Dashboard) -> impl IntoView {
                 {controls.into_iter().map(|c| view! {
                     <ControlSelect control=c dashboard=id.clone() request=request.into() on_change=set_control/>
                 }).collect_view()}
+                <AdHocFilters dashboard=id.clone() request=request.into() on_change=set_filters/>
             </div>
             {move || data.get().and_then(|r| r.err()).map(|e| view! { <div class="banner error">{e}</div> })}
             <div class="grid">
@@ -322,6 +353,16 @@ fn DashboardView(dashboard: Dashboard) -> impl IntoView {
                 Some(view! {
                     <Inspector dashboard=id panel request=request.into()
                         on_close=Callback::new(move |_| inspecting.set(None))/>
+                })
+            }}
+            {move || {
+                let (pid, selection) = comparing.get()?;
+                let panel = dashboard.with_value(|d| d.panels.iter().find(|p| p.id == pid).cloned())?;
+                let id = dashboard.with_value(|d| d.id.clone());
+                Some(view! {
+                    <super::compare::ComparePanel dashboard=id panel selection request=request.into()
+                        min_samples=min_samples
+                        on_close=Callback::new(move |_| comparing.set(None))/>
                 })
             }}
         </div>
@@ -506,6 +547,152 @@ fn ControlSelect(
                     </Suspense>
                 </div>
             </Show>
+        </div>
+    }
+}
+
+/// The viewer's own filter pills: `field: value, …` chips (click to invert,
+/// × to remove) and a picker to add one, with values suggested under the
+/// other filters. A pill narrows only the panels whose data has its field.
+#[component]
+fn AdHocFilters(
+    dashboard: String,
+    request: Signal<DataRequest>,
+    on_change: Callback<Vec<AdHocFilter>>,
+) -> impl IntoView {
+    let open = RwSignal::new(false);
+    let field = RwSignal::new(String::new());
+    let negate = RwSignal::new(false);
+    let chosen = RwSignal::new(Vec::<String>::new());
+    let dashboard = StoredValue::new(dashboard);
+    let current = Memo::new(move |_| request.with(|r| r.filters.clone()));
+
+    let fields = LocalResource::new(move || {
+        let wanted = open.get();
+        let url = dashboard.with_value(|d| format!("/api/dashboards/{}/fields", encode(d)));
+        async move {
+            if !wanted {
+                return Ok(FieldList::default());
+            }
+            api::get::<FieldList>(&url).await
+        }
+    });
+    let values = LocalResource::new(move || {
+        let name = field.get();
+        let body = request.get();
+        let url = dashboard.with_value(|d| {
+            format!(
+                "/api/dashboards/{}/fields/{}/values",
+                encode(d),
+                encode(&name)
+            )
+        });
+        async move {
+            if name.is_empty() {
+                return Ok(ControlValues::default());
+            }
+            api::post::<_, ControlValues>(&url, &body).await
+        }
+    });
+
+    let remove = move |i: usize| {
+        let mut all = current.get_untracked();
+        all.remove(i);
+        on_change.run(all);
+    };
+    let invert = move |i: usize| {
+        let mut all = current.get_untracked();
+        all[i].negate = !all[i].negate;
+        on_change.run(all);
+    };
+    let add = move || {
+        let values = chosen.get_untracked();
+        let name = field.get_untracked();
+        if name.is_empty() || values.is_empty() {
+            return;
+        }
+        let mut all = current.get_untracked();
+        all.push(AdHocFilter {
+            field: name,
+            values,
+            negate: negate.get_untracked(),
+        });
+        open.set(false);
+        field.set(String::new());
+        chosen.set(Vec::new());
+        negate.set(false);
+        on_change.run(all);
+    };
+    let toggle_value = move |value: String| {
+        chosen.update(|c| {
+            if let Some(i) = c.iter().position(|v| *v == value) {
+                c.remove(i);
+            } else {
+                c.push(value);
+            }
+        })
+    };
+
+    view! {
+        <div class="adhoc">
+            {move || current.get().into_iter().enumerate().map(|(i, f)| {
+                let text = format!(
+                    "{}{}: {}",
+                    if f.negate { "NOT " } else { "" },
+                    f.field,
+                    f.values.join(", ")
+                );
+                view! {
+                    <span class="pill" class:negated=f.negate>
+                        <button class="link" title="Click to invert (is / is not). Applies to panels whose data has this field."
+                            on:click=move |_| invert(i)>{text}</button>
+                        <button class="link" title="Remove" on:click=move |_| remove(i)>"×"</button>
+                    </span>
+                }
+            }).collect_view()}
+            <div class="control">
+                <button class="btn" on:click=move |_| open.update(|o| *o = !*o)>"+ Filter"</button>
+                <Show when=move || open.get()>
+                    <div class="popover options adhoc-picker">
+                        <Suspense fallback=|| view! { <div class="loading small"></div> }>
+                            {move || fields.get().map(|r| match r {
+                                Err(e) => view! { <div class="banner error">{e}</div> }.into_any(),
+                                Ok(list) => view! {
+                                    <select prop:value=move || field.get()
+                                        on:change=move |ev| { chosen.set(Vec::new()); field.set(event_target_value(&ev)); }>
+                                        <option value="">"Field…"</option>
+                                        {list.fields.into_iter().map(|(name, types)| {
+                                            let label = format!("{name} ({})", types.join(", "));
+                                            view! { <option value=name.clone()>{label}</option> }
+                                        }).collect_view()}
+                                    </select>
+                                }.into_any(),
+                            })}
+                        </Suspense>
+                        <label class="option">
+                            <input type="checkbox" prop:checked=move || negate.get() on:change=move |_| negate.update(|n| *n = !*n)/>
+                            <span>"is not"</span>
+                        </label>
+                        <Suspense fallback=|| view! { <div class="loading small"></div> }>
+                            {move || values.get().map(|r| match r {
+                                Err(e) => view! { <div class="banner error">{e}</div> }.into_any(),
+                                Ok(v) => v.values.into_iter().map(|(value, count)| {
+                                    let checked = { let value = value.clone(); move || chosen.get().contains(&value) };
+                                    let pick = value.clone();
+                                    view! {
+                                        <label class="option">
+                                            <input type="checkbox" prop:checked=checked on:change=move |_| toggle_value(pick.clone())/>
+                                            <span>{value}</span>
+                                            <span class="muted small">{count}</span>
+                                        </label>
+                                    }
+                                }).collect_view().into_any(),
+                            })}
+                        </Suspense>
+                        <button class="btn primary" prop:disabled=move || chosen.get().is_empty() on:click=move |_| add()>"Add filter"</button>
+                    </div>
+                </Show>
+            </div>
         </div>
     }
 }

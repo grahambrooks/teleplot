@@ -54,6 +54,7 @@ fn searches(d: &Dashboard, stats: &HashMap<(String, String), (f64, f64)>) -> Val
         queries: std::slice::from_ref(&d.query),
         filters: &d.filters,
         selections: &[],
+        adhoc: &[],
         fields: &fields,
         stats,
         settings: Settings::default(),

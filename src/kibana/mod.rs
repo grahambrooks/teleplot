@@ -66,6 +66,8 @@ fn dashboard(export: &Export, object: &objects::SavedObject) -> Dashboard {
         query: search::query(&source["query"]),
         filters: search::filters(&source["filter"]),
         controls: controls(export, object),
+        // Kibana chains controls left to right unless told not to.
+        chain_controls: str_field(&a["controlGroupInput"], "chainingSystem") != Some("NONE"),
         min_samples: None,
         annotations: Vec::new(),
         panels,

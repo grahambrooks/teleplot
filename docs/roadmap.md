@@ -4,7 +4,7 @@ Status: current as of 2026-10-03. This is the one place that orders the work.
 The research and rationale stay in the source plans:
 
 - [`mvp-plan.md`](mvp-plan.md): M0–M5 and M6 parts 1–2 (export, performance) are done.
-- [`mcp-plan.md`](mcp-plan.md): Part 1 (MCP endpoint) and gaps 1 (lint/schema), 2 (inspector, CSV), 3 (annotations) and 4 (ES|QL panels) are done.
+- [`mcp-plan.md`](mcp-plan.md): Part 1 (MCP endpoint) and gaps 1–6 (lint/schema, inspector and CSV, annotations, ES|QL panels, chained and ad-hoc variables, BubbleUp) are done.
 - [`charting-plan.md`](charting-plan.md): A1 (reference lines), A2 (`timeScale` → `per`), A5 (heatmap) and B1–B3 (the distribution charts) are done.
 
 Items carry their source IDs (`mcp gap 2`, `charting A1`). A phase starts once
@@ -59,26 +59,31 @@ also follows the [verification rules](#verification-rules) below.
   - **Reference dashboard.** `delivery-overview.yaml` has a native ES|QL panel: median cycle time of AI-assisted PRs against the rest, by team.
   - **Not done:** Kibana's ES|QL *variable* controls (`?team` set from a dropdown) need a single-value control Teleplot doesn't have. Panels that use them convert to placeholders, and lint reports them. CLAUDE.md lists them as out of scope.
 
-## Phase 5: what sets Teleplot apart
+## Phase 5: what sets Teleplot apart (done 2026-10-03)
 
 - **`mcp gap 6`: compare a selection with the baseline** (BubbleUp). Drag-select on B2 or the scatter, then rank fields and values with `significant_terms`.
 - **`mcp gap 5`: chained and ad-hoc variables.** UI ordering for team → repo → service, plus free-form key=value filter pills.
 - *Done when:* selecting slow PRs on the seeded data ranks the fields that set them apart, and the chained controls narrow each other.
+- *Result:*
+  - **Compare (BubbleUp).** Panels with a time x axis have a **Compare** button: a drag then selects a box (time, plus values on a scatter or log-heatmap), and a panel ranks the fields whose values are spread differently in the selection, with numeric medians alongside. On the seeded data, the slow PRs (cycle time ≥ 200 h on the scatter) rank team and repo first, with data at 47% of the selection against 13% overall, and their review and coding times are about five times the median. An integration test checks this on 8.19 and 9.5.
+  - **Ranking, not `significant_terms`.** Fields are ranked by total variation distance between the selection's and the baseline's value shares, from exact `terms` counts (as Honeycomb does). `significant_terms`' JLH scores were harder for a leader to read than "47% vs 13%". People are never ranked, and fields with more than 30 values are left out.
+  - **Chained controls.** Controls chain left to right, as Kibana's hierarchical chaining does: each control's options honour only the controls before it, and changing one clears the ones after it. `chain_controls: false`, or Kibana's `chainingSystem: NONE`, turns it off.
+  - **Ad-hoc filters.** **+ Filter** adds "field is (not) value" pills, kept in the URL, with values suggested under the other filters. A pill applies only to indexes that have its field. Fields about people are never offered or applied: no per-engineer views.
 
 ## Phase 6: the sparkline family
 
 - **`charting A3`: metric chart, 9.x parity.** Background trend, progress bar to `max`, trend badge.
 - **`charting A8`: datatable.** Colour by value, summary row, sparkline cells.
 
-## Phase 7: comparing teams
-
-- **`charting B4`: box plot** per team or repo, together with **`charting B9`: PR beeswarm** (grouped by team or repo, never by author).
-- **`charting B5`: state timeline** for incidents, environments and pipelines.
-
-## Phase 8: remaining parity and polish
+## Phase 7: remaining parity and polish
 
 - **`charting A4`** gauge, **`A6`** legend statistics, **`A7`** interpolation and missing-value fill, **`A9`** treemap and waffle.
 - **`charting B6`** calendar heatmap, **`B8`** small multiples.
+
+## Phase 8: comparing teams
+
+- **`charting B4`: box plot** per team or repo, together with **`charting B9`: PR beeswarm** (grouped by team or repo, never by author).
+- **`charting B5`: state timeline** for incidents, environments and pipelines.
 
 ## Ongoing
 
@@ -102,7 +107,7 @@ Unchanged:
 - **Phase 1:** A1 and the inspector are both low effort and both fix trust problems. A1 also closes a silent-drop bug.
 - **Phase 2:** annotations reuse A1's draw hook.
 - **Phases 3–5:** the distribution charts come before BubbleUp, because B2 and the scatter are where its selection starts. ES|QL stays ahead of BubbleUp, as mcp-plan ordered.
-- **Phases 6–8:** follow charting-plan's own order.
+- **Phases 6–8:** follow charting-plan's own order, except that the remaining parity and polish (Phase 7) now comes before comparing teams (Phase 8), reordered 2026-10-03.
 
 ## Verification rules
 

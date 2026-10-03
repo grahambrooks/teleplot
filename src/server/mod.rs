@@ -85,6 +85,15 @@ pub fn router(addr: SocketAddr, app: Arc<Teleplot>) -> Router {
             "/api/dashboards/{id}/controls/{control}",
             post(api::control_values),
         )
+        .route(
+            "/api/dashboards/{id}/panels/{panel}/compare",
+            post(api::compare),
+        )
+        .route("/api/dashboards/{id}/fields", get(api::fields))
+        .route(
+            "/api/dashboards/{id}/fields/{field}/values",
+            post(api::field_values),
+        )
         .leptos_routes(&state, routes, {
             let leptos = leptos.clone();
             move || shell(leptos.clone())

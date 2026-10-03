@@ -34,6 +34,11 @@ pub struct Dashboard {
     pub filters: Vec<Filter>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub controls: Vec<Control>,
+    /// Controls narrow the ones after them (Kibana's hierarchical
+    /// chaining): a repo control offers only the chosen team's repos, and
+    /// changing the team clears the repo. `false` makes them independent.
+    #[serde(default = "yes", skip_serializing_if = "Clone::clone")]
+    pub chain_controls: bool,
     /// Buckets with fewer documents than this are drawn as unreliable
     /// (small samples make medians and rates noisy).
     #[serde(default, skip_serializing_if = "Option::is_none")]

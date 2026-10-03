@@ -82,6 +82,9 @@ fn obj(pairs: &[(&str, JsValue)]) -> Object {
     o
 }
 
+/// Called with a selected box: x from, x to, y low, y high.
+pub type OnBox = Rc<dyn Fn(f64, f64, f64, f64)>;
+
 pub struct Options<'a> {
     pub width: f64,
     /// Total height, legend included.
@@ -91,6 +94,9 @@ pub struct Options<'a> {
     pub time_zone: &'a str,
     /// Called with the selected x range (epoch ms) after a drag on a time chart.
     pub on_zoom: Option<Rc<dyn Fn(f64, f64)>>,
+    /// When set, a drag selects a box instead, reported as x from–to and y
+    /// low–high in the scales' values.
+    pub on_box: Option<OnBox>,
     pub dark: bool,
 }
 
@@ -471,25 +477,18 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
         (
             "cursor",
             obj(&[
-                ("sync", obj(&[("key", options.sync_key.into())]).into()),
-                (
-                    "drag",
-                    obj(&[
-                        ("x", is_time.into()),
-                        ("y", false.into()),
-                        // A drag changes the dashboard's range; don't zoom just this chart.
-                        ("setScale", options.on_zoom.is_none().into()),
-                    ])
-                    .into(),
-                ),
+                ("sync", sync(&options).into()),
+                ("drag", drag(is_time, &options).into()),
             ])
             .into(),
         ),
     ]);
     if is_time {
         time_axis(&opts, options.time_zone, &mut callbacks);
-        if let Some(callback) = options.on_zoom.clone() {
-            zoom_on_select(&hooks, callback, &mut callbacks);
+        match (options.on_box.clone(), options.on_zoom.clone()) {
+            (Some(on_box), _) => box_on_select(&hooks, on_box, &mut callbacks),
+            (None, Some(on_zoom)) => zoom_on_select(&hooks, on_zoom, &mut callbacks),
+            (None, None) => {}
         }
     }
 
@@ -537,6 +536,66 @@ fn zoom_on_select(hooks: &Object, callback: Rc<dyn Fn(f64, f64)>, callbacks: &mu
             };
             if let (Some(from), Some(to)) = (at(left), at(left + width)) {
                 callback(from, to);
+            }
+        }
+        JsValue::UNDEFINED
+    });
+    set(
+        hooks,
+        "setSelect",
+        Array::of1(on_select.as_ref().unchecked_ref::<Function>()),
+    );
+    callbacks.push(on_select);
+}
+
+/// The shared crosshair. uPlot shares drag selections too, so a chart in
+/// compare mode leaves the group: its box must not zoom the other charts.
+fn sync(options: &Options) -> Object {
+    let key = if options.on_box.is_some() {
+        format!("{}-compare", options.sync_key)
+    } else {
+        options.sync_key.to_string()
+    };
+    obj(&[("key", key.into())])
+}
+
+/// How a drag behaves: along x to zoom the dashboard (on time axes), or a
+/// box in both directions to compare. Never zooms just this chart when
+/// someone else handles the selection.
+fn drag(is_time: bool, options: &Options) -> Object {
+    let boxed = options.on_box.is_some();
+    obj(&[
+        ("x", is_time.into()),
+        ("y", boxed.into()),
+        ("setScale", (options.on_zoom.is_none() && !boxed).into()),
+    ])
+}
+
+/// Compare: report the selected box in the scales' values, then leave it
+/// drawn so the viewer sees what they compared.
+fn box_on_select(hooks: &Object, callback: OnBox, callbacks: &mut Vec<Callback>) {
+    let on_select = Callback::new(move |u: JsValue, _a: JsValue, _b: JsValue, _c: JsValue| {
+        let select = Reflect::get(&u, &"select".into()).unwrap_or(JsValue::NULL);
+        let (left, width) = (number(&select, "left"), number(&select, "width"));
+        let (top, height) = (number(&select, "top"), number(&select, "height"));
+        if width > 2.0 && height > 2.0 {
+            let pos_to_val: Function = Reflect::get(&u, &"posToVal".into())
+                .unwrap()
+                .unchecked_into();
+            let at = |px: f64, scale: &str| {
+                pos_to_val
+                    .call2(&u, &px.into(), &scale.into())
+                    .ok()
+                    .and_then(|v| v.as_f64())
+            };
+            // Screen y grows downwards: the box's top is the high value.
+            if let (Some(x0), Some(x1), Some(high), Some(low)) = (
+                at(left, "x"),
+                at(left + width, "x"),
+                at(top, "y"),
+                at(top + height, "y"),
+            ) {
+                callback(x0, x1, low, high);
             }
         }
         JsValue::UNDEFINED
@@ -1036,25 +1095,19 @@ pub fn heatmap(target: &web_sys::HtmlElement, hm: &Heatmap, options: Options) ->
         (
             "cursor",
             obj(&[
-                ("sync", obj(&[("key", options.sync_key.into())]).into()),
+                ("sync", sync(&options).into()),
                 ("points", obj(&[("show", false.into())]).into()),
-                (
-                    "drag",
-                    obj(&[
-                        ("x", is_time.into()),
-                        ("y", false.into()),
-                        ("setScale", options.on_zoom.is_none().into()),
-                    ])
-                    .into(),
-                ),
+                ("drag", drag(is_time, &options).into()),
             ])
             .into(),
         ),
     ]);
     if is_time {
         time_axis(&opts, options.time_zone, &mut callbacks);
-        if let Some(callback) = options.on_zoom.clone() {
-            zoom_on_select(&hooks, callback, &mut callbacks);
+        match (options.on_box.clone(), options.on_zoom.clone()) {
+            (Some(on_box), _) => box_on_select(&hooks, on_box, &mut callbacks),
+            (None, Some(on_zoom)) => zoom_on_select(&hooks, on_zoom, &mut callbacks),
+            (None, None) => {}
         }
     }
 

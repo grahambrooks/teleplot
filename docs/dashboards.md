@@ -269,3 +269,42 @@ With `min_samples` set:
 Clicking a value of a field that has a control (a table row, a bar, a pie
 slice) selects it in that control. This is how drill-down works: from org to
 team to repo, using `group`, `team` and `repo` controls.
+
+### Chained controls
+
+Controls narrow the ones after them, as Kibana's do by default: with
+`group`, `team` and `repo` in that order, the team control offers only the
+chosen group's teams, and the repo control only the chosen teams' repos.
+Changing a control clears the ones after it, because their choices were
+made under the old selection. Set `chain_controls: false` on the dashboard
+to make every control independent (Kibana's `chainingSystem: NONE`).
+
+### Ad-hoc filters
+
+**+ Filter** in the toolbar adds a pill: a field, one or more values, and
+"is" or "is not". The values offered are the field's most common ones under
+the other filters. A pill narrows only the panels whose data has its field,
+so a filter on `ai_assisted` narrows the PR panels and leaves the deployment
+panels alone. Click a pill to invert it, or × to remove it. Pills are kept
+in the URL (`f=`), so a filtered view can be shared. Fields about people
+(author, reviewer, assignee and the like) are not offered: Teleplot has no
+per-engineer views.
+
+### Compare a selection (BubbleUp)
+
+Charts with a time x axis have a **Compare** button. With it on, a drag
+selects a box instead of zooming: a time range, and on a scatter or a
+heatmap of log-histogram rows, a range of values too. Teleplot then
+compares the documents in the box with all of the panel's documents (under
+the same filters):
+
+- **What sets them apart:** each keyword-like field, ranked by how differently its values are spread, half the summed differences in share (0% the same, 100% nothing in common). For example, "data: 54% of the selection, 13% overall".
+- **Medians:** each numeric field's median in the selection and overall.
+- **Left out:** fields about people (never ranked), and fields with more than 30 values (IDs).
+
+On the seeded data, a box around the slow PRs on the cycle-time scatter
+shows that they come mostly from the data and experiments teams, and that
+their pickup, coding and review times are several times the median,
+while their size is not different. With fewer than 10 documents selected
+(or the dashboard's `min_samples`), the panel warns that differences may be
+chance. Compare does not work on ES|QL panels.

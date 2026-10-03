@@ -44,6 +44,41 @@ pub struct DataRequest {
     /// Control selections: control id → values.
     #[serde(default)]
     pub selections: HashMap<String, Vec<String>>,
+    /// Ad-hoc filter pills the viewer added.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub filters: Vec<AdHocFilter>,
+}
+
+/// A filter pill the viewer added: `field` is one of `values` (or, with
+/// `negate`, none of them). It narrows the panels whose data has the field.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+pub struct AdHocFilter {
+    pub field: String,
+    pub values: Vec<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub negate: bool,
+}
+
+impl AdHocFilter {
+    /// As a filter pill (`terms` on the field).
+    pub fn to_filter(&self) -> super::Filter {
+        super::Filter {
+            label: None,
+            field: Some(self.field.clone()),
+            negate: self.negate,
+            disabled: false,
+            query: serde_json::json!({ "terms": { &self.field: self.values } }),
+        }
+    }
+}
+
+/// `GET /api/dashboards/{id}/fields`: fields an ad-hoc filter can use.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+pub struct FieldList {
+    /// Name and Elasticsearch types, sorted by name.
+    pub fields: Vec<(String, Vec<String>)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -100,4 +135,70 @@ pub struct ControlValues {
 #[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct ApiError {
     pub error: String,
+}
+
+/// `POST /api/dashboards/{id}/panels/{panel}/compare`: how a selection on a
+/// scatter or heatmap differs from the rest of the panel's documents.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+pub struct CompareRequest {
+    #[serde(flatten)]
+    pub request: DataRequest,
+    pub selection: Selection,
+}
+
+/// A box on a chart: an x range (epoch ms on a time axis) and an optional
+/// value range on y. Missing ends are open.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+pub struct Selection {
+    pub x: (f64, f64),
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y: Option<(Option<f64>, Option<f64>)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+pub struct Comparison {
+    /// Documents in the selection, and in the whole panel (the baseline).
+    pub selected: u64,
+    pub baseline: u64,
+    /// Fields whose values are spread differently in the selection, most
+    /// different first.
+    pub fields: Vec<FieldDiff>,
+    /// Numeric fields whose median differs, most different first.
+    pub measures: Vec<MeasureDiff>,
+    /// Fields left out, and why (people, IDs, too many values).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skipped: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+pub struct FieldDiff {
+    pub field: String,
+    /// How differently the values are spread: half the summed differences
+    /// in share, 0 (the same) to 1 (nothing in common).
+    pub score: f64,
+    /// The values whose share changed most, over-represented first.
+    pub values: Vec<ValueDiff>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+pub struct ValueDiff {
+    pub value: String,
+    pub selected: u64,
+    pub baseline: u64,
+    /// Share of the selection (0–1), and of the baseline.
+    pub selected_share: f64,
+    pub baseline_share: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+pub struct MeasureDiff {
+    pub field: String,
+    pub selected_median: f64,
+    pub baseline_median: f64,
 }

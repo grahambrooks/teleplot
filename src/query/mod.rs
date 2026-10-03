@@ -48,6 +48,8 @@ pub struct Context<'a> {
     pub filters: &'a [Filter],
     /// Values chosen in dashboard controls, per field.
     pub selections: &'a [(String, Vec<String>)],
+    /// Ad-hoc filter pills: applied only where the index has their field.
+    pub adhoc: &'a [Filter],
     /// Fields of each index pattern, from `_field_caps`.
     pub fields: &'a HashMap<String, Vec<Field>>,
     /// Min/max per (layer, column) for auto-interval histograms; see [`stats_searches`].
@@ -114,6 +116,7 @@ pub fn terms_search(
             filter.push(f.query.clone())
         }
     }
+    adhoc(ctx, &fields, &mut filter, &mut must_not);
     for (f, values) in ctx.selections.iter().filter(|(_, v)| !v.is_empty()) {
         filter.push(json!({ "terms": { f: values } }));
     }
@@ -486,6 +489,7 @@ fn annotation_search(
                 filter.push(f.query.clone())
             }
         }
+        adhoc(ctx, &fields, &mut filter, &mut must_not);
         // A control on a field these documents don't have would hide them all.
         for (field, values) in ctx.selections.iter().filter(|(_, v)| !v.is_empty()) {
             if fields.is_empty() || fields.iter().any(|f| &f.name == field) {
@@ -857,6 +861,12 @@ fn shift_ms(shift: Option<&str>, range: Range) -> Result<i64, String> {
     }
 }
 
+/// The query for a layer's documents over the context's range: everything
+/// that narrows them (time, queries, filters, controls).
+pub fn layer_query(chart: &Chart, layer: &Layer, ctx: &Context) -> Result<Value, String> {
+    base_query(chart, layer, ctx, ctx.range)
+}
+
 /// Everything that restricts the documents a layer sees.
 fn base_query(chart: &Chart, layer: &Layer, ctx: &Context, range: Range) -> Result<Value, String> {
     let fields = fields(ctx, &layer.data_view);
@@ -888,10 +898,30 @@ fn base_query(chart: &Chart, layer: &Layer, ctx: &Context, range: Range) -> Resu
             filter.push(f.query.clone())
         }
     }
+    adhoc(ctx, &fields, &mut filter, &mut must_not);
     for (field, values) in ctx.selections.iter().filter(|(_, v)| !v.is_empty()) {
         filter.push(json!({ "terms": { field: values } }));
     }
     Ok(json!({ "bool": { "filter": filter, "must_not": must_not } }))
+}
+
+/// The viewer's ad-hoc filter pills, for an index with these fields. A pill
+/// on a field the index doesn't have is skipped, so it narrows the panels it
+/// is about and leaves the others alone.
+fn adhoc(ctx: &Context, fields: &[Field], filter: &mut Vec<Value>, must_not: &mut Vec<Value>) {
+    for f in ctx.adhoc.iter().filter(|f| !f.disabled) {
+        let applies = match &f.field {
+            Some(name) => fields.is_empty() || fields.iter().any(|field| &field.name == name),
+            None => true,
+        };
+        if applies {
+            if f.negate {
+                must_not.push(f.query.clone());
+            } else {
+                filter.push(f.query.clone());
+            }
+        }
+    }
 }
 
 /// A query bar's DSL, or `None` when empty.
@@ -1703,6 +1733,7 @@ mod tests {
             queries: &queries,
             filters: &[],
             selections,
+            adhoc: &[],
             fields: &fields,
             stats: &stats,
             settings: Settings::default(),
