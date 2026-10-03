@@ -201,11 +201,23 @@ fn DashboardView(dashboard: Dashboard) -> impl IntoView {
     let dark = use_context::<RwSignal<bool>>()
         .map(Signal::from)
         .unwrap_or_else(|| Signal::stored(true));
+    // Clicking a team (or any value of a field with a control) selects it.
+    let controls_for_drill = dashboard.with_value(|d| d.controls.clone());
+    let drill_fields: Vec<String> = controls_for_drill.iter().map(|c| c.field.clone()).collect();
+    let drill = Callback::new(move |(field, value): (String, String)| {
+        if let Some(c) = controls_for_drill.iter().find(|c| c.field == field) {
+            set_control.run((c.id.clone(), vec![value]));
+        }
+    });
+    let min_samples = dashboard.with_value(|d| d.min_samples);
     let ctx = PanelContext {
         time_zone,
         sync_key: id.clone(),
         on_zoom,
         dark,
+        min_samples,
+        drill_fields,
+        drill,
     };
 
     let panels = dashboard.with_value(|d| d.panels.clone());

@@ -84,6 +84,7 @@ pub fn convert(export: &Export, attrs: &Value, refs: &[Reference]) -> Result<Cha
             data_view,
             columns,
             encoding,
+            documents: None,
         });
     }
     if layers.is_empty() {
@@ -223,7 +224,7 @@ fn columns(layer: &Value, encoding: &Encoding) -> Result<Vec<Column>, String> {
     }
 
     // Columns only consumed by others (formula parts) are helpers.
-    let drawn: HashSet<&str> = encoded(encoding);
+    let drawn: HashSet<&str> = encoding.columns().into_iter().collect();
     let consumed: HashSet<String> = columns
         .iter()
         .flat_map(|c| c.op.inputs())
@@ -233,36 +234,6 @@ fn columns(layer: &Value, encoding: &Encoding) -> Result<Vec<Column>, String> {
         c.helper = consumed.contains(&c.id) && !drawn.contains(c.id.as_str());
     }
     Ok(columns)
-}
-
-fn encoded(encoding: &Encoding) -> HashSet<&str> {
-    let mut ids: Vec<&str> = Vec::new();
-    match encoding {
-        Encoding::Xy { x, y, split, .. } => {
-            ids.extend(x.as_deref());
-            ids.extend(y.iter().map(String::as_str));
-            ids.extend(split.as_deref());
-        }
-        Encoding::Metric {
-            value,
-            secondary,
-            max,
-            breakdown,
-        } => {
-            ids.push(value);
-            ids.extend(
-                [secondary, max, breakdown]
-                    .into_iter()
-                    .flatten()
-                    .map(String::as_str),
-            );
-        }
-        Encoding::Pie { groups, values } => {
-            ids.extend(groups.iter().chain(values).map(String::as_str))
-        }
-        Encoding::Table { columns } => ids.extend(columns.iter().map(String::as_str)),
-    }
-    ids.into_iter().collect()
 }
 
 /// One Lens column. `None` for the `math` columns a formula absorbs.
@@ -422,6 +393,7 @@ fn column(id: &str, c: &Value, all: &Map<String, Value>) -> Result<Option<Column
         time_shift: str_field(c, "timeShift").map(String::from),
         format: format(&params["format"]),
         helper: false,
+        thresholds: Vec::new(),
     }))
 }
 

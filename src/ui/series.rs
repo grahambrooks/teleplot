@@ -1,12 +1,22 @@
 //! Turning layer tables into chart series.
 
-use crate::model::{Cell, Chart, Encoding, Format, LayerData, Operation, PanelData, SeriesType};
+use crate::model::{
+    Cell, Chart, Column, Encoding, Format, Layer, LayerData, Operation, PanelData, SeriesType,
+    Threshold,
+};
 
 /// What an XY chart draws.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Xy {
     pub x: XAxis,
     pub series: Vec<XySeries>,
+    /// Benchmark bands to shade behind the left axis.
+    pub thresholds: Vec<Threshold>,
+    /// Per x position: too few documents to trust (shaded on the chart).
+    pub low_sample: Vec<bool>,
+    /// A filled band between two series (indices into `series`).
+    pub band: Option<(usize, usize)>,
+    pub log_scale: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -38,6 +48,17 @@ pub struct XySeries {
     pub kind: SeriesType,
     pub values: Vec<Option<f64>>,
     pub format: Option<Format>,
+    pub style: Style,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Style {
+    #[default]
+    Normal,
+    /// Points only (scatter).
+    Points,
+    /// An edge of a filled band: no line of its own.
+    BandEdge,
 }
 
 impl SeriesType {
@@ -100,7 +121,7 @@ pub fn cell_text(cell: &Cell) -> String {
 }
 
 /// Pivots every XY layer into series over one shared x axis.
-pub fn xy(chart: &Chart, data: &PanelData) -> Xy {
+pub fn xy(chart: &Chart, data: &PanelData, min_samples: Option<u32>) -> Xy {
     // The x axis kind comes from the first layer with an x column.
     let x_kind = chart.layers.iter().find_map(|l| match &l.encoding {
         Encoding::Xy { x: Some(x), .. } => l.column(x).map(|c| match c.op {
@@ -116,6 +137,9 @@ pub fn xy(chart: &Chart, data: &PanelData) -> Xy {
         x: Cell,
         series: usize,
         value: Option<f64>,
+        count: Option<f64>,
+        /// (layer, row) — a row's documents count once.
+        row: Option<(usize, usize)>,
     }
     let mut series: Vec<XySeries> = Vec::new();
     let mut points: Vec<Point> = Vec::new();
@@ -157,6 +181,7 @@ pub fn xy(chart: &Chart, data: &PanelData) -> Xy {
                             kind: *kind,
                             values: Vec::new(),
                             format: format.clone(),
+                            style: Style::Normal,
                         });
                         series.len() - 1
                     }
@@ -165,6 +190,8 @@ pub fn xy(chart: &Chart, data: &PanelData) -> Xy {
                     x: xs[row].clone(),
                     series: index,
                     value: ys[row].number(),
+                    count: layer_data.counts.get(row).copied(),
+                    row: Some((i, row)),
                 });
             }
         }
@@ -196,6 +223,10 @@ pub fn xy(chart: &Chart, data: &PanelData) -> Xy {
     for s in &mut series {
         s.values = vec![None; x.len()];
     }
+    // A bucket's sample is everything in it, across its breakdown (and
+    // counted once per row, not once per y column).
+    let mut totals: Vec<Option<f64>> = vec![None; x.len()];
+    let mut counted = std::collections::HashSet::new();
     for p in points {
         let slot = match &x {
             XAxis::Time(keys) | XAxis::Numeric(keys) => {
@@ -205,9 +236,183 @@ pub fn xy(chart: &Chart, data: &PanelData) -> Xy {
         };
         if let Some(slot) = slot {
             series[p.series].values[slot] = p.value;
+            if let (Some(n), Some(row)) = (p.count, p.row)
+                && counted.insert(row)
+            {
+                *totals[slot].get_or_insert(0.0) += n;
+            }
         }
     }
-    Xy { x, series }
+    let low_sample = totals
+        .iter()
+        .map(|t| matches!((min_samples, t), (Some(min), Some(n)) if *n < min as f64))
+        .collect();
+    let thresholds = chart
+        .layers
+        .iter()
+        .find_map(|l| match &l.encoding {
+            Encoding::Xy { y, .. } => y
+                .iter()
+                .filter_map(|id| l.column(id))
+                .find(|c| !c.thresholds.is_empty()),
+            _ => None,
+        })
+        .map(|c| c.thresholds.clone())
+        .unwrap_or_default();
+    Xy {
+        x,
+        series,
+        thresholds,
+        low_sample,
+        band: None,
+        log_scale: false,
+    }
+}
+
+fn label(column: Option<&Column>, fallback: &str) -> String {
+    column
+        .and_then(|c| c.label.clone())
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+fn numbers(layer: &LayerData, id: &str) -> Vec<Option<f64>> {
+    layer
+        .series(id)
+        .map(|s| s.values.iter().map(Cell::number).collect())
+        .unwrap_or_default()
+}
+
+/// A median line inside a shaded low–high band, e.g. p25–p75.
+pub fn band(chart: &Chart, data: &PanelData, min_samples: Option<u32>) -> Xy {
+    let (Some(layer), Some(d)) = (chart.layers.first(), data.layers.first()) else {
+        return empty();
+    };
+    let Encoding::Band { x, low, mid, high } = &layer.encoding else {
+        return empty();
+    };
+    let xs: Vec<f64> = numbers(d, x)
+        .into_iter()
+        .map(|v| v.unwrap_or_default())
+        .collect();
+    let series = |id: &str, style| {
+        let column = layer.column(id);
+        XySeries {
+            label: label(column, id),
+            kind: SeriesType::Line,
+            values: numbers(d, id),
+            format: column.and_then(|c| c.format.clone()),
+            style,
+        }
+    };
+    let low_sample = match min_samples {
+        Some(min) => d.counts.iter().map(|n| *n < min as f64).collect(),
+        None => vec![false; xs.len()],
+    };
+    Xy {
+        x: XAxis::Time(xs),
+        series: vec![
+            series(low, Style::BandEdge),
+            series(mid, Style::Normal),
+            series(high, Style::BandEdge),
+        ],
+        thresholds: layer
+            .column(mid)
+            .map(|c| c.thresholds.clone())
+            .unwrap_or_default(),
+        low_sample,
+        band: Some((0, 2)),
+        log_scale: false,
+    }
+}
+
+/// One point per document, with an optional trend line. Points are split
+/// into one series per `split` value when given.
+pub fn scatter(chart: &Chart, data: &PanelData) -> Xy {
+    let (Some(layer), Some(d)) = (chart.layers.first(), data.layers.first()) else {
+        return empty();
+    };
+    let Encoding::Scatter {
+        x,
+        y,
+        split,
+        trend,
+        log_scale,
+    } = &layer.encoding
+    else {
+        return empty();
+    };
+    let xs: Vec<f64> = numbers(d, x)
+        .into_iter()
+        .map(|v| v.unwrap_or_default())
+        .collect();
+    let ys = numbers(d, y);
+    let y_column = layer.column(y);
+    let format = y_column.and_then(|c| c.format.clone());
+    let mut series: Vec<XySeries> = Vec::new();
+    let groups: Vec<String> = match split.as_deref().and_then(|s| d.series(s)) {
+        Some(s) => s.values.iter().map(cell_text).collect(),
+        None => vec![label(y_column, y); xs.len()],
+    };
+    for (i, group) in groups.iter().enumerate() {
+        let index = match series.iter().position(|s| s.label == *group) {
+            Some(n) => n,
+            None => {
+                series.push(XySeries {
+                    label: group.clone(),
+                    kind: SeriesType::Line,
+                    values: vec![None; xs.len()],
+                    format: format.clone(),
+                    style: Style::Points,
+                });
+                series.len() - 1
+            }
+        };
+        series[index].values[i] = ys[i];
+    }
+    if let Some(t) = trend {
+        series.push(XySeries {
+            label: label(layer.column(t), t),
+            kind: SeriesType::Line,
+            values: numbers(d, t),
+            format: format.clone(),
+            style: Style::Normal,
+        });
+    }
+    let time = matches!(layer.column(x).map(|c| &c.op), Some(Operation::Value { field }) if layer.data_view.time_field.as_ref() == Some(field));
+    let n = xs.len();
+    Xy {
+        x: if time {
+            XAxis::Time(xs)
+        } else {
+            XAxis::Numeric(xs)
+        },
+        series,
+        thresholds: y_column.map(|c| c.thresholds.clone()).unwrap_or_default(),
+        low_sample: vec![false; n],
+        band: None,
+        log_scale: *log_scale,
+    }
+}
+
+fn empty() -> Xy {
+    Xy {
+        x: XAxis::Time(Vec::new()),
+        series: Vec::new(),
+        thresholds: Vec::new(),
+        low_sample: Vec::new(),
+        band: None,
+        log_scale: false,
+    }
+}
+
+/// The benchmark band a value falls in.
+pub fn threshold_for(thresholds: &[Threshold], v: f64) -> Option<(usize, &Threshold)> {
+    thresholds.iter().enumerate().find(|(_, t)| t.contains(v))
+}
+
+/// The layer a chart is drawn from, for single-layer panels.
+pub fn first_layer(chart: &Chart) -> Option<&Layer> {
+    chart.layers.first()
 }
 
 /// Values as drawn: stacked series accumulate (in order), percentage
@@ -264,6 +469,7 @@ mod tests {
             time_shift: None,
             format: None,
             helper: false,
+            thresholds: Vec::new(),
         }
     }
 
@@ -311,6 +517,7 @@ mod tests {
                     y: vec!["y".into()],
                     split: split.then(|| "s".into()),
                 },
+                documents: None,
             }],
         }
     }
@@ -321,6 +528,7 @@ mod tests {
             layers: vec![LayerData {
                 layer: "l".into(),
                 rows,
+                counts: Vec::new(),
                 columns: columns
                     .into_iter()
                     .map(|(id, values)| Series {
@@ -343,7 +551,7 @@ mod tests {
             ("x", vec![N(1.0), N(2.0), N(2.0)]),
             ("y", vec![N(10.0), N(20.0), N(5.0)]),
         ]);
-        let xy = xy(&chart(true), &d);
+        let xy = xy(&chart(true), &d, None);
         assert_eq!(xy.x, XAxis::Time(vec![1.0, 2.0]));
         assert_eq!(xy.series.len(), 2);
         assert_eq!(xy.series[0].label, "a");
@@ -362,6 +570,6 @@ mod tests {
     #[test]
     fn unsplit_series_use_the_column_label() {
         let d = data(vec![("x", vec![N(1.0)]), ("y", vec![N(3.0)])]);
-        assert_eq!(xy(&chart(false), &d).series[0].label, "Y");
+        assert_eq!(xy(&chart(false), &d, None).series[0].label, "Y");
     }
 }

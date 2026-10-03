@@ -17,6 +17,9 @@ pub struct LayerData {
     pub rows: usize,
     /// One series per drawn column (helpers omitted), in layer order.
     pub columns: Vec<Series>,
+    /// Documents behind each row (aggregating layers), for small-sample warnings.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub counts: Vec<f64>,
     /// Set when the layer's query failed; `columns` is then empty.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,

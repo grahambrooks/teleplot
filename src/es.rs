@@ -76,7 +76,7 @@ impl Client {
             body.push('\n');
         }
         let url = format!(
-            "{}/_msearch?filter_path=responses.aggregations,responses.error,responses.status,responses.hits.total",
+            "{}/_msearch?filter_path=responses.aggregations,responses.error,responses.status,responses.hits.total,responses.hits.hits.fields",
             self.base
         );
         let response = self

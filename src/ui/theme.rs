@@ -44,3 +44,11 @@ fn css_var(name: &str, fallback: &str) -> String {
 fn css_var(_name: &str, fallback: &str) -> String {
     fallback.to_string()
 }
+
+/// A benchmark band's colour: its own, or green → blue → orange → red by position.
+pub fn threshold_color(t: &crate::model::Threshold, index: usize) -> String {
+    const DEFAULT: [&str; 4] = ["#73BF69", "#5794F2", "#FF9830", "#F2495C"];
+    t.color
+        .clone()
+        .unwrap_or_else(|| DEFAULT[index.min(DEFAULT.len() - 1)].to_string())
+}

@@ -66,6 +66,7 @@ fn dashboard(export: &Export, object: &objects::SavedObject) -> Dashboard {
         query: search::query(&source["query"]),
         filters: search::filters(&source["filter"]),
         controls: controls(export, object),
+        min_samples: None,
         panels,
     }
 }

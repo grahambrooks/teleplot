@@ -64,6 +64,9 @@ pub fn computed_columns(
             Operation::Overall { of, function } => {
                 overall(&numbers(&columns[of]), &partition, *function)
             }
+            Operation::RollingMedian { of, window } => {
+                rolling_median(&numbers(&columns[of]), &partition, *window as usize)
+            }
             other => return Err(format!("{other:?} is not computed")),
         };
         columns.insert(column.id.clone(), values);
@@ -96,6 +99,32 @@ fn moving_average(values: &[Option<f64>], partition: &[String], window: usize) -
                 }
             }
             out.into()
+        })
+        .collect()
+}
+
+/// Median of the last `window` values (this row's included) per partition.
+/// Empty cells contribute nothing and get no value.
+fn rolling_median(values: &[Option<f64>], partition: &[String], window: usize) -> Vec<Cell> {
+    let mut recent: HashMap<&str, Vec<f64>> = HashMap::new();
+    values
+        .iter()
+        .zip(partition)
+        .map(|(value, key)| {
+            let Some(v) = value else { return Cell::Null };
+            let last = recent.entry(key.as_str()).or_default();
+            last.push(*v);
+            if last.len() > window.max(1) {
+                last.remove(0);
+            }
+            let mut sorted = last.clone();
+            sorted.sort_by(f64::total_cmp);
+            let mid = sorted.len() / 2;
+            Cell::Number(if sorted.len().is_multiple_of(2) {
+                (sorted[mid - 1] + sorted[mid]) / 2.0
+            } else {
+                sorted[mid]
+            })
         })
         .collect()
 }
@@ -250,6 +279,15 @@ mod tests {
         assert_eq!(
             moving_average(&values, &one_partition(5), 2),
             cells(&[None, Some(2.0), None, Some(3.0), Some(5.0)])
+        );
+    }
+
+    #[test]
+    fn rolling_median_uses_the_last_window_values() {
+        let values = [Some(5.0), Some(1.0), Some(9.0), None, Some(3.0)];
+        assert_eq!(
+            rolling_median(&values, &one_partition(5), 3),
+            cells(&[Some(5.0), Some(3.0), Some(5.0), None, Some(3.0)])
         );
     }
 

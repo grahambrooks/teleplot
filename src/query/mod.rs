@@ -154,6 +154,15 @@ struct LayerPlan {
 struct Built {
     buckets: Vec<BucketSpec>,
     groups: Vec<ShiftGroup>,
+    /// Set for document layers: which field fills which column.
+    documents: Option<Vec<DocField>>,
+}
+
+#[derive(Debug)]
+struct DocField {
+    column: String,
+    field: String,
+    date: bool,
 }
 
 #[derive(Debug)]
@@ -265,6 +274,9 @@ fn build_layer(
     let kql_options = kql::Options {
         time_zone: Some(ctx.time_zone.to_string()),
     };
+    if let Some(docs) = &layer.documents {
+        return build_documents(chart, layer, docs, ctx, &fields);
+    }
 
     // Bucket aggregations, outermost first. A date histogram's interval
     // depends on the range, which is the same for every shift group.
@@ -353,7 +365,80 @@ fn build_layer(
             },
         });
     }
-    Ok(Built { buckets, groups })
+    Ok(Built {
+        buckets,
+        groups,
+        documents: None,
+    })
+}
+
+/// A layer of individual documents: their field values, newest first up to
+/// the limit (they are put back in ascending order when read).
+fn build_documents(
+    chart: &Chart,
+    layer: &Layer,
+    docs: &crate::model::Documents,
+    ctx: &Context,
+    fields: &[Field],
+) -> Result<Built, String> {
+    let is_date = |name: &str| {
+        fields
+            .iter()
+            .any(|f| f.name == name && f.es_types.iter().all(|t| t == "date" || t == "date_nanos"))
+    };
+    let mut doc_fields = Vec::new();
+    for column in &layer.columns {
+        match &column.op {
+            Operation::Value { field } => doc_fields.push(DocField {
+                column: column.id.clone(),
+                field: field.clone(),
+                date: is_date(field),
+            }),
+            op if op.inputs().is_empty() => {
+                return Err(format!(
+                    "column {} aggregates, so it cannot be in a document layer",
+                    column.id
+                ));
+            }
+            _ => {}
+        }
+    }
+    let requested: Vec<Value> = doc_fields
+        .iter()
+        .map(|d| {
+            if d.date {
+                json!({ "field": d.field, "format": "epoch_millis" })
+            } else {
+                json!(d.field)
+            }
+        })
+        .collect();
+    let mut query = base_query(chart, layer, ctx, ctx.range)?;
+    if let Some(filter) = query["bool"]["filter"].as_array_mut() {
+        for d in &doc_fields {
+            filter.push(json!({ "exists": { "field": d.field } }));
+        }
+    }
+    let body = json!({
+        "size": docs.limit,
+        "track_total_hits": false,
+        "query": query,
+        "sort": [{ docs.sort.clone(): { "order": "desc" } }],
+        "_source": false,
+        "fields": requested,
+    });
+    Ok(Built {
+        buckets: Vec::new(),
+        groups: vec![ShiftGroup {
+            shift_ms: 0,
+            metrics: Vec::new(),
+            search: Search {
+                index: layer.data_view.index.clone(),
+                body,
+            },
+        }],
+        documents: Some(doc_fields),
+    })
 }
 
 fn fields(ctx: &Context, view: &DataView) -> Vec<Field> {
@@ -682,6 +767,9 @@ fn evaluate_layer(
     built: &Built,
     responses: &[Option<&Result<Value, String>>],
 ) -> Result<LayerData, String> {
+    if let Some(doc_fields) = &built.documents {
+        return evaluate_documents(plan, doc_fields, responses.first().copied().flatten());
+    }
     let mut tables = Vec::new();
     for (group, response) in built.groups.iter().zip(responses) {
         let response = response
@@ -752,6 +840,56 @@ fn evaluate_layer(
         layer: plan.layer.id.clone(),
         rows: n,
         columns: series,
+        counts: main_rows.iter().map(|r| r.count).collect(),
+        error: None,
+    })
+}
+
+fn evaluate_documents(
+    plan: &LayerPlan,
+    doc_fields: &[DocField],
+    response: Option<&Result<Value, String>>,
+) -> Result<LayerData, String> {
+    let response = response
+        .ok_or("missing response")?
+        .as_ref()
+        .map_err(Clone::clone)?;
+    let mut hits = response["hits"]["hits"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    hits.reverse(); // fetched newest first; shown oldest first
+    let n = hits.len();
+    let mut columns: HashMap<String, Vec<Cell>> = HashMap::new();
+    for d in doc_fields {
+        let values = hits
+            .iter()
+            .map(|hit| match &hit["fields"][&d.field][0] {
+                Value::Number(v) => v.as_f64().map_or(Cell::Null, Cell::Number),
+                Value::String(s) if d.date => s.parse::<f64>().map_or(Cell::Null, Cell::Number),
+                Value::String(s) => Cell::Text(s.clone()),
+                Value::Bool(b) => Cell::Text(b.to_string()),
+                _ => Cell::Null,
+            })
+            .collect();
+        columns.insert(d.column.clone(), values);
+    }
+    compute::computed_columns(&plan.layer, &[], n, &mut columns)?;
+    let series = plan
+        .layer
+        .columns
+        .iter()
+        .filter(|c| !c.helper)
+        .map(|c| Series {
+            id: c.id.clone(),
+            values: columns.remove(&c.id).unwrap_or_else(|| vec![Cell::Null; n]),
+        })
+        .collect();
+    Ok(LayerData {
+        layer: plan.layer.id.clone(),
+        rows: n,
+        columns: series,
+        counts: Vec::new(),
         error: None,
     })
 }
@@ -780,6 +918,8 @@ fn key_of(keys: &[Cell], specs: &[BucketSpec], shift_ms: i64) -> Vec<String> {
 struct Row {
     keys: Vec<Cell>,
     values: Vec<Cell>,
+    /// Documents in the innermost bucket.
+    count: f64,
 }
 
 /// Walks nested buckets depth-first, emitting a row per innermost bucket.
@@ -796,6 +936,7 @@ fn flatten(
         rows.push(Row {
             keys: keys.clone(),
             values,
+            count: agg["doc_count"].as_f64().unwrap_or(0.0),
         });
         return;
     }

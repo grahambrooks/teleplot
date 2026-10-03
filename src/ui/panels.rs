@@ -3,10 +3,10 @@
 use leptos::prelude::*;
 
 use super::format;
-use super::series::{self, XAxis, cell_text};
-use super::theme::palette;
+use super::series::{self, XAxis, cell_text, threshold_for};
+use super::theme::{palette, threshold_color};
 use crate::model::{
-    Cell, Chart, ChartKind, Column, Encoding, Operation, Panel, PanelContent, PanelData,
+    Cell, Chart, ChartKind, Column, Encoding, Layer, Operation, Panel, PanelContent, PanelData,
     Placeholder, PlaceholderReason,
 };
 
@@ -21,6 +21,26 @@ pub struct PanelContext {
     /// A drag-selected time range, epoch ms.
     pub on_zoom: Callback<(f64, f64)>,
     pub dark: Signal<bool>,
+    /// Buckets with fewer documents are flagged as unreliable.
+    pub min_samples: Option<u32>,
+    /// Fields that have a dashboard control: clicking one of their values
+    /// focuses the dashboard on it.
+    pub drill_fields: Vec<String>,
+    pub drill: Callback<(String, String)>,
+}
+
+impl PanelContext {
+    /// The field a click on this bucket column should drill into, if any.
+    fn drill_field(&self, column: Option<&Column>) -> Option<String> {
+        match column.map(|c| &c.op) {
+            Some(Operation::Terms { fields, .. })
+                if fields.len() == 1 && self.drill_fields.contains(&fields[0]) =>
+            {
+                Some(fields[0].clone())
+            }
+            _ => None,
+        }
+    }
 }
 
 #[component]
@@ -104,21 +124,51 @@ fn ChartBody(chart: Chart, data: Signal<Option<PanelData>>, ctx: PanelContext) -
             return view! { <div class="no-data">"No results"</div> }.into_any();
         }
         let c = chart.get_value();
-        match c.kind {
-            ChartKind::Metric => view! { <MetricTiles chart=c data=d/> }.into_any(),
-            ChartKind::Pie | ChartKind::Donut => {
+        let min = ctx.min_samples;
+        match (c.kind, c.layers.first().map(|l| &l.encoding)) {
+            (ChartKind::Metric, _) => {
+                view! { <MetricTiles chart=c data=d ctx=ctx.clone()/> }.into_any()
+            }
+            (ChartKind::Pie | ChartKind::Donut, _) => {
                 view! { <PieChart chart=c data=d ctx=ctx.clone()/> }.into_any()
             }
-            ChartKind::Table => view! { <DataTable chart=c data=d ctx=ctx.clone()/> }.into_any(),
-            ChartKind::Xy => {
-                let xy = series::xy(&c, &d);
+            (ChartKind::Table, _) => {
+                view! { <DataTable chart=c data=d ctx=ctx.clone()/> }.into_any()
+            }
+            (_, Some(Encoding::Band { .. })) => {
+                let xy = series::band(&c, &d, min);
+                let note = low_sample_note(&xy, min);
+                view! { <TimeChart xy ctx=ctx.clone()/>{note} }.into_any()
+            }
+            (_, Some(Encoding::Scatter { .. })) => {
+                view! { <TimeChart xy=series::scatter(&c, &d) ctx=ctx.clone()/> }.into_any()
+            }
+            _ => {
+                let xy = series::xy(&c, &d, min);
                 match xy.x {
-                    XAxis::Category(_) => view! { <CategoryBars xy/> }.into_any(),
-                    _ => view! { <TimeChart xy ctx=ctx.clone()/> }.into_any(),
+                    XAxis::Category(_) => {
+                        let drill = c.layers.first().and_then(|l| match &l.encoding {
+                            Encoding::Xy { x: Some(x), .. } => ctx.drill_field(l.column(x)),
+                            _ => None,
+                        });
+                        view! { <CategoryBars xy drill_field=drill ctx=ctx.clone()/> }.into_any()
+                    }
+                    _ => {
+                        let note = low_sample_note(&xy, min);
+                        view! { <TimeChart xy ctx=ctx.clone()/>{note} }.into_any()
+                    }
                 }
             }
         }
     }
+}
+
+/// Says what grey buckets mean, when there are any.
+fn low_sample_note(xy: &series::Xy, min: Option<u32>) -> Option<AnyView> {
+    let min = min?;
+    xy.low_sample.iter().any(|l| *l).then(|| {
+        view! { <div class="chart-note" title="Medians and rates over few documents are noisy">{format!("Shaded: fewer than {min} documents")}</div> }.into_any()
+    })
 }
 
 /// A cell for display, using the column's format and the dashboard time zone for dates.
@@ -152,8 +202,24 @@ fn date(ms: f64, _tz: &str) -> String {
         .unwrap_or_default()
 }
 
+/// Whether a column, or anything it is computed from, is time-shifted.
+fn shifted(layer: &Layer, column: &Column) -> bool {
+    column.time_shift.is_some()
+        || column
+            .op
+            .inputs()
+            .iter()
+            .any(|id| layer.column(id).is_some_and(|c| shifted(layer, c)))
+}
+
+/// Strips time shifts from the comparison so two measures can be compared:
+/// the same operation on both sides (formulas included).
+fn same_measure(a: &Column, b: &Column) -> bool {
+    std::mem::discriminant(&a.op) == std::mem::discriminant(&b.op)
+}
+
 #[component]
-fn MetricTiles(chart: Chart, data: PanelData) -> impl IntoView {
+fn MetricTiles(chart: Chart, data: PanelData, ctx: PanelContext) -> impl IntoView {
     let tiles: Vec<_> = chart
         .layers
         .iter()
@@ -170,6 +236,7 @@ fn MetricTiles(chart: Chart, data: PanelData) -> impl IntoView {
             };
             let value_col = layer.column(value)?;
             let secondary_col = secondary.as_deref().and_then(|s| layer.column(s));
+            let min = ctx.min_samples;
             Some((0..d.rows).map(move |row| {
                 let v = d
                     .series(value)
@@ -185,9 +252,11 @@ fn MetricTiles(chart: Chart, data: PanelData) -> impl IntoView {
                         .series(&col.id)
                         .and_then(|s| s.values.get(row).cloned())
                         .unwrap_or(Cell::Null);
-                    (col.clone(), s)
+                    let comparable = shifted(layer, col) && same_measure(col, value_col);
+                    (col.clone(), s, comparable)
                 });
-                metric_tile(label, &v, value_col, second)
+                let count = d.counts.get(row).copied();
+                metric_tile(label, &v, value_col, second, count, min)
             }))
         })
         .flatten()
@@ -199,22 +268,28 @@ fn metric_tile(
     label: Option<String>,
     value: &Cell,
     column: &Column,
-    secondary: Option<(Column, Cell)>,
+    secondary: Option<(Column, Cell, bool)>,
+    count: Option<f64>,
+    min_samples: Option<u32>,
 ) -> AnyView {
     let main = match value {
         Cell::Number(n) => format::value(*n, column.format.as_ref()),
         other => cell_text(other),
     };
-    let compare = secondary.map(|(col, cell)| {
+    let band = value
+        .number()
+        .and_then(|v| threshold_for(&column.thresholds, v))
+        .map(|(i, t)| {
+            let style = format!("background:{}", threshold_color(t, i));
+            view! { <span class="badge" style=style>{t.label.clone()}</span> }
+        });
+    let compare = secondary.map(|(col, cell, comparable)| {
         let shown = match &cell {
-            // A time-shifted count beside a formula shares its format only if it has one.
             Cell::Number(n) => format::value(*n, col.format.as_ref()),
+            Cell::Null => "–".to_string(),
             other => cell_text(other),
         };
-        // A change is only meaningful between the same measure, shifted in
-        // time (a count per week beside a raw count is not).
-        let same_measure = std::mem::discriminant(&col.op) == std::mem::discriminant(&column.op);
-        let delta = match (value.number(), cell.number(), col.time_shift.is_some() && same_measure) {
+        let delta = match (value.number(), cell.number(), comparable) {
             (Some(now), Some(before), true) => format::change(now, before),
             _ => None,
         };
@@ -223,17 +298,29 @@ fn metric_tile(
                 <span class="muted">{col.label.unwrap_or_default()}" "</span>
                 <span>{shown}</span>
                 {delta.map(|d| {
-                    let (arrow, class) = if d >= 0.0 { ("▲", "delta up") } else { ("▼", "delta down") };
-                    view! { <span class=class>{format!(" {arrow} {:.1}%", d.abs())}</span> }
+                    let arrow = if d >= 0.0 { "▲" } else { "▼" };
+                    view! { <span class="delta">{format!(" {arrow} {:.1}%", d.abs())}</span> }
                 })}
             </div>
         }
     });
+    // Medians and rates over a handful of documents mislead: say so.
+    let low = matches!((count, min_samples), (Some(n), Some(min)) if n < min as f64);
+    let sample = (min_samples.is_some()).then_some(count).flatten().map(|n| {
+        let text = if low {
+            format!("only {n:.0} documents: low sample")
+        } else {
+            format!("n = {}", format::plain(n))
+        };
+        view! { <div class=if low { "sample low" } else { "sample" }>{text}</div> }
+    });
+    let class = if low { "metric low-sample" } else { "metric" };
     view! {
-        <div class="metric">
-            <div class="metric-label">{label}</div>
+        <div class=class>
+            <div class="metric-label">{label}{band}</div>
             <div class="metric-value">{main}</div>
             {compare}
+            {sample}
         </div>
     }
     .into_any()
@@ -242,7 +329,8 @@ fn metric_tile(
 #[component]
 fn PieChart(chart: Chart, data: PanelData, ctx: PanelContext) -> impl IntoView {
     let tz = ctx.time_zone.get_untracked();
-    let slices: Vec<(String, f64)> = chart
+    let mut drill = None;
+    let slices: Vec<(String, Option<String>, f64)> = chart
         .layers
         .iter()
         .zip(&data.layers)
@@ -259,26 +347,28 @@ fn PieChart(chart: Chart, data: PanelData, ctx: PanelContext) -> impl IntoView {
                 .unwrap_or_default();
             let gs = group.and_then(|g| d.series(g)).map(|s| s.values.clone());
             let group_col = group.and_then(|g| layer.column(g));
+            drill = drill.clone().or_else(|| ctx.drill_field(group_col));
             (0..d.rows)
                 .filter_map(|row| {
                     let v = vs.get(row)?.number()?;
+                    let raw = gs.as_ref().map(|g| cell_text(&g[row]));
                     let label = gs
                         .as_ref()
                         .map(|g| display(&g[row], group_col, &tz))
                         .unwrap_or_else(|| "Total".into());
-                    (v > 0.0).then_some((label, v))
+                    (v > 0.0).then_some((label, raw, v))
                 })
                 .collect()
         })
         .collect();
-    let total: f64 = slices.iter().map(|(_, v)| v).sum();
+    let total: f64 = slices.iter().map(|(_, _, v)| v).sum();
     let donut = chart.kind == ChartKind::Donut;
     let colors = palette();
     let mut angle = -std::f64::consts::FRAC_PI_2;
     let paths: Vec<_> = slices
         .iter()
         .enumerate()
-        .map(|(i, (label, v))| {
+        .map(|(i, (label, raw, v))| {
             let sweep = v / total * std::f64::consts::TAU;
             let d = arc(
                 50.0,
@@ -290,13 +380,20 @@ fn PieChart(chart: Chart, data: PanelData, ctx: PanelContext) -> impl IntoView {
             );
             angle += sweep;
             let title = format!("{label}: {} ({:.1}%)", format::plain(*v), v / total * 100.0);
-            view! { <path d=d fill=colors[i % colors.len()]><title>{title}</title></path> }
+            let click = drill.clone().zip(raw.clone());
+            let on_drill = ctx.drill;
+            view! {
+                <path d=d fill=colors[i % colors.len()] class:drillable=click.is_some()
+                    on:click=move |_| if let Some((f, v)) = click.clone() { on_drill.run((f, v)) }>
+                    <title>{title}</title>
+                </path>
+            }
         })
         .collect();
     let legend: Vec<_> = slices
         .iter()
         .enumerate()
-        .map(|(i, (label, v))| {
+        .map(|(i, (label, _, v))| {
             let swatch = format!("background:{}", colors[i % colors.len()]);
             view! {
                 <li>
@@ -339,6 +436,14 @@ fn arc(cx: f64, cy: f64, outer: f64, inner: f64, start: f64, end: f64) -> String
     )
 }
 
+/// One table cell: display text, sort value, and the benchmark band colour.
+#[derive(Clone)]
+struct TableCell {
+    text: String,
+    sort: Option<f64>,
+    band: Option<(String, String)>,
+}
+
 #[component]
 fn DataTable(chart: Chart, data: PanelData, ctx: PanelContext) -> impl IntoView {
     let tz = ctx.time_zone.get_untracked();
@@ -369,14 +474,36 @@ fn DataTable(chart: Chart, data: PanelData, ctx: PanelContext) -> impl IntoView 
                 .is_some_and(|s| s.values.iter().all(|v| !matches!(v, Cell::Text(_))))
         })
         .collect();
-    let rows: Vec<Vec<(String, Option<f64>)>> = (0..d.rows)
+    // The first column that can drill into a dashboard control.
+    let drill: Option<(usize, String)> = ids
+        .iter()
+        .enumerate()
+        .find_map(|(i, id)| ctx.drill_field(layer.column(id)).map(|f| (i, f)));
+    let low: Vec<bool> = (0..d.rows)
+        .map(|row| matches!((d.counts.get(row), ctx.min_samples), (Some(n), Some(min)) if *n < min as f64))
+        .collect();
+    let rows: Vec<(Vec<TableCell>, Option<String>, bool)> = (0..d.rows)
         .map(|row| {
-            ids.iter()
+            let cells: Vec<TableCell> = ids
+                .iter()
                 .map(|id| {
                     let cell = &d.series(id).unwrap().values[row];
-                    (display(cell, layer.column(id), &tz), cell.number())
+                    let column = layer.column(id);
+                    let band = column.zip(cell.number()).and_then(|(c, v)| {
+                        threshold_for(&c.thresholds, v)
+                            .map(|(i, t)| (t.label.clone(), threshold_color(t, i)))
+                    });
+                    TableCell {
+                        text: display(cell, column, &tz),
+                        sort: cell.number(),
+                        band,
+                    }
                 })
-                .collect()
+                .collect();
+            let drill_value = drill
+                .as_ref()
+                .map(|(i, _)| cell_text(&d.series(&ids[*i]).unwrap().values[row]));
+            (cells, drill_value, low[row])
         })
         .collect();
 
@@ -386,9 +513,9 @@ fn DataTable(chart: Chart, data: PanelData, ctx: PanelContext) -> impl IntoView 
         let mut rows = rows.get_value();
         if let Some((col, desc)) = sort.get() {
             rows.sort_by(|a, b| {
-                let ord = match (a[col].1, b[col].1) {
+                let ord = match (a.0[col].sort, b.0[col].sort) {
                     (Some(x), Some(y)) => x.total_cmp(&y),
-                    _ => a[col].0.cmp(&b[col].0),
+                    _ => a.0[col].text.cmp(&b.0[col].text),
                 };
                 if desc { ord.reverse() } else { ord }
             });
@@ -414,16 +541,29 @@ fn DataTable(chart: Chart, data: PanelData, ctx: PanelContext) -> impl IntoView 
         })
         .collect();
     let numeric = StoredValue::new(numeric);
+    let drill_field = drill.map(|(_, f)| f);
+    let on_drill = ctx.drill;
+    let min = ctx.min_samples;
     view! {
         <div class="table-wrap">
             <table class="data-table">
                 <thead><tr>{header_cells}</tr></thead>
                 <tbody>
-                    {move || sorted().into_iter().map(|row| view! {
-                        <tr>{row.into_iter().enumerate().map(|(i, (text, _))| {
-                            let class = if numeric.get_value()[i] { "num" } else { "" };
-                            view! { <td class=class>{text}</td> }
-                        }).collect_view()}</tr>
+                    {move || sorted().into_iter().map(|(cells, drill_value, low)| {
+                        let click = drill_field.clone().zip(drill_value);
+                        let title = (low).then(|| format!("Fewer than {} documents: treat with care", min.unwrap_or_default()));
+                        view! {
+                            <tr class:drillable=click.is_some() class:low-sample=low title=title
+                                on:click=move |_| if let Some((f, v)) = click.clone() { on_drill.run((f, v)) }>
+                                {cells.into_iter().enumerate().map(|(i, cell)| {
+                                    let class = if numeric.get_value()[i] { "num" } else { "" };
+                                    let dot = cell.band.map(|(label, color)| view! {
+                                        <span class="band-dot" style=format!("background:{color}") title=label></span>
+                                    });
+                                    view! { <td class=class>{dot}{cell.text}</td> }
+                                }).collect_view()}
+                            </tr>
+                        }
                     }).collect_view()}
                 </tbody>
             </table>
@@ -434,7 +574,7 @@ fn DataTable(chart: Chart, data: PanelData, ctx: PanelContext) -> impl IntoView 
 
 /// Bars over categories (terms, filters, ranges), drawn with HTML.
 #[component]
-fn CategoryBars(xy: series::Xy) -> impl IntoView {
+fn CategoryBars(xy: series::Xy, drill_field: Option<String>, ctx: PanelContext) -> impl IntoView {
     let XAxis::Category(labels) = &xy.x else {
         return ().into_any();
     };
@@ -486,8 +626,11 @@ fn CategoryBars(xy: series::Xy) -> impl IntoView {
             } else {
                 "cat-track"
             };
+            let click = drill_field.clone().map(|f| (f, label.clone()));
+            let on_drill = ctx.drill;
             view! {
-                <div class="cat-row">
+                <div class="cat-row" class:drillable=click.is_some()
+                    on:click=move |_| if let Some((f, v)) = click.clone() { on_drill.run((f, v)) }>
                     <span class="cat-label" title=label.clone()>{label.clone()}</span>
                     <div class=track>{bars}</div>
                     {horizontal.then(|| view! { <span class="cat-value">{value}</span> })}

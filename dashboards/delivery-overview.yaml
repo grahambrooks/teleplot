@@ -1,0 +1,307 @@
+# Teleplot's native Delivery Overview: DORA's five metrics with benchmark
+# bands and change vs the previous period, distributions instead of
+# averages, and team drill-down. Runs over the dataset written by
+# `cargo run --example seed` (see fixtures/README.md).
+#
+# Benchmark bands are an editable overlay, not a DORA standard: DORA's 2025
+# report dropped the elite/high/medium/low clusters. These follow the 2023
+# DORA levels (as used by Apache DevLake) for lead time and recovery, DORA
+# 2023 for change fail rate, and LinearB's 2026 p75 cycle-time benchmarks.
+id: delivery-overview
+title: Delivery Overview
+description: DORA metrics, cycle time and investment for engineering leaders
+time:
+  from: now-90d/d
+  to: now
+min_samples: 5
+controls:
+  - id: group
+    title: Group
+    field: group
+    data_view: { index: delivery-prs, time_field: merged_at }
+  - id: team
+    title: Team
+    field: team
+    data_view: { index: delivery-prs, time_field: merged_at }
+  - id: repo
+    title: Repo
+    field: repo
+    data_view: { index: delivery-prs, time_field: merged_at }
+panels:
+  # ---------------------------------------------------------------- DORA tiles
+  - id: deploy-frequency
+    title: Deployment frequency
+    grid: { x: 0, y: 0, w: 10, h: 7 }
+    content:
+      type: chart
+      kind: metric
+      query: { language: kql, text: "is_rework : false" }
+      layers:
+        - id: deploys
+          data_view: { index: delivery-deployments, time_field: deployed_at }
+          columns:
+            - { id: n, op: count, helper: true }
+            - { id: range, op: time_range, helper: true }
+            - id: per-week
+              label: Deployments per week
+              op: formula
+              text: "count() / (time_range() / 604800000)"
+              expr: { call: divide, args: [n, { call: divide, args: [range, 604800000.0] }] }
+              format: { kind: number, decimals: 1 }
+            - { id: n-prev, op: count, time_shift: previous, helper: true }
+            - id: per-week-prev
+              label: Previous period
+              op: formula
+              text: "count(shift=previous) / (time_range() / 604800000)"
+              expr: { call: divide, args: [n-prev, { call: divide, args: [range, 604800000.0] }] }
+              format: { kind: number, decimals: 1 }
+          encoding: { as: metric, value: per-week, secondary: per-week-prev }
+
+  - id: lead-time
+    title: Change lead time
+    grid: { x: 10, y: 0, w: 10, h: 7 }
+    content:
+      type: chart
+      kind: metric
+      query: { language: kql, text: "is_rework : false" }
+      layers:
+        - id: lead
+          data_view: { index: delivery-deployments, time_field: deployed_at }
+          columns:
+            - id: median
+              label: Median, hours
+              op: median
+              field: change_lead_time_hours
+              format: { kind: number, decimals: 1, suffix: " h" }
+              thresholds: &lead-time-bands
+                - { label: Elite, to: 24, color: "#73BF69" }
+                - { label: High, from: 24, to: 168, color: "#5794F2" }
+                - { label: Medium, from: 168, to: 720, color: "#FF9830" }
+                - { label: Low, from: 720, color: "#F2495C" }
+            - id: median-prev
+              label: Previous period
+              op: median
+              field: change_lead_time_hours
+              time_shift: previous
+              format: { kind: number, decimals: 1, suffix: " h" }
+          encoding: { as: metric, value: median, secondary: median-prev }
+
+  - id: change-fail-rate
+    title: Change fail rate
+    grid: { x: 20, y: 0, w: 10, h: 7 }
+    content:
+      type: chart
+      kind: metric
+      query: { language: kql, text: "is_rework : false" }
+      layers:
+        - id: cfr
+          data_view: { index: delivery-deployments, time_field: deployed_at }
+          columns:
+            - { id: failed, op: count, filter: { language: kql, text: "result : failure" }, helper: true }
+            - { id: all, op: count, helper: true }
+            - id: rate
+              label: Failed deployments
+              op: formula
+              text: "count(kql='result : failure') / count()"
+              expr: { call: divide, args: [failed, all] }
+              format: { kind: percent, decimals: 1 }
+              thresholds:
+                - { label: Elite, to: 0.05, color: "#73BF69" }
+                - { label: High, from: 0.05, to: 0.10, color: "#5794F2" }
+                - { label: Medium, from: 0.10, to: 0.15, color: "#FF9830" }
+                - { label: Low, from: 0.15, color: "#F2495C" }
+            - { id: failed-prev, op: count, filter: { language: kql, text: "result : failure" }, time_shift: previous, helper: true }
+            - { id: all-prev, op: count, time_shift: previous, helper: true }
+            - id: rate-prev
+              label: Previous period
+              op: formula
+              text: "previous period"
+              expr: { call: divide, args: [failed-prev, all-prev] }
+              format: { kind: percent, decimals: 1 }
+          encoding: { as: metric, value: rate, secondary: rate-prev }
+
+  - id: recovery
+    title: Failed deployment recovery
+    grid: { x: 30, y: 0, w: 9, h: 7 }
+    content:
+      type: chart
+      kind: metric
+      query: { language: kql, text: "caused_by_deployment_id : *" }
+      layers:
+        - id: recovery
+          data_view: { index: delivery-incidents, time_field: created_at }
+          columns:
+            - id: median
+              label: Median, hours
+              op: median
+              field: recovery_hours
+              format: { kind: number, decimals: 1, suffix: " h" }
+              thresholds:
+                - { label: Elite, to: 1, color: "#73BF69" }
+                - { label: High, from: 1, to: 24, color: "#5794F2" }
+                - { label: Medium, from: 24, to: 168, color: "#FF9830" }
+                - { label: Low, from: 168, color: "#F2495C" }
+            - id: median-prev
+              label: Previous period
+              op: median
+              field: recovery_hours
+              time_shift: previous
+              format: { kind: number, decimals: 1, suffix: " h" }
+          encoding: { as: metric, value: median, secondary: median-prev }
+
+  - id: rework
+    title: Deployment rework rate
+    grid: { x: 39, y: 0, w: 9, h: 7 }
+    content:
+      type: chart
+      kind: metric
+      layers:
+        - id: rework
+          data_view: { index: delivery-deployments, time_field: deployed_at }
+          columns:
+            - { id: unplanned, op: count, filter: { language: kql, text: "is_rework : true" }, helper: true }
+            - { id: all, op: count, helper: true }
+            - id: rate
+              label: Unplanned deployments
+              op: formula
+              text: "count(kql='is_rework : true') / count()"
+              expr: { call: divide, args: [unplanned, all] }
+              format: { kind: percent, decimals: 1 }
+            - { id: unplanned-prev, op: count, filter: { language: kql, text: "is_rework : true" }, time_shift: previous, helper: true }
+            - { id: all-prev, op: count, time_shift: previous, helper: true }
+            - id: rate-prev
+              label: Previous period
+              op: formula
+              text: "previous period"
+              expr: { call: divide, args: [unplanned-prev, all-prev] }
+              format: { kind: percent, decimals: 1 }
+          encoding: { as: metric, value: rate, secondary: rate-prev }
+
+  # ---------------------------------------------------------------- distributions
+  - id: lead-time-band
+    title: Change lead time, weekly median and middle 50%
+    grid: { x: 0, y: 7, w: 24, h: 13 }
+    content:
+      type: chart
+      kind: xy
+      query: { language: kql, text: "is_rework : false" }
+      layers:
+        - id: band
+          data_view: { index: delivery-deployments, time_field: deployed_at }
+          columns:
+            - { id: week, op: date_histogram, field: deployed_at, interval: 1w, include_empty: true }
+            - { id: p25, label: 25th percentile, op: percentile, field: change_lead_time_hours, percent: 25.0, format: { kind: number, decimals: 1, suffix: " h" } }
+            - id: p50
+              label: Median
+              op: median
+              field: change_lead_time_hours
+              format: { kind: number, decimals: 1, suffix: " h" }
+              thresholds: *lead-time-bands
+            - { id: p75, label: 75th percentile, op: percentile, field: change_lead_time_hours, percent: 75.0, format: { kind: number, decimals: 1, suffix: " h" } }
+          encoding: { as: band, x: week, low: p25, mid: p50, high: p75 }
+
+  - id: cycle-scatter
+    title: PR cycle time, each merged PR and the rolling median
+    grid: { x: 24, y: 7, w: 24, h: 13 }
+    content:
+      type: chart
+      kind: xy
+      query: { language: kql, text: "cycle_time_hours : *" }
+      layers:
+        - id: prs
+          data_view: { index: delivery-prs, time_field: merged_at }
+          documents: { limit: 3000, sort: merged_at }
+          columns:
+            - { id: merged, label: Merged, op: value, field: merged_at }
+            - id: hours
+              label: Cycle time
+              op: value
+              field: cycle_time_hours
+              format: { kind: number, decimals: 1, suffix: " h" }
+              thresholds:
+                - { label: Elite, to: 25, color: "#73BF69" }
+                - { label: Good, from: 25, to: 73, color: "#5794F2" }
+                - { label: Fair, from: 73, to: 161, color: "#FF9830" }
+                - { label: Needs focus, from: 161, color: "#F2495C" }
+            - { id: trend, label: Rolling median (50 PRs), op: rolling_median, of: hours, window: 50, format: { kind: number, decimals: 1, suffix: " h" } }
+          encoding: { as: scatter, x: merged, y: hours, trend: trend, log_scale: true }
+
+  # ---------------------------------------------------------------- throughput and investment
+  - id: throughput
+    title: Merged PRs per week, and the AI-assisted share
+    grid: { x: 0, y: 20, w: 24, h: 12 }
+    content:
+      type: chart
+      kind: xy
+      layers:
+        - id: merged
+          data_view: { index: delivery-prs, time_field: merged_at }
+          columns:
+            - { id: week, op: date_histogram, field: merged_at, interval: 1w, include_empty: true }
+            - { id: merged, label: Merged PRs, op: count }
+          encoding: { as: xy, series: bar, x: week, y: [merged] }
+        - id: ai
+          data_view: { index: delivery-prs, time_field: merged_at }
+          columns:
+            - { id: week, op: date_histogram, field: merged_at, interval: 1w, include_empty: true }
+            - { id: ai, op: count, filter: { language: kql, text: "ai_assisted : true" }, helper: true }
+            - { id: all, op: count, helper: true }
+            - id: ai-share
+              label: AI-assisted
+              op: formula
+              text: "count(kql='ai_assisted : true') / count()"
+              expr: { call: divide, args: [ai, all] }
+              format: { kind: percent, decimals: 0 }
+          encoding: { as: xy, series: line, x: week, y: [ai-share] }
+
+  - id: investment
+    title: Investment allocation (story points, by type of work)
+    grid: { x: 24, y: 20, w: 24, h: 12 }
+    content:
+      type: chart
+      kind: xy
+      query: { language: kql, text: "status : done" }
+      layers:
+        - id: work
+          data_view: { index: delivery-workitems, time_field: done_at }
+          columns:
+            - { id: type, op: terms, fields: [type], size: 4, order: { by: column, column: points } }
+            - { id: month, op: date_histogram, field: done_at, interval: 1M, include_empty: true }
+            - { id: points, label: Story points, op: sum, field: story_points }
+          encoding: { as: xy, series: bar_percentage_stacked, x: month, y: [points], split: type }
+
+  # ---------------------------------------------------------------- teams
+  - id: teams
+    title: DORA by team (click a team to focus the dashboard on it)
+    grid: { x: 0, y: 32, w: 48, h: 14 }
+    content:
+      type: chart
+      kind: table
+      query: { language: kql, text: "is_rework : false" }
+      layers:
+        - id: teams
+          data_view: { index: delivery-deployments, time_field: deployed_at }
+          columns:
+            - { id: team, label: Team, op: terms, fields: [team], size: 25, order: { by: column, column: n } }
+            - { id: n, label: Deployments, op: count }
+            - { id: range, op: time_range, helper: true }
+            - id: per-week
+              label: Per week
+              op: formula
+              text: "count() / (time_range() / 604800000)"
+              expr: { call: divide, args: [n, { call: divide, args: [range, 604800000.0] }] }
+              format: { kind: number, decimals: 1 }
+            - id: lead
+              label: Median lead time
+              op: median
+              field: change_lead_time_hours
+              format: { kind: number, decimals: 1, suffix: " h" }
+              thresholds: *lead-time-bands
+            - { id: failed, op: count, filter: { language: kql, text: "result : failure" }, helper: true }
+            - id: cfr
+              label: Change fail rate
+              op: formula
+              text: "count(kql='result : failure') / count()"
+              expr: { call: divide, args: [failed, n] }
+              format: { kind: percent, decimals: 1 }
+          encoding: { as: table, columns: [team, n, per-week, lead, cfr] }

@@ -283,3 +283,99 @@ async fn kql_translation_agrees_with_native_kql() {
         }
     }
 }
+
+async fn run_native(
+    client: &Client,
+    selections: Vec<(String, Vec<String>)>,
+) -> HashMap<String, PanelData> {
+    let engine = Engine::with_client(client.clone(), TimeZone::UTC, "UTC".into());
+    let path = format!(
+        "{}/dashboards/delivery-overview.yaml",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let d = teleplot::dashboards::load_file(path.as_ref())
+        .unwrap()
+        .remove(0);
+    let request = Request {
+        selections,
+        ..kibana_range()
+    };
+    engine
+        .dashboard_data(&d, &request, jiff::Timestamp::now())
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn native_delivery_overview_works_end_to_end() {
+    for (version, client) in clusters() {
+        let data = run_native(&client, Vec::new()).await;
+        for (panel, d) in &data {
+            for layer in &d.layers {
+                assert_eq!(layer.error, None, "{version} {panel}");
+            }
+        }
+        // The same DORA figures Kibana shows for its own dashboard.
+        assert_shown(
+            number(&data, "deploy-frequency", "per-week"),
+            38.2,
+            1,
+            "deployments/week",
+        );
+        assert_shown(
+            number(&data, "lead-time", "median"),
+            20.6,
+            1,
+            "median lead time",
+        );
+        assert_shown(
+            number(&data, "change-fail-rate", "rate") * 100.0,
+            10.2,
+            1,
+            "change fail rate",
+        );
+        assert_shown(number(&data, "recovery", "median"), 9.3, 1, "recovery");
+        assert_eq!(
+            data["lead-time"].layers[0].counts,
+            [1004.0],
+            "{version}: sample size"
+        );
+
+        // Scatter: individual PRs, oldest first, with a trend for each.
+        let merged = column(&data, "cycle-scatter", "merged");
+        let trend = column(&data, "cycle-scatter", "trend");
+        assert!(
+            merged.len() > 1000 && merged.len() <= 3000,
+            "{version}: {}",
+            merged.len()
+        );
+        let times: Vec<f64> = merged.iter().filter_map(Cell::number).collect();
+        assert!(
+            times.windows(2).all(|w| w[0] <= w[1]),
+            "{version}: scatter not in time order"
+        );
+        assert!(trend.iter().all(|c| c.number().is_some()));
+
+        // Band: p25 ≤ median ≤ p75 wherever the week has data.
+        let band = &data["lead-time-band"].layers[0];
+        let (lo, mid, hi) = (
+            &band.series("p25").unwrap().values,
+            &band.series("p50").unwrap().values,
+            &band.series("p75").unwrap().values,
+        );
+        for i in 0..band.rows {
+            if let (Some(a), Some(b), Some(c)) = (lo[i].number(), mid[i].number(), hi[i].number()) {
+                assert!(a <= b && b <= c, "{version} week {i}: {a} {b} {c}");
+            }
+        }
+
+        // Selecting a team (what clicking its row does) narrows every panel.
+        let focused = run_native(&client, vec![("team".into(), vec!["data".into()])]).await;
+        assert_eq!(
+            column(&focused, "teams", "team"),
+            [Cell::Text("data".into())],
+            "{version}"
+        );
+        assert_eq!(number(&focused, "teams", "n"), 38.0, "{version}");
+    }
+}

@@ -32,6 +32,10 @@ pub struct Dashboard {
     pub filters: Vec<Filter>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub controls: Vec<Control>,
+    /// Buckets with fewer documents than this are drawn as unreliable
+    /// (small samples make medians and rates noisy).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_samples: Option<u32>,
     pub panels: Vec<Panel>,
 }
 
@@ -179,6 +183,18 @@ pub struct Layer {
     pub data_view: DataView,
     pub columns: Vec<Column>,
     pub encoding: Encoding,
+    /// Fetch individual documents (one row each) instead of aggregating.
+    /// Columns are then [`Operation::Value`]s and computed columns.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub documents: Option<Documents>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Documents {
+    /// At most this many documents (newest first, then shown in order).
+    pub limit: u32,
+    /// Field to order by; usually the time field.
+    pub sort: String,
 }
 
 impl Layer {
@@ -214,6 +230,68 @@ pub enum Encoding {
     Table {
         columns: Vec<String>,
     },
+    /// A middle line with a shaded band between two other columns, e.g.
+    /// median cycle time inside its 25th–75th percentile band.
+    Band {
+        x: String,
+        low: String,
+        mid: String,
+        high: String,
+    },
+    /// One point per row (document layers), with an optional trend line.
+    Scatter {
+        x: String,
+        y: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        split: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        trend: Option<String>,
+        /// Log scale for y: long-tailed durations stay readable.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        log_scale: bool,
+    },
+}
+
+impl Encoding {
+    /// Every column the encoding draws.
+    pub fn columns(&self) -> Vec<&str> {
+        let mut ids: Vec<&str> = Vec::new();
+        match self {
+            Encoding::Xy { x, y, split, .. } => {
+                ids.extend(x.as_deref());
+                ids.extend(y.iter().map(String::as_str));
+                ids.extend(split.as_deref());
+            }
+            Encoding::Metric {
+                value,
+                secondary,
+                max,
+                breakdown,
+            } => {
+                ids.push(value);
+                ids.extend(
+                    [secondary, max, breakdown]
+                        .into_iter()
+                        .flatten()
+                        .map(String::as_str),
+                );
+            }
+            Encoding::Pie { groups, values } => {
+                ids.extend(groups.iter().chain(values).map(String::as_str))
+            }
+            Encoding::Table { columns } => ids.extend(columns.iter().map(String::as_str)),
+            Encoding::Band { x, low, mid, high } => {
+                ids.extend([x, low, mid, high].map(String::as_str))
+            }
+            Encoding::Scatter {
+                x, y, split, trend, ..
+            } => {
+                ids.extend([x.as_str(), y.as_str()]);
+                ids.extend([split, trend].into_iter().flatten().map(String::as_str));
+            }
+        }
+        ids
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -249,6 +327,30 @@ pub struct Column {
     /// Only an input to another column (a formula part); not drawn.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub helper: bool,
+    /// Benchmark bands for this column's values, e.g. DORA-style
+    /// Elite/High/Medium/Low lead time. Drawn behind charts and named on tiles.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub thresholds: Vec<Threshold>,
+}
+
+/// A labelled range of values: `from` inclusive, `to` exclusive; open-ended
+/// when absent.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Threshold {
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<f64>,
+    /// CSS colour; a default per position otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+}
+
+impl Threshold {
+    pub fn contains(&self, v: f64) -> bool {
+        self.from.is_none_or(|f| v >= f) && self.to.is_none_or(|t| v < t)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -291,6 +393,10 @@ pub enum Operation {
     LastValue {
         field: String,
         sort_field: String,
+    },
+    /// A field's value in each document (document layers only).
+    Value {
+        field: String,
     },
     StaticValue {
         value: f64,
@@ -347,6 +453,12 @@ pub enum Operation {
     CounterRate {
         of: String,
     },
+    /// The median of the input over the last `window` rows (this one
+    /// included), e.g. a trend line through a cycle-time scatter.
+    RollingMedian {
+        of: String,
+        window: u32,
+    },
     /// One value across all buckets of the input (Lens `overall_*`), e.g.
     /// the total that a percentage-of-total formula divides by.
     Overall {
@@ -384,7 +496,8 @@ impl Operation {
             | Operation::CumulativeSum { of }
             | Operation::Differences { of }
             | Operation::CounterRate { of }
-            | Operation::Overall { of, .. } => vec![of],
+            | Operation::Overall { of, .. }
+            | Operation::RollingMedian { of, .. } => vec![of],
             _ => vec![],
         }
     }

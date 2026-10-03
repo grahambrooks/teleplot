@@ -47,7 +47,7 @@ CLI:
 
 Code map:
 
-* `src/model/` — the dashboard model, shared by server and WASM client. Also the native YAML format
+* `src/model/` — the dashboard model, shared by server and WASM client. Also the native YAML format (`docs/dashboards.md`). `dashboards/delivery-overview.yaml` is the reference dashboard and the default `./dashboards` content
 * `src/kibana/` — Kibana export → model. Panels that can't convert become `Placeholder`s and never fail the dashboard. Each placeholder has a reason: out of scope, broken reference, or unparseable
 * `src/kql/` — KQL parser (rule-for-rule port of Kibana's `grammar.peggy`) and DSL translation (port of Kibana's `kuery/functions`, field-type aware)
 * `src/query/` — chart → searches → tables. Kibana's interval rules (`interval.rs`), and Kibana's pipeline semantics for formulas, moving average and the rest (`compute.rs`)

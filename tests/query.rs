@@ -128,3 +128,34 @@ fn terms_ordered_by_a_metric_carry_that_metric() {
         json!({ "sum": { "field": "story_points" } })
     );
 }
+
+fn native() -> Dashboard {
+    let path = format!("{}/dashboards/delivery-overview.yaml", root());
+    let mut all = teleplot::dashboards::load_file(path.as_ref()).unwrap();
+    assert_eq!(all.len(), 1);
+    all.remove(0)
+}
+
+#[test]
+fn native_dashboard_requests_match_snapshot() {
+    insta::assert_json_snapshot!(
+        "native-delivery-overview",
+        searches(&native(), &HashMap::new())
+    );
+}
+
+#[test]
+fn document_layers_fetch_raw_documents_newest_first() {
+    let s = searches(&native(), &HashMap::new());
+    let body = &s["cycle-scatter"][0]["body"];
+    assert_eq!(body["size"], json!(3000));
+    assert_eq!(body["sort"], json!([{ "merged_at": { "order": "desc" } }]));
+    // Dates come back as epoch milliseconds; every plotted field must exist.
+    assert_eq!(
+        body["fields"][0],
+        json!({ "field": "merged_at", "format": "epoch_millis" })
+    );
+    let filters = body["query"]["bool"]["filter"].as_array().unwrap();
+    assert!(filters.contains(&json!({ "exists": { "field": "cycle_time_hours" } })));
+    assert!(body.get("aggs").is_none());
+}

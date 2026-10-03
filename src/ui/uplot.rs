@@ -8,9 +8,10 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 
 use super::format;
-use super::series::{XAxis, Xy, XySeries, stacked};
+use super::series::{Style, XAxis, Xy, XySeries, stacked};
 use super::theme;
-use crate::model::{Format, FormatKind, SeriesType};
+use super::theme::threshold_color;
+use crate::model::{Format, FormatKind, SeriesType, Threshold};
 
 #[wasm_bindgen]
 extern "C" {
@@ -149,7 +150,37 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
             ("points", obj(&[("show", false.into())]).into()),
             ("scale", if on_right(s) { "y2" } else { "y" }.into()),
         ]);
-        if s.kind.is_bar() || s.kind.is_stacked() || matches!(s.kind, SeriesType::Area) {
+        match s.style {
+            Style::Points => {
+                let no_path =
+                    Callback::new(|_: JsValue, _: JsValue, _: JsValue, _: JsValue| JsValue::NULL);
+                set(
+                    &spec,
+                    "paths",
+                    no_path.as_ref().unchecked_ref::<Function>().clone(),
+                );
+                callbacks.push(no_path);
+                set(
+                    &spec,
+                    "points",
+                    obj(&[
+                        ("show", true.into()),
+                        ("size", 4.into()),
+                        ("fill", format!("{color}aa").into()),
+                        ("width", 0.into()),
+                    ]),
+                );
+                set(&spec, "spanGaps", false);
+            }
+            Style::BandEdge => {
+                set(&spec, "stroke", format!("{color}66"));
+                set(&spec, "width", 1);
+            }
+            Style::Normal => {}
+        }
+        if s.style == Style::Normal
+            && (s.kind.is_bar() || s.kind.is_stacked() || matches!(s.kind, SeriesType::Area))
+        {
             set(
                 &spec,
                 "fill",
@@ -184,7 +215,16 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
         series.push(&spec);
     }
 
+    // Axis ticks keep a format's unit but not its fixed decimals.
     let tick_formatter = |fmt: Option<Format>| {
+        let fmt = fmt.map(|f| Format {
+            decimals: if f.kind == FormatKind::Percent {
+                f.decimals
+            } else {
+                None
+            },
+            ..f
+        });
         Callback::new(
             move |_u: JsValue, splits: JsValue, _a: JsValue, _b: JsValue| {
                 let out = Array::new();
@@ -280,6 +320,9 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
         (has_bars && min >= 0.0 && max > 0.0).then(|| Array::of2(&0.into(), &(max * 1.05).into()))
     };
     let y_scale = obj(&[]);
+    if xy.log_scale {
+        set(&y_scale, "distr", 3);
+    }
     if let Some(r) = range(false) {
         set(&y_scale, "range", r);
     }
@@ -295,6 +338,33 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
         set(&scales, "y2", y2);
     }
 
+    // uPlot series index of each of ours (0 is the x axis).
+    let uplot_index = |i: usize| order.iter().position(|&o| o == i).map(|p| p + 1);
+    let bands = Array::new();
+    if let Some((low, high)) = xy.band
+        && let (Some(lo), Some(hi)) = (uplot_index(low), uplot_index(high))
+    {
+        let color = palette[low % palette.len()];
+        bands.push(&obj(&[
+            ("series", Array::of2(&hi.into(), &lo.into()).into()),
+            ("fill", format!("{color}30").into()),
+        ]));
+    }
+
+    // Benchmark bands and low-sample buckets are painted behind the data.
+    let thresholds = xy.thresholds.clone();
+    let low_sample = xy.low_sample.clone();
+    let xs_for_shading = xs.clone();
+    let shade = Callback::new(move |u: JsValue, _a: JsValue, _b: JsValue, _c: JsValue| {
+        shade_background(&u, &thresholds, &low_sample, &xs_for_shading);
+        JsValue::UNDEFINED
+    });
+    let hooks = obj(&[(
+        "drawClear",
+        Array::of1(shade.as_ref().unchecked_ref::<Function>()).into(),
+    )]);
+    callbacks.push(shade);
+
     let opts = obj(&[
         ("width", options.width.into()),
         ("height", (options.height - 30.0).max(60.0).into()),
@@ -305,6 +375,8 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
             "legend",
             obj(&[("show", true.into()), ("live", true.into())]).into(),
         ),
+        ("bands", bands.into()),
+        ("hooks", hooks.clone().into()),
         (
             "cursor",
             obj(&[
@@ -367,11 +439,11 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
             }
             JsValue::UNDEFINED
         });
-        let hooks = obj(&[(
+        set(
+            &hooks,
             "setSelect",
-            Array::of1(on_select.as_ref().unchecked_ref::<Function>()).into(),
-        )]);
-        set(&opts, "hooks", hooks);
+            Array::of1(on_select.as_ref().unchecked_ref::<Function>()),
+        );
         callbacks.push(on_select);
     }
 
@@ -383,4 +455,73 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
     };
     chart.fit(options.width, options.height);
     chart
+}
+
+fn number(target: &JsValue, key: &str) -> f64 {
+    Reflect::get(target, &key.into())
+        .ok()
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0)
+}
+
+/// Paints benchmark bands (with their labels) and shades buckets with too
+/// few documents, under everything else on the canvas.
+fn shade_background(u: &JsValue, thresholds: &[Threshold], low_sample: &[bool], xs: &[f64]) {
+    let Ok(ctx) = Reflect::get(u, &"ctx".into())
+        .and_then(|c| c.dyn_into::<web_sys::CanvasRenderingContext2d>())
+    else {
+        return;
+    };
+    let bbox = Reflect::get(u, &"bbox".into()).unwrap_or(JsValue::NULL);
+    let (left, top, width, height) = (
+        number(&bbox, "left"),
+        number(&bbox, "top"),
+        number(&bbox, "width"),
+        number(&bbox, "height"),
+    );
+    let Ok(val_to_pos) = Reflect::get(u, &"valToPos".into()).and_then(|f| f.dyn_into::<Function>())
+    else {
+        return;
+    };
+    let pos = |v: f64, scale: &str| {
+        val_to_pos
+            .call3(u, &v.into(), &scale.into(), &true.into())
+            .ok()
+            .and_then(|p| p.as_f64())
+            .unwrap_or(0.0)
+    };
+    let scales = Reflect::get(u, &"scales".into()).unwrap_or(JsValue::NULL);
+    let y = Reflect::get(&scales, &"y".into()).unwrap_or(JsValue::NULL);
+    let (y_min, y_max) = (number(&y, "min"), number(&y, "max"));
+    let dpr = web_sys::window().map_or(1.0, |w| w.device_pixel_ratio());
+
+    ctx.save();
+    for (i, t) in thresholds.iter().enumerate() {
+        let lo = t.from.unwrap_or(y_min).max(y_min);
+        let hi = t.to.unwrap_or(y_max).min(y_max);
+        if hi <= lo {
+            continue;
+        }
+        let (y0, y1) = (pos(hi, "y"), pos(lo, "y"));
+        let color = threshold_color(t, i);
+        ctx.set_global_alpha(0.07);
+        ctx.set_fill_style_str(&color);
+        ctx.fill_rect(left, y0, width, y1 - y0);
+        ctx.set_global_alpha(0.55);
+        ctx.set_font(&format!("{}px sans-serif", (10.0 * dpr).round()));
+        ctx.set_text_align("right");
+        let _ = ctx.fill_text(&t.label, left + width - 4.0 * dpr, y0 + 12.0 * dpr);
+    }
+    if low_sample.iter().any(|l| *l) && xs.len() > 1 {
+        ctx.set_global_alpha(0.28);
+        ctx.set_fill_style_str("#7f7f8f");
+        let half = width / xs.len() as f64 / 2.0;
+        for (i, low) in low_sample.iter().enumerate() {
+            if *low && let Some(x) = xs.get(i) {
+                let px = pos(*x, "x");
+                ctx.fill_rect(px - half, top, half * 2.0, height);
+            }
+        }
+    }
+    ctx.restore();
 }

@@ -131,6 +131,7 @@ fn convert(export: &Export, vis: Vis, refs: &[Reference]) -> Result<PanelContent
             data_view,
             columns,
             encoding,
+            documents: None,
         }],
     }))
 }
@@ -208,6 +209,7 @@ fn columns(aggs: &[Value]) -> Result<(Vec<Column>, Roles), String> {
                 time_shift: None,
                 format: None,
                 helper: false,
+                thresholds: Vec::new(),
             });
         };
 
