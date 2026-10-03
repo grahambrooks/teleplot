@@ -118,6 +118,20 @@ any directory. `make smoke` checks exactly that.
 
 Run any of them with `--help` for options.
 
+## Using Teleplot from an agent
+
+`skills/teleplot/` is an agent skill. It walks an agent through connecting to
+a cluster, converting or writing dashboards, and checking the numbers before
+handing a dashboard over. To install it for Claude Code, copy or symlink it
+into `~/.claude/skills/` (all projects) or a project's `.claude/skills/`:
+
+```sh
+ln -s "$PWD/skills/teleplot" ~/.claude/skills/teleplot
+```
+
+The cookbook's recipes are linted by `tests/skill.rs`, so they stay in step
+with the dashboard format.
+
 ## Development
 
 - `make pre-commit`: formatting, clippy (server and WASM client) and tests. CI
