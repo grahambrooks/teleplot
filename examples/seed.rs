@@ -167,6 +167,8 @@ struct Args {
     end: Date,
     seed: u64,
     scale: u32,
+    /// Prepended to every index name, e.g. `perf-` for a large copy.
+    prefix: String,
 }
 
 fn parse_args() -> Args {
@@ -176,6 +178,7 @@ fn parse_args() -> Args {
         end: Zoned::now().date(),
         seed: 42,
         scale: 1,
+        prefix: String::new(),
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -186,6 +189,7 @@ fn parse_args() -> Args {
             "--end" => args.end = value.parse().expect("--end: YYYY-MM-DD"),
             "--seed" => args.seed = value.parse().expect("--seed: integer"),
             "--scale" => args.scale = value.parse().expect("--scale: integer"),
+            "--prefix" => args.prefix = value,
             other => panic!("unknown flag {other}"),
         }
     }
@@ -252,8 +256,10 @@ impl Generator {
         self.docs.entry(index).or_default().push(doc);
     }
 
-    fn generate(&mut self) {
-        for team in TEAMS {
+    /// One team's documents. Teams are generated (and indexed) one at a
+    /// time so large `--scale` runs need not hold everything in memory.
+    fn generate_team(&mut self, team: &Team) {
+        {
             let tz = TimeZone::get(team.tz).expect("known time zone");
             for day in 0..self.days {
                 let date = self.start + day.days();
@@ -591,11 +597,10 @@ async fn main() {
         docs: HashMap::new(),
         next_id: 0,
     };
-    generator.generate();
 
     let client = reqwest::Client::new();
     for index in INDEXES {
-        let url = format!("{}/{index}", args.es);
+        let url = format!("{}/{}{index}", args.es, args.prefix);
         let exists = client.head(&url).send().await.expect("reach Elasticsearch");
         if exists.status().is_success() {
             check(client.delete(&url).send().await.unwrap(), "delete index").await;
@@ -605,36 +610,50 @@ async fn main() {
             "create index",
         )
         .await;
+    }
 
-        let docs = generator.docs.remove(index).unwrap_or_default();
-        for chunk in docs.chunks(5000) {
-            let mut body = String::new();
-            for doc in chunk {
-                body.push_str("{\"index\":{}}\n");
-                body.push_str(&doc.to_string());
-                body.push('\n');
-            }
-            let response = client
-                .post(format!("{}/{index}/_bulk", args.es))
-                .header("content-type", "application/x-ndjson")
-                .body(body)
-                .send()
-                .await
-                .unwrap();
-            let result = check(response, "bulk").await;
-            if result["errors"].as_bool() == Some(true) {
-                let first = result["items"]
-                    .as_array()
-                    .and_then(|items| items.iter().find(|i| i["index"]["error"].is_object()));
-                panic!("bulk indexing into {index} had errors, first: {first:?}");
+    let mut totals: HashMap<&str, usize> = HashMap::new();
+    for team in TEAMS {
+        generator.generate_team(team);
+        for index in INDEXES {
+            let docs = generator.docs.remove(index).unwrap_or_default();
+            *totals.entry(index).or_default() += docs.len();
+            for chunk in docs.chunks(5000) {
+                let mut body = String::new();
+                for doc in chunk {
+                    body.push_str("{\"index\":{}}\n");
+                    body.push_str(&doc.to_string());
+                    body.push('\n');
+                }
+                let response = client
+                    .post(format!("{}/{}{index}/_bulk", args.es, args.prefix))
+                    .header("content-type", "application/x-ndjson")
+                    .body(body)
+                    .send()
+                    .await
+                    .unwrap();
+                let result = check(response, "bulk").await;
+                if result["errors"].as_bool() == Some(true) {
+                    let first = result["items"]
+                        .as_array()
+                        .and_then(|items| items.iter().find(|i| i["index"]["error"].is_object()));
+                    panic!("bulk indexing into {index} had errors, first: {first:?}");
+                }
             }
         }
+    }
+    for index in INDEXES {
+        let url = format!("{}/{}{index}", args.es, args.prefix);
         check(
             client.post(format!("{url}/_refresh")).send().await.unwrap(),
             "refresh",
         )
         .await;
-        println!("{index}: {} docs", docs.len());
+        println!(
+            "{}{index}: {} docs",
+            args.prefix,
+            totals.get(index).copied().unwrap_or(0)
+        );
     }
     println!("seeded {start} .. {} (seed {})", args.end, args.seed);
 }

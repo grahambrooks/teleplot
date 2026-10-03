@@ -25,6 +25,11 @@ for path in / /pkg/teleplot.js /pkg/teleplot.wasm /pkg/teleplot.css; do
   [ "$code" = 200 ] || status=1
 done
 
+# Browsers that accept brotli get the precompressed bundle.
+encoding=$(curl -s -o /dev/null -D - -H 'Accept-Encoding: br, gzip' "http://127.0.0.1:$port/pkg/teleplot.wasm" | tr -d '\r' | sed -n 's/^content-encoding: //Ip')
+echo "${encoding:-identity} /pkg/teleplot.wasm (Accept-Encoding: br, gzip)"
+[ "$encoding" = br ] || status=1
+
 if grep -q "client bundle not found" server.log; then
   echo "server reported a missing client bundle"
   status=1

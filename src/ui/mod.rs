@@ -1,7 +1,9 @@
 //! Leptos UI, rendered on the server and hydrated in the browser.
 
 mod api;
+mod clock;
 mod dashboard;
+mod export;
 pub mod format;
 mod panels;
 pub mod series;

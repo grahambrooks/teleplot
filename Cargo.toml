@@ -23,7 +23,6 @@ leptos_meta = "0.8"
 leptos_router = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-jiff = "0.2"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 
 # server only
@@ -44,13 +43,16 @@ console_error_panic_hook = { version = "0.1", optional = true }
 gloo-net = { version = "0.6", default-features = false, features = ["http", "json"], optional = true }
 js-sys = { version = "0.3", optional = true }
 wasm-bindgen = { version = "0.2", optional = true }
-web-sys = { version = "0.3", features = ["CanvasRenderingContext2d", "CssStyleDeclaration", "Document", "Element", "HtmlElement", "ResizeObserver", "Window"], optional = true }
+web-sys = { version = "0.3", features = ["CanvasRenderingContext2d", "DomTokenList", "HtmlAnchorElement", "HtmlCanvasElement", "NodeList", "TextMetrics", "CssStyleDeclaration", "Document", "Element", "HtmlElement", "ResizeObserver", "Window"], optional = true }
 
 # Server only, and never compiled for WASM. Keeps reqwest's TLS stack, and the
 # bundled-roots fallback it uses on unknown platforms (CDLA-licensed), out of
 # the client's dependency graph.
+# jiff stays out of the browser bundle: the client uses the browser's Date.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+jiff = "0.2"
 reqwest = { version = "0.13", features = ["json"], optional = true }
+
 
 [dev-dependencies]
 http-body-util = "0.1"

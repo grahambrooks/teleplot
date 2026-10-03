@@ -184,12 +184,7 @@ fn DashboardView(dashboard: Dashboard) -> impl IntoView {
         })
     };
     let on_zoom = Callback::new(move |(from, to): (f64, f64)| {
-        let iso = |ms: f64| {
-            jiff::Timestamp::from_millisecond(ms as i64)
-                .map(|t| t.to_string())
-                .unwrap_or_default()
-        };
-        set_time.run((iso(from), iso(to)));
+        set_time.run((super::clock::iso(from), super::clock::iso(to)));
     });
 
     let time_zone = Signal::derive(move || {
@@ -227,6 +222,52 @@ fn DashboardView(dashboard: Dashboard) -> impl IntoView {
     let dashboard_filters =
         dashboard.with_value(|d| d.filters.iter().filter(|f| !f.disabled).count());
 
+    // The header printed above the panels: what, when, and with which filters.
+    let print_title = dashboard.with_value(|d| d.title.clone());
+    let print_range = move || {
+        let label = request.with(|r| {
+            time_label(
+                r.from.as_deref().unwrap_or(""),
+                r.to.as_deref().unwrap_or(""),
+            )
+        });
+        match data.get().and_then(|r| r.ok()) {
+            Some(r) => {
+                let zone = if r.time_zone == "UTC" {
+                    String::new()
+                } else {
+                    format!(", buckets in {}", r.time_zone)
+                };
+                let range = format!(
+                    "{} to {}{zone}",
+                    iso_minutes(r.from_ms),
+                    iso_minutes(r.to_ms)
+                );
+                // Quick ranges ("Last 90 days") say what they mean; custom ones are the range.
+                if QUICK_RANGES.iter().any(|(l, _, _)| *l == label) {
+                    format!("{label}: {range}")
+                } else {
+                    range
+                }
+            }
+            None => label,
+        }
+    };
+    let print_filters = move || {
+        request.with(|r| {
+            let mut parts = Vec::new();
+            if let Some(q) = &r.query {
+                parts.push(format!("Query: {}", q.text));
+            }
+            for (control, values) in &r.selections {
+                if !values.is_empty() {
+                    parts.push(format!("{control}: {}", values.join(", ")));
+                }
+            }
+            parts.join(" · ")
+        })
+    };
+
     view! {
         <div class="dashboard">
             <div class="toolbar">
@@ -234,6 +275,17 @@ fn DashboardView(dashboard: Dashboard) -> impl IntoView {
                 <span class="spacer"></span>
                 <TimePicker request=request.into() on_change=set_time/>
                 <button class="btn" title="Refresh" on:click=move |_| refresh.update(|n| *n += 1)>"↻"</button>
+                <button class="btn" title="Print, or save as PDF from the print dialog" on:click=move |_| {
+                    #[cfg(feature = "hydrate")]
+                    if let Some(dark) = use_context::<RwSignal<bool>>() {
+                        super::export::print(dark);
+                    }
+                }>"Export PDF"</button>
+            </div>
+            <div class="print-only print-header">
+                <strong>{print_title}</strong>
+                <span>{print_range}</span>
+                <span>{print_filters}</span>
             </div>
             <div class="toolbar">
                 <QueryBar request=request.into() on_submit=set_query/>
@@ -286,12 +338,13 @@ fn time_label(from: &str, to: &str) -> String {
         .unwrap_or_else(|| format!("{} → {}", short(from), short(to)))
 }
 
-/// ISO timestamps shown as dates; date math as typed.
+fn iso_minutes(ms: i64) -> String {
+    format!("{} UTC", super::clock::minutes(ms as f64))
+}
+
+/// ISO timestamps shown as dates and times; date math as typed.
 fn short(s: &str) -> String {
-    match s.parse::<jiff::Timestamp>() {
-        Ok(t) => t.strftime("%Y-%m-%d %H:%M").to_string(),
-        Err(_) => s.to_string(),
-    }
+    super::clock::parse_iso(s).map_or_else(|| s.to_string(), super::clock::minutes)
 }
 
 #[component]

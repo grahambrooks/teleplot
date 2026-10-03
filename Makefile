@@ -23,7 +23,7 @@ dev:
 # The client must exist before the server compiles, because the server embeds
 # it. A single `cargo leptos build` compiles both at once and can miss it.
 release:
-	cargo leptos build --release --frontend-only
+	cargo leptos build --release --frontend-only --precompress
 	cargo leptos build --release --server-only
 
 # The release binary must serve the full UI from an empty directory.

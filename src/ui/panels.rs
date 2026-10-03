@@ -43,6 +43,27 @@ impl PanelContext {
     }
 }
 
+/// Whether a panel is drawn on a canvas (time and numeric axes), and so can
+/// be saved as PNG.
+fn drawn_on_canvas(content: &PanelContent) -> bool {
+    let PanelContent::Chart(chart) = content else {
+        return false;
+    };
+    if chart.kind != ChartKind::Xy {
+        return false;
+    }
+    chart.layers.iter().any(|l| match &l.encoding {
+        Encoding::Band { .. } | Encoding::Scatter { .. } => true,
+        Encoding::Xy { x: Some(x), .. } => {
+            matches!(
+                l.column(x).map(|c| &c.op),
+                Some(Operation::DateHistogram { .. } | Operation::Histogram { .. })
+            )
+        }
+        _ => false,
+    })
+}
+
 #[component]
 pub fn PanelView(
     panel: Panel,
@@ -63,6 +84,8 @@ pub fn PanelView(
             .filter(|w| !w.is_empty())
     };
     let title = panel.title.clone();
+    let exportable = drawn_on_canvas(&panel.content);
+    let section = NodeRef::<leptos::html::Section>::new();
     let body = match panel.content.clone() {
         PanelContent::Chart(chart) => view! { <ChartBody chart data ctx/> }.into_any(),
         PanelContent::Markdown { text } => {
@@ -71,12 +94,30 @@ pub fn PanelView(
         PanelContent::Placeholder(p) => view! { <PlaceholderBody placeholder=p/> }.into_any(),
     };
     view! {
-        <section class="panel" style=style>
-            {title.map(|t| view! {
-                <header class="panel-title">
-                    <span>{t}</span>
-                    {move || warnings().map(|w| view! { <span class="panel-warning" title=w>"!"</span> })}
-                </header>
+        <section class="panel" style=style node_ref=section>
+            {title.map(|t| {
+                let name = t.clone();
+                view! {
+                    <header class="panel-title">
+                        <span>{t}</span>
+                        {move || warnings().map(|w| view! { <span class="panel-warning" title=w>"!"</span> })}
+                        <span class="spacer"></span>
+                        {exportable.then(|| view! {
+                            <button class="panel-action" title="Save as PNG" on:click=move |_| {
+                                #[cfg(feature = "hydrate")]
+                                if let Some(el) = section.get() {
+                                    use wasm_bindgen::JsCast;
+                                    let el: web_sys::HtmlElement = el.unchecked_into();
+                                    if let Err(e) = super::export::png(&el, &name) {
+                                        leptos::logging::warn!("PNG export: {e}");
+                                    }
+                                }
+                                #[cfg(not(feature = "hydrate"))]
+                                let _ = (&name, section);
+                            }>"PNG"</button>
+                        })}
+                    </header>
+                }
             })}
             <div class="panel-body">{body}</div>
         </section>

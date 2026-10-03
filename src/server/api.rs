@@ -12,6 +12,15 @@ use crate::model::api::{
 };
 use crate::model::{Dashboard, TimeRange};
 
+/// `now`, rounded down to 30 seconds. Ranges ending "now" then produce the
+/// same searches for half a minute, so Elasticsearch's request cache and
+/// Teleplot's own response cache can answer repeat views and refreshes.
+fn cache_friendly_now() -> jiff::Timestamp {
+    let ms = jiff::Timestamp::now().as_millisecond();
+    jiff::Timestamp::from_millisecond(ms - ms.rem_euclid(30_000))
+        .unwrap_or_else(|_| jiff::Timestamp::now())
+}
+
 fn error(status: StatusCode, message: impl Into<String>) -> Response {
     (
         status,
@@ -82,7 +91,7 @@ pub async fn data(
         Err(problem) => return error(StatusCode::SERVICE_UNAVAILABLE, problem.clone()),
     };
     let request = engine_request(&d, body);
-    let now = jiff::Timestamp::now();
+    let now = cache_friendly_now();
     let range = match engine.range(&d, &request, now) {
         Ok(r) => r,
         Err(e) => return error(StatusCode::BAD_REQUEST, e),
@@ -116,7 +125,7 @@ pub async fn control_values(
     };
     let request = engine_request(&d, body);
     match engine
-        .control_values(&d, &control, &request, jiff::Timestamp::now())
+        .control_values(&d, &control, &request, cache_friendly_now())
         .await
     {
         Ok(values) => Json(ControlValues { values }).into_response(),
