@@ -348,6 +348,72 @@ impl Dashboard {
             }));
     }
 
+    /// A by-value Lens ES|QL panel over `index_pattern` (an ad hoc data view
+    /// with `time_field`). `columns` are `(column id, result column, type,
+    /// format)`; the visualization refers to the column ids.
+    #[allow(clippy::too_many_arguments)]
+    fn esql_lens(
+        &mut self,
+        index: &str,
+        grid: Grid,
+        title: &str,
+        vis_type: &str,
+        index_pattern: &str,
+        time_field: &str,
+        query: &str,
+        columns: Vec<(&str, &str, &str, Option<Value>)>,
+        visualization: Value,
+    ) {
+        let layer = format!("layer-{index}");
+        let data_view = format!("esql-{index_pattern}");
+        let columns: Vec<Value> = columns
+            .into_iter()
+            .map(|(id, field, kind, format)| {
+                let mut c = json!({
+                    "columnId": id, "fieldName": field,
+                    "meta": { "type": kind }
+                });
+                if kind == "number" {
+                    c["inMetricDimension"] = json!(true);
+                }
+                if let Some(f) = format {
+                    c["params"] = json!({ "format": f });
+                }
+                c
+            })
+            .collect();
+        let state = json!({
+            "visualization": visualization,
+            "query": { "esql": query },
+            "filters": [],
+            "datasourceStates": { "textBased": {
+                "layers": { &layer: {
+                    "index": data_view, "query": { "esql": query },
+                    "columns": columns, "timeField": time_field
+                } },
+                "indexPatternRefs": [{ "id": data_view, "title": index_pattern, "timeField": time_field }]
+            } },
+            "internalReferences": [],
+            "adHocDataViews": { &data_view: {
+                "id": data_view, "title": index_pattern, "name": index_pattern,
+                "timeFieldName": time_field, "sourceFilters": [], "type": "esql",
+                "fieldFormats": {}, "runtimeFieldMap": {}, "allowNoIndex": false,
+                "allowHidden": false
+            } }
+        });
+        self.panels.push(json!({
+            "version": LENS_VERSION, "type": "lens", "panelIndex": index,
+            "gridData": Self::grid(index, grid), "title": title,
+            "embeddableConfig": {
+                "attributes": {
+                    "title": title, "visualizationType": vis_type, "type": "lens",
+                    "references": [], "state": state
+                },
+                "query": { "esql": query }, "filters": [], "enhancements": {}
+            }
+        }));
+    }
+
     /// A panel that references a saved object (Lens or legacy visualization).
     fn by_ref(&mut self, index: &str, grid: Grid, kind: &str, id: &str) {
         let name = format!("panel_{index}");
@@ -903,6 +969,68 @@ fn delivery_overview() -> Value {
         ],
         heatmap_vis(&l, "hm-month", "hm-team", "hm-n"),
         "",
+    );
+
+    // ES|QL panels (Lens `textBased`): the time range applies on the ad hoc
+    // data view's time field.
+    let one_decimal = || json!({ "id": "number", "params": { "decimals": 1 } });
+    d.esql_lens(
+        "esql-deploys",
+        Grid(0, 87, 12, 7),
+        "Deployments (ES|QL)",
+        "lnsMetric",
+        "delivery-deployments",
+        "deployed_at",
+        "FROM delivery-deployments | WHERE is_rework == false | STATS deploys = COUNT(*)",
+        vec![("deploys", "deploys", "number", None)],
+        json!({ "layerId": "layer-esql-deploys", "layerType": "data", "metricAccessor": "deploys" }),
+    );
+    d.esql_lens(
+        "esql-cfr",
+        Grid(12, 87, 12, 7),
+        "Change fail rate (ES|QL)",
+        "lnsMetric",
+        "delivery-deployments",
+        "deployed_at",
+        "FROM delivery-deployments\n| WHERE is_rework == false\n| STATS failed = COUNT(CASE(result == \"failure\", 1)), deploys = COUNT(*)\n| EVAL rate = TO_DOUBLE(failed) / deploys\n| KEEP rate",
+        vec![(
+            "rate",
+            "rate",
+            "number",
+            Some(json!({ "id": "percent", "params": { "decimals": 1 } })),
+        )],
+        json!({ "layerId": "layer-esql-cfr", "layerType": "data", "metricAccessor": "rate" }),
+    );
+    d.esql_lens(
+        "esql-teams",
+        Grid(24, 87, 24, 14),
+        "Deployments by team (ES|QL)",
+        "lnsDatatable",
+        "delivery-deployments",
+        "deployed_at",
+        "FROM delivery-deployments\n| WHERE is_rework == false\n| STATS deploys = COUNT(*), lead = MEDIAN(change_lead_time_hours) BY team\n| SORT deploys DESC",
+        vec![
+            ("team", "team", "string", None),
+            ("deploys", "deploys", "number", None),
+            ("lead", "lead", "number", Some(one_decimal())),
+        ],
+        json!({ "layerId": "layer-esql-teams", "layerType": "data", "columns": [
+            { "columnId": "team" }, { "columnId": "deploys" }, { "columnId": "lead" }
+        ] }),
+    );
+    d.esql_lens(
+        "esql-weekly",
+        Grid(0, 94, 24, 14),
+        "Merged PRs per week (ES|QL)",
+        "lnsXY",
+        "delivery-prs",
+        "merged_at",
+        "FROM delivery-prs | STATS merged = COUNT(*) BY week = BUCKET(merged_at, 1 week) | SORT week",
+        vec![
+            ("week", "week", "date", None),
+            ("merged", "merged", "number", None),
+        ],
+        xy("layer-esql-weekly", "bar", "week", &["merged"], None),
     );
 
     dashboard_object(

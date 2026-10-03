@@ -133,6 +133,8 @@ impl Engine {
                     .as_u64()
                     .or_else(|| r["hits"]["total"]["value"].as_u64())
                     .or_else(|| r["hits"]["hits"].as_array().map(|h| h.len() as u64))
+                    // ES|QL: the rows returned.
+                    .or_else(|| r["values"].as_array().map(|v| v.len() as u64))
             });
             InspectedRequest {
                 description,
@@ -371,7 +373,7 @@ impl Engine {
     async fn search(&self, searches: &[Search]) -> Result<Vec<Result<Value, String>>, String> {
         let keys: Vec<String> = searches
             .iter()
-            .map(|s| format!("{}\n{}", s.index, s.body))
+            .map(|s| format!("{:?}\n{}\n{}", s.endpoint, s.index, s.body))
             .collect();
         let mut results: Vec<Option<Result<Value, String>>> = Vec::with_capacity(searches.len());
         let mut misses = Vec::new();

@@ -1,7 +1,8 @@
 //! A small Elasticsearch REST client: just what Teleplot reads with.
 //!
 //! The official `elasticsearch` crate is still alpha, and Teleplot needs only
-//! `_msearch` and `_field_caps`, so this talks to the REST API directly.
+//! `_msearch`, `_query` (ES|QL) and `_field_caps`, so this talks to the REST
+//! API directly.
 //! TLS is rustls with the operating system's trust store (corporate CAs
 //! work), plus an optional extra CA file.
 
@@ -61,8 +62,9 @@ impl Client {
         &self.base
     }
 
-    /// Runs searches in one `_msearch` round trip. Each search succeeds or
-    /// fails on its own; the outer error is for the request as a whole.
+    /// Runs searches in one `_msearch` round trip, and ES|QL queries (one
+    /// `_query` each) alongside it. Each succeeds or fails on its own; the
+    /// outer error is for the `_msearch` as a whole.
     pub async fn msearch(&self, searches: &[Search]) -> Result<Vec<Result<Value, String>>, String> {
         self.msearch_with(
             searches,
@@ -80,6 +82,59 @@ impl Client {
     }
 
     async fn msearch_with(
+        &self,
+        searches: &[Search],
+        filter_path: &str,
+    ) -> Result<Vec<Result<Value, String>>, String> {
+        let (esql, dsl): (Vec<usize>, Vec<usize>) =
+            (0..searches.len()).partition(|&i| searches[i].endpoint == Endpoint::Esql);
+        if esql.is_empty() {
+            return self.msearch_only(searches, filter_path).await;
+        }
+        let mut queries = tokio::task::JoinSet::new();
+        for &i in &esql {
+            let client = self.clone();
+            let body = searches[i].body.clone();
+            queries.spawn(async move { (i, client.esql(&body).await) });
+        }
+        let only_dsl: Vec<Search> = dsl.iter().map(|&i| searches[i].clone()).collect();
+        let dsl_responses = self.msearch_only(&only_dsl, filter_path).await?;
+        let mut out: Vec<Option<Result<Value, String>>> = vec![None; searches.len()];
+        for (i, response) in dsl.into_iter().zip(dsl_responses) {
+            out[i] = Some(response);
+        }
+        while let Some(done) = queries.join_next().await {
+            let (i, response) = done.map_err(|e| format!("ES|QL query failed: {e}"))?;
+            out[i] = Some(response);
+        }
+        Ok(out
+            .into_iter()
+            .map(|r| r.unwrap_or_else(|| Err("no response".into())))
+            .collect())
+    }
+
+    /// One ES|QL query (`POST /_query`): columns and rows, or the reason it failed.
+    pub async fn esql(&self, body: &Value) -> Result<Value, String> {
+        let response = self
+            .http
+            .post(format!("{}/_query", self.base))
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| format!("Elasticsearch unreachable: {e}"))?;
+        let status = response.status();
+        let value: Value = response
+            .json()
+            .await
+            .map_err(|e| format!("bad _query response: {e}"))?;
+        match error_reason(&value) {
+            Some(reason) => Err(reason),
+            None if !status.is_success() => Err(format!("_query failed: {status}")),
+            None => Ok(value),
+        }
+    }
+
+    async fn msearch_only(
         &self,
         searches: &[Search],
         filter_path: &str,
@@ -199,11 +254,33 @@ impl Client {
     }
 }
 
-/// One search in an `_msearch`.
+/// One search: a query DSL search in an `_msearch`, or an ES|QL query.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Search {
+    /// The index pattern searched (for ES|QL, informational: `FROM` decides).
     pub index: String,
     pub body: Value,
+    pub endpoint: Endpoint,
+}
+
+/// Where a [`Search`] is sent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Endpoint {
+    /// `_msearch`, with the body as query DSL.
+    #[default]
+    Search,
+    /// `POST /_query`, with the body as an ES|QL request.
+    Esql,
+}
+
+impl Search {
+    pub fn dsl(index: impl Into<String>, body: Value) -> Self {
+        Search {
+            index: index.into(),
+            body,
+            endpoint: Endpoint::Search,
+        }
+    }
 }
 
 /// `_field_caps` → fields, skipping metadata (`_id`, ...) and object fields.

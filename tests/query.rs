@@ -68,7 +68,13 @@ fn searches(d: &Dashboard, stats: &HashMap<(String, String), (f64, f64)>) -> Val
         let searches: Vec<Value> = plan
             .searches()
             .into_iter()
-            .map(|s| json!({ "index": s.index, "body": s.body }))
+            .map(|s| match s.endpoint {
+                // ES|QL goes to `POST /_query`, not `_msearch`.
+                teleplot::es::Endpoint::Esql => {
+                    json!({ "endpoint": "_query", "index": s.index, "body": s.body })
+                }
+                teleplot::es::Endpoint::Search => json!({ "index": s.index, "body": s.body }),
+            })
             .collect();
         out.insert(panel.id.clone(), Value::Array(searches));
     }

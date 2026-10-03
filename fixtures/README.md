@@ -23,8 +23,9 @@ Versions: `8.19` is Kibana 8.19.22, `9.5` is Kibana 9.5.3.
 - **Lens, by reference:** one panel in the delivery set and one in the sample set.
 - **Legacy visualizations:** line, pie, table and metric by reference; markdown by value and by reference.
 - **Dashboard-level settings:** KQL query, a negated phrase filter, `timeRestore`, refresh interval, and an options-list control (`controlGroupInput`).
+- **Lens ES|QL (`textBased`):** two metrics (one percent-formatted), a table, and a weekly `BUCKET` bar chart over ad hoc data views.
 - **Lens annotation layers:** a query annotation (sev1 incidents, labelled by team), a manual range (a release freeze) and a manual point (a reorg) on the lead-time chart; and the query annotations in the sample data.
-- **Panels outside the MVP, which must render as placeholders:** Vega, Maps, saved searches, and Lens ES|QL (`textBased`) in the 9.5 sample data.
+- **Panels outside the MVP, which must render as placeholders:** Vega, Maps and saved searches. (The 9.5 sample data's Lens ES|QL panels now convert.)
 
 ## Data
 

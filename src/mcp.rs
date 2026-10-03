@@ -389,10 +389,7 @@ impl TeleplotMcp {
             .map(|t| json!([{ t.clone(): { "order": "desc" } }]))
             .unwrap_or(json!([]));
         let body = json!({ "size": 1, "track_total_hits": false, "sort": sort, "aggs": aggs });
-        let search = crate::es::Search {
-            index: p.index.clone(),
-            body,
-        };
+        let search = crate::es::Search::dsl(p.index.clone(), body);
         let response = engine
             .client()
             .msearch_full(&[search])

@@ -45,6 +45,12 @@ fn dashboard(prefix: &str) -> Dashboard {
         if let PanelContent::Chart(chart) = &mut p.content {
             for l in &mut chart.layers {
                 l.data_view.index = format!("{prefix}{}", l.data_view.index);
+                // ES|QL names its index in the query.
+                if let Some(esql) = &mut l.esql {
+                    esql.query = esql
+                        .query
+                        .replace("FROM delivery-", &format!("FROM {prefix}delivery-"));
+                }
             }
         }
     }

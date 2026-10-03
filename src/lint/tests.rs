@@ -169,11 +169,10 @@ fn document_layers_only_take_values() {
     let mut d = reference();
     d["panels"][6]["content"]["layers"][0]["columns"][1] =
         json!({ "id": "hours", "op": "median", "field": "cycle_time_hours" });
-    assert!(
-        problems(d)
-            .iter()
-            .any(|p| p.message.contains("document layers can only have"))
-    );
+    assert!(problems(d).iter().any(|p| {
+        p.message
+            .contains("can only have `value` and computed columns")
+    }));
 }
 
 #[test]
@@ -316,4 +315,36 @@ fn annotations_only_show_on_time_axes() {
         json!([{ "id": "x", "events": [{ "at": "2026-07-01T00:00:00Z" }] }]);
     let p = problems(d);
     assert!(only(&p).message.contains("time x axis"), "{p:?}");
+}
+
+#[test]
+fn esql_layers_have_value_columns_and_no_control_variables() {
+    let mut d = reference();
+    let panel = panel_index(&d, "ai-cycle");
+    let layer = &mut d["panels"][panel]["content"]["layers"][0];
+    layer["columns"][1] = json!({ "id": "prs", "op": "count" });
+    let p = problems(d.clone());
+    assert!(
+        only(&p).message.contains("aggregate in the ES|QL query"),
+        "{p:?}"
+    );
+
+    let mut d = reference();
+    d["panels"][panel]["content"]["layers"][0]["esql"]["query"] =
+        json!("FROM delivery-prs | WHERE team == ?team | STATS prs = COUNT(*) BY team");
+    let p = problems(d);
+    assert!(only(&p).message.contains("?team"), "{p:?}");
+
+    // Without an ES|QL query, `value` columns need a document layer (and
+    // their names are checked as fields).
+    let mut d = reference();
+    d["panels"][panel]["content"]["layers"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("esql");
+    let p = problems(d);
+    assert!(
+        p.iter().any(|p| p.message.contains("document layer")),
+        "{p:?}"
+    );
 }

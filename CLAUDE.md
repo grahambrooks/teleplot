@@ -22,12 +22,13 @@ The full plan, with research and citations, is in `docs/mvp-plan.md`. Remaining 
   * uPlot through wasm-bindgen for charts
   * reqwest + serde against the ES REST API, not the alpha `elasticsearch` crate
   * KQL translated to DSL in Rust
+  * ES|QL panels (Lens `textBased`, and native `esql` layers) run through `POST /_query`; added after the MVP (roadmap Phase 4)
   * Site assets embedded with rust-embed
 * **Export:** PNG per panel, and PDF through the browser's print stylesheet (no headless browser)
 
 ### Deliberately NOT in MVP — do not "complete" these
 
-Ingestion/ETL · writing to ES (except the dev-only fixture seeder) · UI editing · auth/multi-user · alerting · scheduled reports · TSVB/Timelion/Vega/Maps · Lens ES|QL · Kibana 9.4+ Dashboards API format · OpenSearch · cumulative flow/WIP · saved-search tables · survey metrics · ranking individual engineers (excluded by design)
+Ingestion/ETL · writing to ES (except the dev-only fixture seeder) · UI editing · auth/multi-user · alerting · scheduled reports · TSVB/Timelion/Vega/Maps · ES|QL variable controls · Kibana 9.4+ Dashboards API format · OpenSearch · cumulative flow/WIP · saved-search tables · survey metrics · ranking individual engineers (excluded by design)
 
 ## Development
 

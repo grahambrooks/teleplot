@@ -338,3 +338,32 @@ fn converted_dashboards_match_snapshots() {
         insta::assert_snapshot!(name, yaml(&read(path)));
     }
 }
+
+#[test]
+fn lens_esql_panels_convert_to_esql_layers() {
+    let dashboards = read("9.5/sample-data.ndjson");
+    let logs = dashboards
+        .iter()
+        .find(|d| d.title == "[Logs] Web Traffic")
+        .unwrap();
+    let esql: Vec<&teleplot::model::Layer> = logs
+        .panels
+        .iter()
+        .filter_map(|p| match &p.content {
+            PanelContent::Chart(c) => c.layers.iter().find(|l| l.esql.is_some()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(esql.len(), 7);
+    for layer in esql {
+        // The ad hoc data view gives the index and time field.
+        assert_eq!(layer.data_view.index, "kibana_sample_data_logs");
+        assert_eq!(layer.data_view.time_field.as_deref(), Some("@timestamp"));
+        assert!(
+            layer
+                .columns
+                .iter()
+                .all(|c| matches!(c.op, teleplot::model::Operation::Value { .. }))
+        );
+    }
+}

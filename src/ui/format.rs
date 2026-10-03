@@ -66,8 +66,13 @@ pub fn grouped(v: f64, decimals: usize) -> String {
     out
 }
 
+/// `v` with `decimals` places; a value that rounds to zero has no sign.
 fn fixed(v: f64, decimals: usize) -> String {
-    format!("{v:.decimals$}")
+    let text = format!("{v:.decimals$}");
+    match text.strip_prefix('-') {
+        Some(rest) if rest.chars().all(|c| c == '0' || c == '.') => rest.to_string(),
+        _ => text,
+    }
 }
 
 /// `1234567` → `1.2M`.
@@ -172,5 +177,17 @@ mod tests {
     fn changes() {
         assert_eq!(change(110.0, 100.0), Some(10.0));
         assert_eq!(change(5.0, 0.0), None);
+    }
+
+    #[test]
+    fn values_that_round_to_zero_have_no_sign() {
+        let percent = Format {
+            kind: FormatKind::Percent,
+            decimals: Some(0),
+            suffix: None,
+            compact: false,
+        };
+        assert_eq!(value(-0.0021, Some(&percent)), "0%");
+        assert_eq!(value(-0.12, Some(&percent)), "-12%");
     }
 }

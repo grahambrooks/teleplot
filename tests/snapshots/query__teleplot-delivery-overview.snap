@@ -286,6 +286,106 @@ expression: "searches(&d, &stats)"
       "index": "delivery-deployments"
     }
   ],
+  "esql-cfr": [
+    {
+      "body": {
+        "filter": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "deployed_at": {
+                    "format": "epoch_millis",
+                    "gte": 1775001600000,
+                    "lte": 1790899200000
+                  }
+                }
+              }
+            ],
+            "must_not": []
+          }
+        },
+        "query": "FROM delivery-deployments\n| WHERE is_rework == false\n| STATS failed = COUNT(CASE(result == \"failure\", 1)), deploys = COUNT(*)\n| EVAL rate = TO_DOUBLE(failed) / deploys\n| KEEP rate"
+      },
+      "endpoint": "_query",
+      "index": "delivery-deployments"
+    }
+  ],
+  "esql-deploys": [
+    {
+      "body": {
+        "filter": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "deployed_at": {
+                    "format": "epoch_millis",
+                    "gte": 1775001600000,
+                    "lte": 1790899200000
+                  }
+                }
+              }
+            ],
+            "must_not": []
+          }
+        },
+        "query": "FROM delivery-deployments | WHERE is_rework == false | STATS deploys = COUNT(*)"
+      },
+      "endpoint": "_query",
+      "index": "delivery-deployments"
+    }
+  ],
+  "esql-teams": [
+    {
+      "body": {
+        "filter": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "deployed_at": {
+                    "format": "epoch_millis",
+                    "gte": 1775001600000,
+                    "lte": 1790899200000
+                  }
+                }
+              }
+            ],
+            "must_not": []
+          }
+        },
+        "query": "FROM delivery-deployments\n| WHERE is_rework == false\n| STATS deploys = COUNT(*), lead = MEDIAN(change_lead_time_hours) BY team\n| SORT deploys DESC"
+      },
+      "endpoint": "_query",
+      "index": "delivery-deployments"
+    }
+  ],
+  "esql-weekly": [
+    {
+      "body": {
+        "filter": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "merged_at": {
+                    "format": "epoch_millis",
+                    "gte": 1775001600000,
+                    "lte": 1790899200000
+                  }
+                }
+              }
+            ],
+            "must_not": []
+          }
+        },
+        "query": "FROM delivery-prs | STATS merged = COUNT(*) BY week = BUCKET(merged_at, 1 week) | SORT week"
+      },
+      "endpoint": "_query",
+      "index": "delivery-prs"
+    }
+  ],
   "lead-percentiles": [
     {
       "body": {

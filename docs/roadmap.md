@@ -4,7 +4,7 @@ Status: current as of 2026-10-03. This is the one place that orders the work.
 The research and rationale stay in the source plans:
 
 - [`mvp-plan.md`](mvp-plan.md): M0–M5 and M6 parts 1–2 (export, performance) are done.
-- [`mcp-plan.md`](mcp-plan.md): Part 1 (MCP endpoint) and gaps 1 (lint/schema), 2 (inspector, CSV) and 3 (annotations) are done.
+- [`mcp-plan.md`](mcp-plan.md): Part 1 (MCP endpoint) and gaps 1 (lint/schema), 2 (inspector, CSV), 3 (annotations) and 4 (ES|QL panels) are done.
 - [`charting-plan.md`](charting-plan.md): A1 (reference lines), A2 (`timeScale` → `per`), A5 (heatmap) and B1–B3 (the distribution charts) are done.
 
 Items carry their source IDs (`mcp gap 2`, `charting A1`). A phase starts once
@@ -47,11 +47,17 @@ also follows the [verification rules](#verification-rules) below.
   - **`log_histogram`.** A new bucket with log-spaced, round bounds. It runs as a `range` aggregation with open-ended first and last buckets, so no document is dropped. On `xy` charts it draws as bins on a log x axis, with p50/p85/p95 as `axis: bottom` reference lines (B1). A weekly heatmap over it is B2.
   - **Scatter percentiles.** `percentiles` on the scatter are nearest-rank and computed client-side over the points shown (B3).
 
-## Phase 4: ES|QL
+## Phase 4: ES|QL (done 2026-10-03)
 
 - **`mcp gap 4`: ES|QL panels and controls.** `POST /_query` columns map onto `LayerData`. Kibana `textBased` panels stop being placeholders. There's no editor with autocomplete.
 - **Scope change.** CLAUDE.md lists "Lens ES|QL" as not in MVP. mcp-plan decided to do it after the MVP, so update that line in CLAUDE.md when this phase starts.
 - *Done when:* the ES|QL fixtures from 9.5 render with parity.
+- *Result:*
+  - **Layers.** A layer with an `esql` query runs through `POST /_query`, alongside the dashboard's `_msearch`. Its `value` columns name result columns, and dates come back as times, so `BUCKET` charts get a time axis.
+  - **Filters and controls.** As in Kibana, the time range (on the data view's time field), the dashboard query, filter pills and field controls go in as `_query`'s `filter`. `?_tstart`/`?_tend` are filled in.
+  - **Kibana.** Lens `textBased` panels convert: all seven ES|QL panels in 9.5's sample Logs dashboard run, and its "Visits" metric matches a DSL count over the same range. The delivery fixtures gained four ES|QL panels (two metrics, a table, a weekly `BUCKET` chart) exported from 8.19 and 9.5, with parity tests against Kibana's screenshots.
+  - **Reference dashboard.** `delivery-overview.yaml` has a native ES|QL panel: median cycle time of AI-assisted PRs against the rest, by team.
+  - **Not done:** Kibana's ES|QL *variable* controls (`?team` set from a dropdown) need a single-value control Teleplot doesn't have. Panels that use them convert to placeholders, and lint reports them. CLAUDE.md lists them as out of scope.
 
 ## Phase 5: what sets Teleplot apart
 

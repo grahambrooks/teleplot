@@ -369,3 +369,32 @@ panels:
               expr: { call: divide, args: [failed, n] }
               format: { kind: percent, decimals: 1 }
           encoding: { as: table, columns: [team, n, per-week, lead, cfr] }
+
+  # ---------------------------------------------------------------- ES|QL
+  # A comparison the query DSL can't express in one search: each team's
+  # median cycle time for AI-assisted PRs against the rest, and the change.
+  - id: ai-cycle
+    title: Does AI assistance shorten cycle time? (ES|QL, by team)
+    grid: { x: 0, y: 58, w: 48, h: 12 }
+    content:
+      type: chart
+      kind: table
+      layers:
+        - id: ai
+          data_view: { index: delivery-prs, time_field: merged_at }
+          esql:
+            query: |
+              FROM delivery-prs
+              | WHERE cycle_time_hours IS NOT NULL
+              | STATS ai = MEDIAN(CASE(ai_assisted, cycle_time_hours)),
+                      other = MEDIAN(CASE(NOT ai_assisted, cycle_time_hours)),
+                      prs = COUNT(*) BY team
+              | EVAL change = ai / other - 1
+              | SORT change
+          columns:
+            - { id: team, label: Team, op: value, field: team }
+            - { id: prs, label: Merged PRs, op: value, field: prs }
+            - { id: ai, label: "Median, AI-assisted", op: value, field: ai, format: { kind: number, decimals: 1, suffix: " h" } }
+            - { id: other, label: "Median, other PRs", op: value, field: other, format: { kind: number, decimals: 1, suffix: " h" } }
+            - { id: change, label: Change, op: value, field: change, format: { kind: percent, decimals: 0 } }
+          encoding: { as: table, columns: [team, prs, ai, other, change] }

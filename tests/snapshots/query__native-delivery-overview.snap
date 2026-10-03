@@ -3,6 +3,31 @@ source: tests/query.rs
 expression: "searches(&native(), &HashMap::new())"
 ---
 {
+  "ai-cycle": [
+    {
+      "body": {
+        "filter": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "merged_at": {
+                    "format": "epoch_millis",
+                    "gte": 1775001600000,
+                    "lte": 1790899200000
+                  }
+                }
+              }
+            ],
+            "must_not": []
+          }
+        },
+        "query": "FROM delivery-prs\n| WHERE cycle_time_hours IS NOT NULL\n| STATS ai = MEDIAN(CASE(ai_assisted, cycle_time_hours)),\n        other = MEDIAN(CASE(NOT ai_assisted, cycle_time_hours)),\n        prs = COUNT(*) BY team\n| EVAL change = ai / other - 1\n| SORT change\n"
+      },
+      "endpoint": "_query",
+      "index": "delivery-prs"
+    }
+  ],
   "change-fail-rate": [
     {
       "body": {

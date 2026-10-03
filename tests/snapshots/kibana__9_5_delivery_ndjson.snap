@@ -693,6 +693,139 @@ panels:
         x: hm-month
         y: hm-team
         value: hm-n
+- id: esql-deploys
+  title: Deployments (ES|QL)
+  grid:
+    x: 0
+    y: 87
+    w: 12
+    h: 7
+  content:
+    type: chart
+    kind: metric
+    layers:
+    - id: layer-esql-deploys
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      esql:
+        query: FROM delivery-deployments | WHERE is_rework == false | STATS deploys = COUNT(*)
+      columns:
+      - id: deploys
+        label: deploys
+        op: value
+        field: deploys
+      encoding:
+        as: metric
+        value: deploys
+- id: esql-cfr
+  title: Change fail rate (ES|QL)
+  grid:
+    x: 12
+    y: 87
+    w: 12
+    h: 7
+  content:
+    type: chart
+    kind: metric
+    layers:
+    - id: layer-esql-cfr
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      esql:
+        query: |-
+          FROM delivery-deployments
+          | WHERE is_rework == false
+          | STATS failed = COUNT(CASE(result == "failure", 1)), deploys = COUNT(*)
+          | EVAL rate = TO_DOUBLE(failed) / deploys
+          | KEEP rate
+      columns:
+      - id: rate
+        label: rate
+        op: value
+        field: rate
+        format:
+          kind: percent
+          decimals: 1
+      encoding:
+        as: metric
+        value: rate
+- id: esql-teams
+  title: Deployments by team (ES|QL)
+  grid:
+    x: 24
+    y: 87
+    w: 24
+    h: 14
+  content:
+    type: chart
+    kind: table
+    layers:
+    - id: layer-esql-teams
+      data_view:
+        index: delivery-deployments
+        time_field: deployed_at
+      esql:
+        query: |-
+          FROM delivery-deployments
+          | WHERE is_rework == false
+          | STATS deploys = COUNT(*), lead = MEDIAN(change_lead_time_hours) BY team
+          | SORT deploys DESC
+      columns:
+      - id: team
+        label: team
+        op: value
+        field: team
+      - id: deploys
+        label: deploys
+        op: value
+        field: deploys
+      - id: lead
+        label: lead
+        op: value
+        field: lead
+        format:
+          kind: number
+          decimals: 1
+      encoding:
+        as: table
+        columns:
+        - team
+        - deploys
+        - lead
+- id: esql-weekly
+  title: Merged PRs per week (ES|QL)
+  grid:
+    x: 0
+    y: 94
+    w: 24
+    h: 14
+  content:
+    type: chart
+    kind: xy
+    layers:
+    - id: layer-esql-weekly
+      data_view:
+        index: delivery-prs
+        time_field: merged_at
+      esql:
+        query: FROM delivery-prs | STATS merged = COUNT(*) BY week = BUCKET(merged_at, 1 week) | SORT week
+      columns:
+      - id: week
+        label: week
+        op: value
+        field: week
+      - id: merged
+        label: merged
+        op: value
+        field: merged
+      encoding:
+        as: xy
+        series: bar
+        x: week
+        y:
+        - merged
 ---
 id: teleplot-pr-flow
 title: '[Delivery] PR flow'

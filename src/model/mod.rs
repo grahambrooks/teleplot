@@ -266,6 +266,9 @@ impl Chart {
                 )
             };
             match &l.encoding {
+                // An ES|QL column's type is known only from its results:
+                // annotations are fetched, and drawn if it holds dates.
+                Encoding::Xy { x: Some(_), .. } if l.esql.is_some() => true,
                 Encoding::Xy { x: Some(x), .. } | Encoding::Band { x, .. } => is_date(x),
                 Encoding::Heatmap { x, .. } => self.kind == ChartKind::Heatmap && is_date(x),
                 Encoding::Scatter { x, .. } => matches!(
@@ -297,12 +300,27 @@ pub enum ChartKind {
 pub struct Layer {
     pub id: String,
     pub data_view: DataView,
+    /// Run an ES|QL query instead: one row per result row. Columns are then
+    /// [`Operation::Value`]s naming result columns, and computed columns.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub esql: Option<Esql>,
     pub columns: Vec<Column>,
     pub encoding: Encoding,
     /// Fetch individual documents (one row each) instead of aggregating.
     /// Columns are then [`Operation::Value`]s and computed columns.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub documents: Option<Documents>,
+}
+
+/// An ES|QL query (`POST /_query`). The dashboard's time range (on the data
+/// view's time field), query, filter pills and control selections narrow
+/// the documents it reads, as in Kibana.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+pub struct Esql {
+    /// E.g. `FROM delivery-prs | STATS merged = COUNT(*) BY team`. It can use
+    /// `?_tstart` and `?_tend`, the time range's start and end.
+    pub query: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

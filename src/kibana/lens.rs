@@ -10,7 +10,7 @@ use super::objects::{
 };
 use super::{broken, out_of_scope, search, unparseable};
 use crate::model::{
-    Annotation, AnnotationEvent, Chart, ChartKind, Column, DataView, Encoding, Expr, Format,
+    Annotation, AnnotationEvent, Chart, ChartKind, Column, DataView, Encoding, Esql, Expr, Format,
     FormatKind, Interval, Layer, LineStyle, NamedQuery, Operation, OverallFunction, PerUnit,
     Placeholder, Range, ReferenceAxis, ReferenceFill, ReferenceLine, SeriesType, TermsOrder,
 };
@@ -51,12 +51,15 @@ pub fn convert(export: &Export, attrs: &Value, refs: &[Reference]) -> Result<Cha
         .iter()
         .find_map(|k| sources[k]["layers"].as_object().filter(|l| !l.is_empty()))
         .cloned();
-    let Some(datasource_layers) = layers else {
-        if sources.get("textBased").is_some() {
-            return Err(out_of_scope(&kind_name, "ES|QL panels are not in the MVP"));
-        }
-        return Err(unparseable(&kind_name, "no form-based datasource layers"));
-    };
+    // ES|QL panels keep their layers under `textBased`.
+    let esql_layers = sources["textBased"]["layers"]
+        .as_object()
+        .filter(|l| !l.is_empty())
+        .cloned();
+    if layers.is_none() && esql_layers.is_none() {
+        return Err(unparseable(&kind_name, "no datasource layers"));
+    }
+    let datasource_layers = layers.unwrap_or_default();
 
     let resolver = DataViews {
         export,
@@ -76,6 +79,16 @@ pub fn convert(export: &Export, attrs: &Value, refs: &[Reference]) -> Result<Cha
     let mut layers = Vec::new();
     for (layer_id, encoding) in encodings {
         let Some(source) = datasource_layers.get(&layer_id) else {
+            if let Some(source) = esql_layers.as_ref().and_then(|l| l.get(&layer_id)) {
+                layers.push(esql_layer(
+                    &kind_name,
+                    layer_id,
+                    source,
+                    &sources["textBased"],
+                    encoding,
+                )?);
+                continue;
+            }
             return Err(unparseable(
                 &kind_name,
                 format!("layer {layer_id} has no datasource"),
@@ -94,6 +107,7 @@ pub fn convert(export: &Export, attrs: &Value, refs: &[Reference]) -> Result<Cha
             columns,
             encoding,
             documents: None,
+            esql: None,
         });
     }
     if layers.is_empty() {
@@ -108,6 +122,85 @@ pub fn convert(export: &Export, attrs: &Value, refs: &[Reference]) -> Result<Cha
         annotations,
         warnings,
     })
+}
+
+/// A Lens ES|QL (`textBased`) layer: its query, the data view it reads (for
+/// the time field), and its result columns.
+fn esql_layer(
+    kind_name: &str,
+    id: String,
+    source: &Value,
+    text_based: &Value,
+    encoding: Encoding,
+) -> Result<Layer, Placeholder> {
+    let query = str_field(&source["query"], "esql")
+        .ok_or_else(|| unparseable(kind_name, "ES|QL layer without a query"))?
+        .to_string();
+    let variables = crate::query::esql_variables(&query);
+    if !variables.is_empty() {
+        let names: Vec<String> = variables.iter().map(|v| format!("?{v}")).collect();
+        return Err(out_of_scope(
+            kind_name,
+            format!(
+                "uses ES|QL control variables ({}), which Teleplot does not support",
+                names.join(", ")
+            ),
+        ));
+    }
+    // The data view: Lens's reference for the layer, else the query's `FROM`.
+    let reference = text_based["indexPatternRefs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|r| str_field(r, "id") == str_field(source, "index"));
+    let index = reference
+        .and_then(|r| str_field(r, "title"))
+        .map(String::from)
+        .or_else(|| esql_from(&query))
+        .ok_or_else(|| unparseable(kind_name, "ES|QL layer without an index"))?;
+    let time_field = str_field(source, "timeField")
+        .or_else(|| reference.and_then(|r| str_field(r, "timeField")))
+        .map(String::from);
+    let columns = source["columns"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|c| {
+            let column_id = str_field(c, "columnId")?;
+            let field = str_field(c, "fieldName").unwrap_or(column_id);
+            Some(Column {
+                id: column_id.to_string(),
+                label: str_field(c, "label").or(Some(field)).map(String::from),
+                op: Operation::Value {
+                    field: field.to_string(),
+                },
+                filter: None,
+                time_shift: None,
+                per: None,
+                format: format(&c["params"]["format"]),
+                helper: false,
+                thresholds: Vec::new(),
+            })
+        })
+        .collect();
+    Ok(Layer {
+        id,
+        data_view: DataView { index, time_field },
+        columns,
+        encoding,
+        documents: None,
+        esql: Some(Esql { query }),
+    })
+}
+
+/// The index pattern after `FROM` in an ES|QL query.
+fn esql_from(query: &str) -> Option<String> {
+    let mut words = query.split_whitespace();
+    words
+        .find(|w| w.eq_ignore_ascii_case("from"))
+        .and_then(|_| words.next())
+        .map(|w| w.trim_end_matches(['|', ',']).to_string())
+        .filter(|w| !w.is_empty())
 }
 
 struct DataViews<'a> {

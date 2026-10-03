@@ -77,10 +77,7 @@ pub fn stats_searches(chart: &Chart, ctx: &Context) -> Vec<((String, String), Se
                 });
                 out.push((
                     (layer.id.clone(), column.id.clone()),
-                    Search {
-                        index: layer.data_view.index.clone(),
-                        body,
-                    },
+                    Search::dsl(layer.data_view.index.clone(), body),
                 ));
             }
         }
@@ -120,14 +117,14 @@ pub fn terms_search(
     for (f, values) in ctx.selections.iter().filter(|(_, v)| !v.is_empty()) {
         filter.push(json!({ "terms": { f: values } }));
     }
-    Ok(Search {
-        index: view.index.clone(),
-        body: json!({
+    Ok(Search::dsl(
+        view.index.clone(),
+        json!({
             "size": 0, "track_total_hits": false,
             "query": { "bool": { "filter": filter, "must_not": must_not } },
             "aggs": { "values": { "terms": { "field": field, "size": size } } }
         }),
-    })
+    ))
 }
 
 /// Reads a stats search response.
@@ -178,9 +175,17 @@ struct Built {
     groups: Vec<ShiftGroup>,
     /// Set for document layers: which field fills which column.
     documents: Option<Vec<DocField>>,
+    /// Set for ES|QL layers: which result column fills which column.
+    esql: Option<Vec<EsqlField>>,
     /// The time range and zone, for normalizing by unit ([`Column::per`]).
     range: Range,
     time_zone: jiff::tz::TimeZone,
+}
+
+#[derive(Debug)]
+struct EsqlField {
+    column: String,
+    name: String,
 }
 
 #[derive(Debug)]
@@ -256,6 +261,9 @@ impl Plan {
                     let mut what = format!("Layer {}", layer.id);
                     if b.documents.is_some() {
                         what.push_str(", documents");
+                    }
+                    if b.esql.is_some() {
+                        what.push_str(", ES|QL");
                     }
                     if g.shift_ms != 0 {
                         what.push_str(&format!(", shifted {} earlier", duration(g.shift_ms)));
@@ -505,13 +513,7 @@ fn annotation_search(
         "_source": false,
         "fields": requested,
     });
-    Ok((
-        Search {
-            index: view.index.clone(),
-            body,
-        },
-        wanted,
-    ))
+    Ok((Search::dsl(view.index.clone(), body), wanted))
 }
 
 fn build_layer(
@@ -526,6 +528,9 @@ fn build_layer(
     };
     if let Some(docs) = &layer.documents {
         return build_documents(chart, layer, docs, ctx, &fields);
+    }
+    if let Some(esql) = &layer.esql {
+        return build_esql(chart, layer, esql, ctx);
     }
 
     // Bucket aggregations, outermost first. A date histogram's interval
@@ -612,10 +617,7 @@ fn build_layer(
                 "query": query,
                 "aggs": { "root": { "filter": { "match_all": {} }, "aggs": tree } }
             });
-            Some(Search {
-                index: layer.data_view.index.clone(),
-                body,
-            })
+            Some(Search::dsl(layer.data_view.index.clone(), body))
         };
         groups.push(ShiftGroup {
             shift_ms: shift,
@@ -627,6 +629,7 @@ fn build_layer(
         buckets,
         groups,
         documents: None,
+        esql: None,
         range: ctx.range,
         time_zone: time_zone(ctx),
     })
@@ -692,15 +695,102 @@ fn build_documents(
         groups: vec![ShiftGroup {
             shift_ms: 0,
             metrics: Vec::new(),
-            search: Some(Search {
-                index: layer.data_view.index.clone(),
-                body,
-            }),
+            search: Some(Search::dsl(layer.data_view.index.clone(), body)),
         }],
         documents: Some(doc_fields),
+        esql: None,
         range: ctx.range,
         time_zone: time_zone(ctx),
     })
+}
+
+/// An ES|QL layer: one `_query`. Like Kibana's `esql` expression, the
+/// dashboard's query, filter pills, control selections and the time range
+/// (on the data view's time field) go in as a DSL `filter`, and the range's
+/// ends are offered as `?_tstart` and `?_tend`.
+fn build_esql(
+    chart: &Chart,
+    layer: &Layer,
+    esql: &crate::model::Esql,
+    ctx: &Context,
+) -> Result<Built, String> {
+    let mut wanted = Vec::new();
+    for column in &layer.columns {
+        match &column.op {
+            Operation::Value { field } => wanted.push(EsqlField {
+                column: column.id.clone(),
+                name: field.clone(),
+            }),
+            op if op.inputs().is_empty() => {
+                return Err(format!(
+                    "column {} aggregates; in an ES|QL layer, aggregate in the query and name the result column with `op: value`",
+                    column.id
+                ));
+            }
+            _ => {}
+        }
+    }
+    let filter = base_query(chart, layer, ctx, ctx.range)?;
+    let mut body = json!({ "query": esql.query, "filter": filter });
+    let iso = |ms: i64| {
+        jiff::Timestamp::from_millisecond(ms)
+            .map(|t| t.to_string())
+            .unwrap_or_default()
+    };
+    let mut params = Vec::new();
+    for (name, ms) in [("_tstart", ctx.range.from_ms), ("_tend", ctx.range.to_ms)] {
+        if esql.query.contains(&format!("?{name}")) {
+            params.push(json!({ name: iso(ms) }));
+        }
+    }
+    if !params.is_empty() {
+        body["params"] = json!(params);
+    }
+    Ok(Built {
+        buckets: Vec::new(),
+        groups: vec![ShiftGroup {
+            shift_ms: 0,
+            metrics: Vec::new(),
+            search: Some(Search {
+                index: layer.data_view.index.clone(),
+                body,
+                endpoint: crate::es::Endpoint::Esql,
+            }),
+        }],
+        documents: None,
+        esql: Some(wanted),
+        range: ctx.range,
+        time_zone: time_zone(ctx),
+    })
+}
+
+/// The ES|QL control variables a query uses (`?team`), other than the time
+/// range's `?_tstart` and `?_tend`, which Teleplot fills in.
+pub fn esql_variables(query: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut quoted = false;
+    let chars: Vec<char> = query.chars().collect();
+    for (i, c) in chars.iter().enumerate() {
+        match c {
+            '"' => quoted = !quoted,
+            '?' if !quoted => {
+                let name: String = chars[i + 1..]
+                    .iter()
+                    .take_while(|c| c.is_alphanumeric() || **c == '_')
+                    .collect();
+                // `??name` is a field or function variable; report it bare.
+                let name = name.trim_start_matches('?').to_string();
+                if !name.is_empty()
+                    && !["_tstart", "_tend"].contains(&name.as_str())
+                    && !out.contains(&name)
+                {
+                    out.push(name);
+                }
+            }
+            _ => {}
+        }
+    }
+    out
 }
 
 /// The context's zone; UTC if it is not a known IANA name.
@@ -1116,6 +1206,9 @@ fn evaluate_layer(
     built: &Built,
     responses: &[Option<&Result<Value, String>>],
 ) -> Result<LayerData, String> {
+    if let Some(fields) = &built.esql {
+        return evaluate_esql(plan, built, fields, responses.first().copied().flatten());
+    }
     if let Some(doc_fields) = &built.documents {
         return evaluate_documents(
             plan,
@@ -1203,6 +1296,7 @@ fn evaluate_layer(
         columns: series,
         counts: main_rows.iter().map(|r| r.count).collect(),
         error: None,
+        dates: Vec::new(),
     })
 }
 
@@ -1254,7 +1348,99 @@ fn evaluate_documents(
         columns: series,
         counts: Vec::new(),
         error: None,
+        dates: Vec::new(),
     })
+}
+
+/// An ES|QL result (`columns` and row `values`) as the layer's columns.
+/// Dates become epoch milliseconds and are listed in [`LayerData::dates`].
+fn evaluate_esql(
+    plan: &LayerPlan,
+    built: &Built,
+    wanted: &[EsqlField],
+    response: Option<&Result<Value, String>>,
+) -> Result<LayerData, String> {
+    let response = response
+        .ok_or("missing response")?
+        .as_ref()
+        .map_err(Clone::clone)?;
+    let names: Vec<&str> = response["columns"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|c| c["name"].as_str().unwrap_or_default())
+        .collect();
+    let types: Vec<&str> = response["columns"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|c| c["type"].as_str().unwrap_or_default())
+        .collect();
+    let rows = response["values"].as_array().cloned().unwrap_or_default();
+    let n = rows.len();
+    let mut columns: HashMap<String, Vec<Cell>> = HashMap::new();
+    let mut dates = Vec::new();
+    for w in wanted {
+        let Some(i) = names.iter().position(|name| *name == w.name) else {
+            return Err(format!(
+                "the ES|QL result has no column {:?} (it has {})",
+                w.name,
+                names.join(", ")
+            ));
+        };
+        let is_date = matches!(types[i], "date" | "date_nanos" | "datetime");
+        if is_date {
+            dates.push(w.column.clone());
+        }
+        let values = rows.iter().map(|row| esql_cell(&row[i], is_date)).collect();
+        columns.insert(w.column.clone(), values);
+    }
+    let lengths = per_lengths(plan, built, &columns, n);
+    compute::computed_columns(&plan.layer, &[], n, &lengths, &mut columns)?;
+    let series = plan
+        .layer
+        .columns
+        .iter()
+        .filter(|c| !c.helper)
+        .map(|c| Series {
+            id: c.id.clone(),
+            values: columns.remove(&c.id).unwrap_or_else(|| vec![Cell::Null; n]),
+        })
+        .collect();
+    Ok(LayerData {
+        layer: plan.layer.id.clone(),
+        rows: n,
+        columns: series,
+        counts: Vec::new(),
+        error: None,
+        dates,
+    })
+}
+
+/// One ES|QL value: numbers stay numbers, dates become epoch milliseconds,
+/// and multi-valued fields are joined.
+fn esql_cell(value: &Value, is_date: bool) -> Cell {
+    match value {
+        Value::Null => Cell::Null,
+        Value::Number(n) => n.as_f64().map_or(Cell::Null, Cell::Number),
+        Value::String(s) if is_date => s
+            .parse::<jiff::Timestamp>()
+            .map(|t| Cell::Number(t.as_millisecond() as f64))
+            .unwrap_or_else(|_| Cell::Text(s.clone())),
+        Value::String(s) => Cell::Text(s.clone()),
+        Value::Bool(b) => Cell::Text(b.to_string()),
+        Value::Array(items) => Cell::Text(
+            items
+                .iter()
+                .map(|v| match v {
+                    Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                })
+                .collect::<Vec<_>>()
+                .join(", "),
+        ),
+        other => Cell::Text(other.to_string()),
+    }
 }
 
 fn built_bucket_kinds(built: &Built) -> Vec<(String, bool)> {
@@ -1410,6 +1596,7 @@ mod tests {
                 .collect(),
             groups: Vec::new(),
             documents: None,
+            esql: None,
             range: Range {
                 from_ms: ms(from) as i64,
                 to_ms: ms(to) as i64,
@@ -1663,6 +1850,7 @@ mod tests {
                     split: None,
                 },
                 documents: None,
+                esql: None,
             }],
             annotations: vec![annotation(Some("deploys"))],
             warnings: vec![],
@@ -1701,5 +1889,155 @@ mod tests {
             assert_eq!(data.annotations[0].events.len(), 1);
             assert_eq!(data.annotations[1].error.as_deref(), Some("boom"));
         });
+    }
+
+    fn esql_chart(query: &str, columns: Vec<crate::model::Column>) -> Chart {
+        use crate::model::{ChartKind, Encoding, Esql, Layer};
+        Chart {
+            kind: ChartKind::Table,
+            query: Default::default(),
+            filters: vec![],
+            layers: vec![Layer {
+                id: "l".into(),
+                data_view: DataView {
+                    index: "deploys".into(),
+                    time_field: Some("deployed_at".into()),
+                },
+                encoding: Encoding::Table {
+                    columns: columns.iter().map(|c| c.id.clone()).collect(),
+                },
+                columns,
+                documents: None,
+                esql: Some(Esql {
+                    query: query.into(),
+                }),
+            }],
+            annotations: vec![],
+            warnings: vec![],
+        }
+    }
+
+    fn value(id: &str, field: &str) -> crate::model::Column {
+        crate::model::Column {
+            id: id.into(),
+            label: None,
+            op: crate::model::Operation::Value {
+                field: field.into(),
+            },
+            filter: None,
+            time_shift: None,
+            per: None,
+            format: None,
+            helper: false,
+            thresholds: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn esql_layers_send_one_query_filtered_like_kibana() {
+        let chart = esql_chart(
+            "FROM deploys | WHERE deployed_at >= ?_tstart | STATS n = COUNT(*) BY team",
+            vec![value("team", "team"), value("n", "n")],
+        );
+        let selections = [("team".to_string(), vec!["checkout".to_string()])];
+        with_context(&selections, &[], |ctx| {
+            let searches = plan(&chart, ctx).searches();
+            assert_eq!(searches.len(), 1);
+            let s = &searches[0];
+            assert_eq!(s.endpoint, crate::es::Endpoint::Esql);
+            assert_eq!(
+                s.body["query"],
+                json!(chart.layers[0].esql.as_ref().unwrap().query)
+            );
+            let filter = s.body["filter"]["bool"]["filter"].as_array().unwrap();
+            // The time range on the data view's time field, the dashboard
+            // query, and the control selection.
+            assert!(filter[0]["range"]["deployed_at"].is_object(), "{filter:#?}");
+            assert_eq!(filter.len(), 3, "{filter:#?}");
+            assert_eq!(
+                s.body["params"],
+                json!([{ "_tstart": "2026-07-01T00:00:00Z" }])
+            );
+        });
+    }
+
+    #[test]
+    fn esql_results_become_columns_with_dates_as_epoch_millis() {
+        let chart = esql_chart(
+            "FROM deploys",
+            vec![
+                value("week", "week"),
+                value("n", "n"),
+                value("teams", "teams"),
+            ],
+        );
+        with_context(&[], &[], |ctx| {
+            let p = plan(&chart, ctx);
+            let response = json!({
+                "columns": [
+                    { "name": "n", "type": "long" },
+                    { "name": "week", "type": "date" },
+                    { "name": "teams", "type": "keyword" }
+                ],
+                "values": [
+                    [3, "2026-07-06T00:00:00.000Z", ["a", "b"]],
+                    [null, "2026-07-13T00:00:00.000Z", "c"]
+                ]
+            });
+            let data = p.evaluate(&[Ok(response)]);
+            let layer = &data.layers[0];
+            assert_eq!(layer.error, None);
+            assert_eq!(layer.rows, 2);
+            assert_eq!(layer.dates, ["week"]);
+            assert_eq!(
+                layer.series("week").unwrap().values,
+                [
+                    Cell::Number(ms("2026-07-06T00:00:00Z")),
+                    Cell::Number(ms("2026-07-13T00:00:00Z"))
+                ]
+            );
+            assert_eq!(
+                layer.series("n").unwrap().values,
+                [Cell::Number(3.0), Cell::Null]
+            );
+            assert_eq!(
+                layer.series("teams").unwrap().values,
+                [Cell::Text("a, b".into()), Cell::Text("c".into())]
+            );
+
+            let missing = p.evaluate(&[Ok(
+                json!({ "columns": [{ "name": "x", "type": "long" }], "values": [] }),
+            )]);
+            let error = missing.layers[0].error.as_deref().unwrap();
+            assert!(error.contains("no column \"week\""), "{error}");
+        });
+    }
+
+    #[test]
+    fn esql_layers_aggregate_in_the_query_not_in_columns() {
+        let mut count = value("n", "n");
+        count.op = crate::model::Operation::Count { field: None };
+        let chart = esql_chart("FROM deploys", vec![count]);
+        with_context(&[], &[], |ctx| {
+            let data = plan(&chart, ctx).evaluate(&[]);
+            assert!(
+                data.layers[0]
+                    .error
+                    .as_deref()
+                    .unwrap()
+                    .contains("aggregate in the query")
+            );
+        });
+    }
+
+    #[test]
+    fn esql_variables_are_found_outside_strings() {
+        assert_eq!(
+            esql_variables(
+                "FROM x | WHERE team == ?team AND t >= ?_tstart | WHERE msg == \"why?\" | EVAL ??field"
+            ),
+            ["team", "field"]
+        );
+        assert!(esql_variables("FROM x | WHERE t <= ?_tend").is_empty());
     }
 }

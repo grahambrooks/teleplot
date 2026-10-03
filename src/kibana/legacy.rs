@@ -135,6 +135,7 @@ fn convert(export: &Export, vis: Vis, refs: &[Reference]) -> Result<PanelContent
             columns,
             encoding,
             documents: None,
+            esql: None,
         }],
         annotations: Vec::new(),
         warnings: Vec::new(),

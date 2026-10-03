@@ -142,15 +142,31 @@ pub fn cell_text(cell: &Cell) -> String {
 
 /// Pivots every XY layer into series over one shared x axis.
 pub fn xy(chart: &Chart, data: &PanelData, min_samples: Option<u32>) -> Xy {
-    // The x axis kind comes from the first layer with an x column.
-    let x_kind = chart.layers.iter().find_map(|l| match &l.encoding {
-        Encoding::Xy { x: Some(x), .. } => l.column(x).map(|c| match c.op {
-            Operation::DateHistogram { .. } => 't',
-            Operation::Histogram { .. } | Operation::LogHistogram { .. } => 'n',
-            _ => 'c',
-        }),
-        _ => None,
-    });
+    // The x axis kind comes from the first layer with an x column. An ES|QL
+    // column's kind comes from its values: dates, numbers or text.
+    let x_kind = chart
+        .layers
+        .iter()
+        .zip(&data.layers)
+        .find_map(|(l, d)| match &l.encoding {
+            Encoding::Xy { x: Some(x), .. } => l.column(x).map(|c| match c.op {
+                Operation::DateHistogram { .. } => 't',
+                Operation::Histogram { .. } | Operation::LogHistogram { .. } => 'n',
+                Operation::Value { .. } if d.dates.contains(x) => 't',
+                Operation::Value { .. }
+                    if l.esql.is_some()
+                        && d.series(x).is_some_and(|s| {
+                            s.values
+                                .iter()
+                                .all(|v| matches!(v, Cell::Number(_) | Cell::Null))
+                        }) =>
+                {
+                    'n'
+                }
+                _ => 'c',
+            }),
+            _ => None,
+        });
 
     // Gather (x key, series key, value) triples per layer.
     struct Point {
@@ -898,6 +914,7 @@ mod tests {
                     split: split.then(|| "s".into()),
                 },
                 documents: None,
+                esql: None,
             }],
             annotations: vec![],
             warnings: vec![],
@@ -919,6 +936,7 @@ mod tests {
                     })
                     .collect(),
                 error: None,
+                dates: Vec::new(),
             }],
             warnings: vec![],
             annotations: vec![],

@@ -323,20 +323,22 @@ fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Probl
                     ),
                 ));
             }
-            if let Some((name, need)) = needs(&column.op) {
+            // An ES|QL layer's `value` columns name result columns, not fields.
+            if let Some((name, need)) = needs(&column.op)
+                && layer.esql.is_none()
+            {
                 field(fields, index, name, need, &format!("{at}.field"), problems);
             }
-            match (&column.op, &layer.documents) {
-                (Operation::Value { .. }, None) => problems.push(Problem::error(
+            let rows = layer.documents.is_some() || layer.esql.is_some();
+            match (&column.op, rows) {
+                (Operation::Value { .. }, false) => problems.push(Problem::error(
                     at.clone(),
-                    "`value` columns need a document layer (`documents: { limit, sort }`)",
+                    "`value` columns need a document layer (`documents: { limit, sort }`) or an `esql` query",
                 )),
-                (op, Some(_))
-                    if op.inputs().is_empty() && !matches!(op, Operation::Value { .. }) =>
-                {
+                (op, true) if op.inputs().is_empty() && !matches!(op, Operation::Value { .. }) => {
                     problems.push(Problem::error(
                         at.clone(),
-                        "document layers can only have `value` and computed columns",
+                        "document and ES|QL layers can only have `value` and computed columns; aggregate in the ES|QL query",
                     ))
                 }
                 _ => {}
@@ -350,6 +352,34 @@ fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Probl
                         format!("{:?}: from must be below to", t.label),
                     ));
                 }
+            }
+        }
+        if let Some(esql) = &layer.esql {
+            if layer.documents.is_some() {
+                problems.push(Problem::error(
+                    format!("{at}.esql"),
+                    "a layer runs an ES|QL query or fetches documents, not both",
+                ));
+            }
+            if esql.query.trim().is_empty() {
+                problems.push(Problem::error(
+                    format!("{at}.esql.query"),
+                    "empty ES|QL query",
+                ));
+            }
+            let variables = crate::query::esql_variables(&esql.query);
+            if !variables.is_empty() {
+                problems.push(Problem::error(
+                    format!("{at}.esql.query"),
+                    format!(
+                        "uses ES|QL variables ({}); Teleplot fills in only ?_tstart and ?_tend",
+                        variables
+                            .iter()
+                            .map(|v| format!("?{v}"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                ));
             }
         }
         if let Some(docs) = &layer.documents {
@@ -449,7 +479,9 @@ fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Probl
                 ));
             }
         }
+        // ES|QL layers group in the query.
         if matches!(layer.encoding, Encoding::Xy { .. } | Encoding::Band { .. })
+            && layer.esql.is_none()
             && !layer.columns.iter().any(|c| c.op.is_bucket())
         {
             problems.push(Problem::warning(

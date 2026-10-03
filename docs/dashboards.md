@@ -37,6 +37,7 @@ Panel `content` is one of:
 A layer queries one data view. Its columns are either:
 
 - **Buckets:** `date_histogram`, `terms`, `filters`, `histogram`, `ranges`, `log_histogram`;
+- **Per row** (document and ES|QL layers): `value`;
 - **Metrics:** `count`, `sum`, `average`, `min`, `max`, `median`, `percentile`, `unique_count`, `last_value`, `standard_deviation`, `static_value`, `time_range`;
 - **Computed from other columns:** `formula`, `moving_average`, `cumulative_sum`, `differences`, `counter_rate`, `overall`, `rolling_median`.
 
@@ -229,6 +230,33 @@ columns:
 
 A document layer draws one row per document. Only `value` columns and
 computed columns are allowed in it.
+
+### ES|QL layers
+
+A layer with an `esql` query runs it with `POST /_query` instead of
+building a search. Each result row is a row of the layer, and its columns
+are `value` columns that name result columns:
+
+```yaml
+- id: ai
+  data_view: { index: delivery-prs, time_field: merged_at }
+  esql:
+    query: |
+      FROM delivery-prs
+      | STATS ai = MEDIAN(CASE(ai_assisted, cycle_time_hours)),
+              other = MEDIAN(CASE(NOT ai_assisted, cycle_time_hours)) BY team
+      | EVAL change = ai / other - 1
+  columns:
+    - { id: team, op: value, field: team }
+    - { id: change, label: Change, op: value, field: change, format: { kind: percent } }
+  encoding: { as: table, columns: [team, change] }
+```
+
+- **Filters.** As in Kibana, the dashboard's time range (on the data view's `time_field`), its query, the filter pills and the control selections narrow the documents the query reads. They are sent as `_query`'s `filter`, so the query itself needs no `WHERE` for them.
+- **Time range.** `?_tstart` and `?_tend` in the query are the range's start and end. Kibana's ES|QL control variables (`?team`, set from a dropdown) are not supported: lint reports them, and Kibana panels that use them become placeholders.
+- **Columns.** Aggregate in the query, not with column operations. Computed columns (formulas, moving averages and the rest) work over the rows.
+- **Types.** Date columns (for example from `BUCKET(merged_at, 1 week)`) are drawn on a time axis; numbers on a numeric axis.
+- **Kibana.** Lens ES|QL panels (`textBased`) convert, with their data view's time field and column formats.
 
 ### Small samples and drill-down
 

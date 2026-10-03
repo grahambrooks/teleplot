@@ -177,6 +177,47 @@ async fn dora_overview_matches_kibana() {
         // The Lens annotation layer: Kibana marks 12 sev1 incidents (some
         // grouped per week, with counts), labelled by team from infra in May
         // to data in September; a release freeze; and a reorg.
+        // ES|QL panels (Lens `textBased`), filtered to the range on their
+        // data view's time field as Kibana does.
+        assert_eq!(
+            number(&data, "esql-deploys", "deploys"),
+            1004.0,
+            "{version}"
+        );
+        assert_shown(
+            number(&data, "esql-cfr", "rate") * 100.0,
+            10.2,
+            1,
+            "ES|QL change fail rate",
+        );
+        let teams = column(&data, "esql-teams", "team");
+        let deploys = column(&data, "esql-teams", "deploys");
+        let lead = column(&data, "esql-teams", "lead");
+        let shown = [
+            ("checkout", 395.0, 6.3),
+            ("infra", 189.0, 35.0),
+            ("billing", 139.0, 32.7),
+            ("identity", 119.0, 27.4),
+            ("onboarding", 76.0, 106.4),
+            ("data", 38.0, 451.1),
+            ("observability", 34.0, 128.7),
+            ("experiments", 14.0, 822.6),
+        ];
+        assert_eq!(teams.len(), shown.len(), "{version}");
+        for (i, (team, n, median)) in shown.into_iter().enumerate() {
+            assert_eq!(teams[i], Cell::Text(team.into()), "{version} row {i}");
+            assert_eq!(deploys[i], Cell::Number(n), "{version} {team}");
+            assert_shown(lead[i].number().unwrap(), median, 1, team);
+        }
+        // Weekly buckets are dates, and add up to every PR merged in the range.
+        let weekly = &data["esql-weekly"].layers[0];
+        assert_eq!(weekly.dates, ["week"], "{version}");
+        let merged: f64 = column(&data, "esql-weekly", "merged")
+            .iter()
+            .filter_map(Cell::number)
+            .sum();
+        assert_eq!(merged, 2724.0, "{version}");
+
         let annotations = &data["lead-target"].annotations;
         let labels: Vec<&str> = annotations.iter().map(|a| a.label.as_str()).collect();
         assert_eq!(
@@ -361,10 +402,10 @@ async fn kql_translation_agrees_with_native_kql() {
             )
             .unwrap();
             for query in [ours, json!({ "kql": { "query": q } })] {
-                searches.push(Search {
-                    index: "delivery-*".into(),
-                    body: json!({ "size": 0, "track_total_hits": true, "query": query }),
-                });
+                searches.push(Search::dsl(
+                    "delivery-*",
+                    json!({ "size": 0, "track_total_hits": true, "query": query }),
+                ));
             }
         }
         let responses = client.msearch(&searches).await.unwrap();
@@ -479,5 +520,69 @@ async fn native_delivery_overview_works_end_to_end() {
             "{version}"
         );
         assert_eq!(number(&focused, "teams", "n"), 38.0, "{version}");
+    }
+}
+
+/// Kibana 9.5's sample Logs dashboard has seven ES|QL panels. They must all
+/// run, and the time range must narrow them as it does the query DSL: the
+/// "Visits" metric equals a DSL count over the same range.
+#[tokio::test]
+async fn sample_esql_panels_run_with_the_time_range() {
+    for (version, client) in clusters().into_iter().filter(|(v, _)| v == "9.5") {
+        let path = format!(
+            "{}/fixtures/kibana/{version}/sample-data.ndjson",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let all = teleplot::dashboards::load_file(path.as_ref()).unwrap();
+        let logs = all
+            .iter()
+            .find(|d| d.title == "[Logs] Web Traffic")
+            .unwrap();
+        let engine = Engine::with_client(client.clone(), TimeZone::UTC, "UTC".into());
+        // Sample data is dated around the time it was installed.
+        let request = Request {
+            time: Some(TimeRange {
+                from: "now-30d".into(),
+                to: "now+30d".into(),
+            }),
+            ..Default::default()
+        };
+        let now = jiff::Timestamp::now();
+        let data = engine.dashboard_data(logs, &request, now).await.unwrap();
+        let esql: Vec<&str> = logs
+            .panels
+            .iter()
+            .filter(|p| match &p.content {
+                PanelContent::Chart(c) => c.layers.iter().any(|l| l.esql.is_some()),
+                _ => false,
+            })
+            .map(|p| p.id.as_str())
+            .collect();
+        assert_eq!(esql.len(), 7, "{version}");
+        for id in &esql {
+            for layer in &data[*id].layers {
+                assert_eq!(layer.error, None, "{version} {id}");
+                assert!(layer.rows > 0, "{version} {id}");
+            }
+        }
+
+        let range = engine.range(logs, &request, now).unwrap();
+        let count = client
+            .msearch(&[Search::dsl(
+                "kibana_sample_data_logs",
+                json!({ "size": 0, "track_total_hits": true, "query": { "range": { "@timestamp": {
+                    "gte": range.from_ms, "lte": range.to_ms, "format": "epoch_millis"
+                } } } }),
+            )])
+            .await
+            .unwrap()
+            .remove(0)
+            .unwrap()["hits"]["total"]["value"]
+            .as_f64()
+            .unwrap();
+        assert_eq!(
+            number(&data, "bb94016e-f4a6-49ca-87a9-296a2869d570", "Visits"),
+            count
+        );
     }
 }

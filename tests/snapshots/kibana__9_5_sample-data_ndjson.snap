@@ -1227,10 +1227,23 @@ panels:
     w: 12
     h: 7
   content:
-    type: placeholder
-    kind: lens:lnsMetric
-    reason: out_of_scope
-    detail: ES|QL panels are not in the MVP
+    type: chart
+    kind: metric
+    layers:
+    - id: 323d8ae0-0a4e-4540-84e2-0d36c8f15b46
+      data_view:
+        index: kibana_sample_data_logs
+        time_field: '@timestamp'
+      esql:
+        query: FROM kibana_sample_data_logs | STATS COUNT_DISTINCT(clientip) | RENAME `COUNT_DISTINCT(clientip)` as `Unique Visitors`
+      columns:
+      - id: Unique Visitors
+        label: Unique Visitors
+        op: value
+        field: Unique Visitors
+      encoding:
+        as: metric
+        value: Unique Visitors
 - id: '14'
   title: '[Logs] Machine OS and Destination Sankey Chart'
   grid:
@@ -1321,10 +1334,23 @@ panels:
     w: 12
     h: 7
   content:
-    type: placeholder
-    kind: lens:lnsMetric
-    reason: out_of_scope
-    detail: ES|QL panels are not in the MVP
+    type: chart
+    kind: metric
+    layers:
+    - id: 64a4cc71-c831-4644-9022-3fc833b8be77
+      data_view:
+        index: kibana_sample_data_logs
+        time_field: '@timestamp'
+      esql:
+        query: FROM kibana_sample_data_logs | STATS COUNT(*) | RENAME `COUNT(*)` as `Visits`
+      columns:
+      - id: Visits
+        label: Visits
+        op: value
+        field: Visits
+      encoding:
+        as: metric
+        value: Visits
 - id: 8c1456d4-1993-4ba2-b701-04aca02c9fef
   grid:
     x: 36
@@ -1332,10 +1358,35 @@ panels:
     w: 12
     h: 7
   content:
-    type: placeholder
-    kind: lens:lnsMetric
-    reason: out_of_scope
-    detail: ES|QL panels are not in the MVP
+    type: chart
+    kind: metric
+    layers:
+    - id: 81ca7215-7fcf-4d72-98d7-911faade8c71
+      data_view:
+        index: kibana_sample_data_logs
+        time_field: '@timestamp'
+      esql:
+        query: |-
+          FROM kibana_sample_data_logs
+          | EVAL type = CASE(TO_INTEGER(response.keyword) >= 500, "5xx", "Other")
+          | STATS count = COUNT(*) by type
+          | EVAL count_5xx = CASE(type == "5xx", count), count_rest = CASE(type == "Other", count)
+          | DROP count, type
+          | STATS count_5xx = MAX(count_5xx), count_rest = MAX(count_rest)
+          | EVAL percentage = ROUND(count_5xx / TO_DOUBLE(count_5xx + count_rest), 3)
+          | RENAME percentage as `HTTP 5xx (%)`
+          | DROP count_5xx, count_rest
+      columns:
+      - id: HTTP 5xx (%)
+        label: HTTP 5xx (%)
+        op: value
+        field: HTTP 5xx (%)
+        format:
+          kind: percent
+          decimals: 2
+      encoding:
+        as: metric
+        value: HTTP 5xx (%)
 - id: 01d8e435-91c0-484f-a11e-856747050b0a
   grid:
     x: 24
@@ -1343,10 +1394,35 @@ panels:
     w: 12
     h: 7
   content:
-    type: placeholder
-    kind: lens:lnsMetric
-    reason: out_of_scope
-    detail: ES|QL panels are not in the MVP
+    type: chart
+    kind: metric
+    layers:
+    - id: bc54f0c9-40ec-4082-92f5-3d6a6fdc4463
+      data_view:
+        index: kibana_sample_data_logs
+        time_field: '@timestamp'
+      esql:
+        query: |-
+          FROM kibana_sample_data_logs
+          | EVAL type = CASE(TO_INTEGER(response.keyword) >= 400 and TO_INTEGER(response.keyword) < 500, "4xx", "Other")
+          | STATS count = COUNT(*) by type
+          | EVAL count_4xx = CASE(type == "4xx", count), count_rest = CASE(type == "Other", count)
+          | DROP count, type
+          | STATS count_4xx = MAX(count_4xx), count_rest = MAX(count_rest)
+          | EVAL percentage = ROUND(count_4xx / TO_DOUBLE(count_4xx + count_rest), 3)
+          | RENAME percentage as `HTTP 4xx (%)`
+          | DROP count_4xx, count_rest
+      columns:
+      - id: HTTP 4xx (%)
+        label: HTTP 4xx (%)
+        op: value
+        field: HTTP 4xx (%)
+        format:
+          kind: percent
+          decimals: 2
+      encoding:
+        as: metric
+        value: HTTP 4xx (%)
 - id: 8e59c7cf-6e42-4343-a113-c4a255fcf2ce
   title: '[Logs] Unique Destination Heatmap'
   grid:
@@ -1366,10 +1442,63 @@ panels:
     w: 24
     h: 13
   content:
-    type: placeholder
-    kind: lens:lnsDatatable
-    reason: out_of_scope
-    detail: ES|QL panels are not in the MVP
+    type: chart
+    kind: table
+    layers:
+    - id: 98067b05-c0ba-4c52-a12a-e9ac195c728c
+      data_view:
+        index: kibana_sample_data_logs
+        time_field: '@timestamp'
+      esql:
+        query: |-
+          FROM kibana_sample_data_logs
+          | SORT @timestamp
+          | EVAL t = now()
+          | EVAL buckets = CASE(timestamp <= t AND timestamp >= t - 1 hour, "Last hour", "Other")
+          | STATS sum = SUM(bytes), count = COUNT_DISTINCT(clientip) by buckets, extension.keyword
+          | EVAL sum_last_hour = CASE(buckets == "Last hour", sum), sum_rest = CASE(buckets == "Other", sum), count_last_hour = CASE(buckets == "Last hour", count), count_rest = CASE(buckets == "Other", count)
+          | STATS sum_last_hour = MAX(sum_last_hour), sum_rest = MAX(sum_rest), count_last_hour = MAX(count_last_hour), count_rest = MAX(count_rest) by buckets, extension.keyword
+          | EVAL total_bytes = TO_DOUBLE(COALESCE(sum_last_hour, 0::LONG) + COALESCE(sum_rest, 0::LONG))
+          | EVAL total_visits = TO_DOUBLE(COALESCE(count_last_hour, 0::LONG) + COALESCE(count_rest, 0::LONG))
+          | KEEP count_last_hour, total_visits, total_bytes, sum_last_hour, extension.keyword
+          | STATS count_last_hour = SUM(count_last_hour), total_visits  = SUM(total_visits), bytes_transform = SUM(total_bytes), bytes_transform_last_hour = SUM(sum_last_hour) BY extension.keyword
+          | RENAME total_visits as `Unique Visits (Total)`, count_last_hour as `Unique Visits (Last hour)`, bytes_transform as `Bytes(Total)`, bytes_transform_last_hour as `Bytes(Last hour)`, extension.keyword as `Type`
+          | SORT `Unique Visits (Total)` DESC
+      columns:
+      - id: 50616178-2ced-4297-9fd1-29ea50f788ab
+        label: Bytes(Total)
+        op: value
+        field: Bytes(Total)
+        format:
+          kind: bytes
+          decimals: 2
+      - id: b6472710-4099-44e4-9e7d-acdef5b10752
+        label: Bytes(Last hour)
+        op: value
+        field: Bytes(Last hour)
+        format:
+          kind: bytes
+          decimals: 2
+      - id: Unique Visits (Total)
+        label: Unique Visits (Total)
+        op: value
+        field: Unique Visits (Total)
+      - id: Unique Visits (Last hour)
+        label: Unique Visits (Last hour)
+        op: value
+        field: Unique Visits (Last hour)
+      - id: ee182e52-c961-4eb3-837f-d67a7750d96a
+        label: Type
+        op: value
+        field: Type
+      encoding:
+        as: table
+        columns:
+        - Unique Visits (Last hour)
+        - Unique Visits (Total)
+        - 50616178-2ced-4297-9fd1-29ea50f788ab
+        - b6472710-4099-44e4-9e7d-acdef5b10752
+        - ee182e52-c961-4eb3-837f-d67a7750d96a
 - id: cbca842c-b9fa-4523-9ce0-14e350866e33
   title: '[Logs] Bytes distribution'
   grid:
@@ -1378,10 +1507,39 @@ panels:
     w: 24
     h: 13
   content:
-    type: placeholder
-    kind: lens:lnsXY
-    reason: out_of_scope
-    detail: ES|QL panels are not in the MVP
+    type: chart
+    kind: xy
+    layers:
+    - id: efaebb4b-6893-46a3-8fae-0eecef93cfab
+      data_view:
+        index: kibana_sample_data_logs
+        time_field: '@timestamp'
+      esql:
+        query: |-
+          FROM kibana_sample_data_logs
+          | INLINESTATS total_visits = COUNT()
+          | STATS visits = COUNT() by bytes = bucket(bytes, 1000, 0, 100000), total_visits
+          | EVAL percentage = (TO_DOUBLE(visits) / total_visits)
+          | EVAL percentage = ROUND(percentage, 3)
+          | DROP total_visits, visits
+      columns:
+      - id: percentage
+        label: percentage
+        op: value
+        field: percentage
+        format:
+          kind: percent
+          decimals: 1
+      - id: 643e21d0-c836-4041-b283-85805993cabb
+        label: bytes
+        op: value
+        field: bytes
+      encoding:
+        as: xy
+        series: bar_stacked
+        x: 643e21d0-c836-4041-b283-85805993cabb
+        y:
+        - percentage
 - id: 1d5f0b3f-d9d2-4b26-997b-83bc5ca3090b
   title: '[Logs] Errors by host'
   grid:
@@ -1390,7 +1548,77 @@ panels:
     w: 48
     h: 19
   content:
-    type: placeholder
-    kind: lens:lnsDatatable
-    reason: out_of_scope
-    detail: ES|QL panels are not in the MVP
+    type: chart
+    kind: table
+    layers:
+    - id: 8d5e3fae-adad-4bfc-8ec2-a1926a447315
+      data_view:
+        index: kibana_sample_data_logs
+        time_field: '@timestamp'
+      esql:
+        query: |-
+          FROM kibana_sample_data_logs
+          | KEEP bytes, clientip, url.keyword, response.keyword
+          | EVAL type = CASE(TO_INTEGER(response.keyword) >= 400 and TO_INTEGER(response.keyword) < 500, "4xx", TO_INTEGER(response.keyword) >= 500, "5xx", "Other")
+          | STATS Visits = COUNT(), Unique = COUNT_DISTINCT(clientip), p95 = percentile(bytes, 95), median = median(bytes) by type, url.keyword
+          | EVAL count_4xx = CASE(type == "4xx", Visits), count_5xx = CASE(type == "5xx", Visits), count_rest =  CASE(type == "Other", Visits)
+          | STATS count_4xx = SUM(count_4xx), count_5xx  = SUM(count_5xx), count_rest = SUM(count_rest), Unique = SUM(Unique),`95th percentile of bytes` = MAX(p95), `Median of bytes` = MAX(median), Visits = SUM(Visits) BY url.keyword
+          | EVAL count_4xx = COALESCE(count_4xx, 0::LONG), count_5xx = COALESCE(count_5xx, 0::LONG), count_rest = COALESCE(count_rest, 0::LONG)
+          | EVAL total_records = TO_DOUBLE(count_4xx + count_5xx + count_rest)
+          | EVAL percentage_4xx = count_4xx / total_records, percentage_5xx = count_5xx / total_records
+          | EVAL percentage_4xx = ROUND(percentage_4xx, 3)
+          | EVAL percentage_5xx = ROUND(percentage_5xx, 3)
+          | DROP count_4xx, count_rest, total_records
+          | SORT percentage_5xx DESC
+          | RENAME percentage_4xx as `HTTP 4xx`, percentage_5xx as `HTTP 5xx`
+      columns:
+      - id: Unique
+        label: Unique
+        op: value
+        field: Unique
+      - id: ae2c85ad-c1a3-4f4a-a1e2-761060ef1136
+        label: Visits
+        op: value
+        field: Visits
+      - id: 95th percentile of bytes
+        label: 95th percentile of bytes
+        op: value
+        field: 95th percentile of bytes
+        format:
+          kind: bytes
+          decimals: 0
+      - id: Median of bytes
+        label: Median of bytes
+        op: value
+        field: Median of bytes
+        format:
+          kind: bytes
+          decimals: 0
+      - id: count_5xx
+        label: HTTP 5xx
+        op: value
+        field: HTTP 5xx
+        format:
+          kind: percent
+          decimals: 1
+      - id: 0089839c-ab91-420e-bdec-9583ce4d6015
+        label: HTTP 4xx
+        op: value
+        field: HTTP 4xx
+        format:
+          kind: percent
+          decimals: 1
+      - id: fc9b8ff9-47dc-4a68-9028-583ecd4cb865
+        label: url.keyword
+        op: value
+        field: url.keyword
+      encoding:
+        as: table
+        columns:
+        - Unique
+        - 95th percentile of bytes
+        - Median of bytes
+        - count_5xx
+        - 0089839c-ab91-420e-bdec-9583ce4d6015
+        - fc9b8ff9-47dc-4a68-9028-583ecd4cb865
+        - ae2c85ad-c1a3-4f4a-a1e2-761060ef1136

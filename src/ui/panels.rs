@@ -59,6 +59,8 @@ fn drawn_on_canvas(content: &PanelContent) -> bool {
     }
     chart.layers.iter().any(|l| match &l.encoding {
         Encoding::Band { .. } | Encoding::Scatter { .. } => true,
+        // ES|QL x columns are dates or numbers more often than not.
+        Encoding::Xy { x: Some(_), .. } if l.esql.is_some() => true,
         Encoding::Xy { x: Some(x), .. } => {
             matches!(
                 l.column(x).map(|c| &c.op),
@@ -260,9 +262,10 @@ fn low_sample_note(xy: &series::Xy, min: Option<u32>) -> Option<AnyView> {
 }
 
 /// A cell for display, using the column's format and the dashboard time zone for dates.
-fn display(cell: &Cell, column: Option<&Column>, tz: &str) -> String {
+fn display(cell: &Cell, column: Option<&Column>, is_date: bool, tz: &str) -> String {
     match (cell, column.map(|c| &c.op)) {
         (Cell::Number(ms), Some(Operation::DateHistogram { .. })) => date(*ms, tz),
+        (Cell::Number(ms), _) if is_date => date(*ms, tz),
         (Cell::Number(n), _) => format::value(*n, column.and_then(|c| c.display_format()).as_ref()),
         (other, _) => cell_text(other),
     }
@@ -442,7 +445,14 @@ fn PieChart(chart: Chart, data: PanelData, ctx: PanelContext) -> impl IntoView {
                     let raw = gs.as_ref().map(|g| cell_text(&g[row]));
                     let label = gs
                         .as_ref()
-                        .map(|g| display(&g[row], group_col, &tz))
+                        .map(|g| {
+                            display(
+                                &g[row],
+                                group_col,
+                                group.is_some_and(|g| d.dates.contains(g)),
+                                &tz,
+                            )
+                        })
                         .unwrap_or_else(|| "Total".into());
                     (v > 0.0).then_some((label, raw, v))
                 })
@@ -582,7 +592,7 @@ fn DataTable(chart: Chart, data: PanelData, ctx: PanelContext) -> impl IntoView 
                             .map(|(i, t)| (t.label.clone(), threshold_color(t, i)))
                     });
                     TableCell {
-                        text: display(cell, column, &tz),
+                        text: display(cell, column, d.dates.contains(id), &tz),
                         sort: cell.number(),
                         band,
                     }

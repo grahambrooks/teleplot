@@ -60,6 +60,10 @@ pub struct LayerData {
     /// Set when the layer's query failed; `columns` is then empty.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Columns holding dates (as epoch milliseconds) whose type the model
+    /// can't tell, e.g. an ES|QL `BUCKET` of a date.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dates: Vec<String>,
 }
 
 impl LayerData {

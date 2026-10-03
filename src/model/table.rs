@@ -45,13 +45,14 @@ pub fn layer_table(layer: &Layer, data: &LayerData) -> Table {
                 label: column
                     .and_then(|c| c.label.clone())
                     .unwrap_or_else(|| s.id.clone()),
-                date: match column.map(|c| &c.op) {
-                    Some(Operation::DateHistogram { .. }) => true,
-                    Some(Operation::Value { field }) => {
-                        layer.data_view.time_field.as_ref() == Some(field)
-                    }
-                    _ => false,
-                },
+                date: data.dates.contains(&s.id)
+                    || match column.map(|c| &c.op) {
+                        Some(Operation::DateHistogram { .. }) => true,
+                        Some(Operation::Value { field }) => {
+                            layer.data_view.time_field.as_ref() == Some(field)
+                        }
+                        _ => false,
+                    },
             }
         })
         .collect();
@@ -148,6 +149,7 @@ mod tests {
                 columns: vec!["x".into(), "team".into(), "n".into()],
             },
             documents: None,
+            esql: None,
         };
         let data = LayerData {
             layer: "l".into(),
@@ -168,6 +170,7 @@ mod tests {
             ],
             counts: Vec::new(),
             error: None,
+            dates: Vec::new(),
         };
         let table = layer_table(&layer, &data);
         assert_eq!(
