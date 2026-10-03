@@ -64,6 +64,26 @@ impl Client {
     /// Runs searches in one `_msearch` round trip. Each search succeeds or
     /// fails on its own; the outer error is for the request as a whole.
     pub async fn msearch(&self, searches: &[Search]) -> Result<Vec<Result<Value, String>>, String> {
+        self.msearch_with(
+            searches,
+            "responses.aggregations,responses.error,responses.status,responses.hits.total,responses.hits.hits.fields",
+        )
+        .await
+    }
+
+    /// Like [`Client::msearch`], but with whole responses (documents' `_source` included).
+    pub async fn msearch_full(
+        &self,
+        searches: &[Search],
+    ) -> Result<Vec<Result<Value, String>>, String> {
+        self.msearch_with(searches, "").await
+    }
+
+    async fn msearch_with(
+        &self,
+        searches: &[Search],
+        filter_path: &str,
+    ) -> Result<Vec<Result<Value, String>>, String> {
         if searches.is_empty() {
             return Ok(Vec::new());
         }
@@ -75,10 +95,11 @@ impl Client {
             body.push_str(&s.body.to_string());
             body.push('\n');
         }
-        let url = format!(
-            "{}/_msearch?filter_path=responses.aggregations,responses.error,responses.status,responses.hits.total,responses.hits.hits.fields",
-            self.base
-        );
+        let url = if filter_path.is_empty() {
+            format!("{}/_msearch", self.base)
+        } else {
+            format!("{}/_msearch?filter_path={filter_path}", self.base)
+        };
         let response = self
             .http
             .post(url)
@@ -110,6 +131,43 @@ impl Client {
             .map(|r| match error_reason(&r) {
                 Some(reason) => Err(reason),
                 None => Ok(r),
+            })
+            .collect())
+    }
+
+    /// Indices and data streams (hidden ones excluded): name and document count.
+    pub async fn indices(&self) -> Result<Vec<(String, u64)>, String> {
+        let url = format!(
+            "{}/_cat/indices?format=json&h=index,docs.count&s=index&expand_wildcards=open",
+            self.base
+        );
+        let response = self
+            .http
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| format!("Elasticsearch unreachable: {e}"))?;
+        let status = response.status();
+        let value: Value = response
+            .json()
+            .await
+            .map_err(|e| format!("bad _cat/indices response: {e}"))?;
+        if !status.is_success() {
+            return Err(
+                error_reason(&value).unwrap_or_else(|| format!("_cat/indices failed: {status}"))
+            );
+        }
+        Ok(value
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|i| {
+                let name = i["index"].as_str()?;
+                let docs = i["docs.count"]
+                    .as_str()
+                    .and_then(|c| c.parse().ok())
+                    .unwrap_or(0);
+                (!name.starts_with('.')).then(|| (name.to_string(), docs))
             })
             .collect())
     }

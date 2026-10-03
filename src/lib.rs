@@ -21,9 +21,15 @@ pub mod es;
 #[cfg(feature = "ssr")]
 pub mod kibana;
 #[cfg(feature = "ssr")]
+pub mod lint;
+#[cfg(feature = "ssr")]
+pub mod mcp;
+#[cfg(feature = "ssr")]
 pub mod query;
 #[cfg(feature = "ssr")]
 pub mod report;
+#[cfg(feature = "ssr")]
+pub mod store;
 #[cfg(feature = "ssr")]
 pub mod time;
 

@@ -178,6 +178,26 @@ impl Engine {
         Ok(out)
     }
 
+    pub fn client(&self) -> &Client {
+        &self.client
+    }
+
+    /// Fields of each index pattern (cached), for checking dashboards.
+    pub async fn fields_for(&self, indexes: &[String]) -> HashMap<String, Vec<Field>> {
+        let mut out = HashMap::new();
+        for index in indexes {
+            if !out.contains_key(index) {
+                let found = self
+                    .fields(index)
+                    .await
+                    .map(|f| (*f).clone())
+                    .unwrap_or_default();
+                out.insert(index.clone(), found);
+            }
+        }
+        out
+    }
+
     pub fn time_zone_name(&self) -> &str {
         &self.time_zone_name
     }

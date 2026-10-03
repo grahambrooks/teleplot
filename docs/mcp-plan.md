@@ -1,6 +1,6 @@
 # Plan: MCP endpoint for agent-authored dashboards, and the feature-gap roadmap
 
-Status: proposed, 2026-10-03. The research behind this plan was carried out
+Status: decided and in progress, 2026-10-03. The research behind this plan was carried out
 the same day; sources are linked inline.
 
 ## Context
@@ -37,20 +37,15 @@ agent.
 
 ### Transport and protocol
 
-- **Hand-rolled, not `rmcp`.** This follows the precedent in the vault: kaizen-ai's server is about 160 lines of serde JSON-RPC around a pure `handle_message` function. `rmcp` went through three major versions between March and July 2026 (1.0 → 2.0 → 3.0, [crates.io](https://crates.io/api/v1/crates/rmcp/versions)), which confirms the worry about churn.
-- **Streamable HTTP at `POST /mcp`** on the existing axum server.
-  - Responses are plain JSON: no server-sent events and no sessions.
-  - Notifications get 202; GET and DELETE get 405.
-- **Both spec generations are supported.** Clients will speak both for a while. The research reports that 2026-07-28 removed sessions and the `initialize` handshake.
-  - **2026-07-28:** `server/discover`, per-request `_meta`, the `MCP-Protocol-Version`, `Mcp-Method` and `Mcp-Name` headers checked against the body, `resultType` on every result, and `ttlMs` on list results ([changelog](https://modelcontextprotocol.io/specification/2026-07-28/changelog), [transport](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http)).
-  - **2025-06-18 and 2025-11-25:** `initialize`, `notifications/initialized` and `ping` ([2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)).
-  - **Verification:** these spec details came from research and must be checked against the spec text before implementation. The tests below pin both flows.
+- **The official Rust SDK, `rmcp` 3.5** (decided 2026-10-03). The protocol is still evolving, and `rmcp` evolves with it: its 3.0 release shipped the same day as the 2026-07-28 spec. Hand-rolling would mean tracking every spec change ourselves.
+  - `rmcp` serves both spec generations. It answers 2026-07-28 clients statelessly (`server/discover`, per-request `_meta`), and pre-2026 clients through `initialize`, with sessions.
+  - It checks the `Host` header against loopback names by default, and checks `Origin` against our own address when configured.
+- **Streamable HTTP at `/mcp`** on the existing axum server, mounted with `nest_service`, with plain JSON responses.
 - **`teleplot mcp` (stdio)** shares the same dispatcher, for clients that prefer to launch a process. Logs go to stderr.
 - **Security:**
-  - Validate the `Origin` header; return 403 for a foreign origin (this blocks DNS-rebinding attacks).
-  - Keep the existing default of binding to 127.0.0.1.
-  - An optional static bearer token: `mcp.token: ${TELEPLOT_MCP_TOKEN}`.
-  - No OAuth while Teleplot is localhost-only; the spec makes authorization optional ([auth](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization)).
+  - `Host` and `Origin` validation (through `rmcp`) blocks DNS-rebinding attacks.
+  - **Writes are enabled only while Teleplot is bound to a loopback address.** On any other address the endpoint is read-only (decided 2026-10-03).
+  - No OAuth or tokens while Teleplot is localhost-only; the spec makes authorization optional.
 
 ### Tools
 
@@ -85,33 +80,27 @@ or replace them.
 
 ### Saving: rules that keep agent writes safe
 
-- **Ids** must match `^[a-z0-9][a-z0-9-]{0,63}$` and map to exactly one file, `dashboards/<id>.yaml`. No paths are accepted from the agent, so there is no path traversal.
+- **Location.** Agent dashboards live in their own folder, `dashboards/agents/<id>.yaml` (decided 2026-10-03). The catalog loads that folder too, and marks each dashboard as hand-written, Kibana export, or agent.
+- **Ids** must match `^[a-z0-9][a-z0-9-]{0,63}$`. No paths are accepted from the agent, so there is no path traversal. An id already used by a dashboard outside `agents/` is refused.
 - **Hand-maintained and Kibana dashboards are never overwritten.** Files Teleplot did not write, including every `.ndjson` export, are read-only to MCP. Saving a changed copy of one creates a new id: `<id>-copy` or an id the agent chooses.
 - **Overwrites need proof of what was read.** Overwriting a dashboard the agent wrote earlier requires the `expected_hash` from `get_dashboard`. If the file changed since the agent read it, the save is refused with a message to re-read and merge.
-- **History.** The previous version moves to `dashboards/.history/<id>/<timestamp>.yaml`, keeping the last 20, so undo is "copy it back". `list_dashboards` marks agent-written dashboards with `written_by: mcp` in the file.
+- **History.** The previous version moves to `dashboards/agents/.history/<id>/<timestamp>.yaml`, keeping the last 20, so undo is "copy it back". A `.history/` folder is enough version history (decided 2026-10-03).
 - **Size limits:** at most 200 panels and 1 MB of YAML.
-- **Writes can be turned off:** `mcp: { enabled: true, writes: true }`, or `--mcp-read-only`.
+
 
 ### Code layout
 
 Teleplot stays a single crate with directory modules (vault convention).
 
 ```
-src/mcp/
-  protocol.rs   # pure dispatch: (&Server, request JSON, headers) → response; both spec generations
-  http.rs       # axum handler: Origin/token/header checks → protocol
-  stdio.rs      # `teleplot mcp`
-  tools.rs      # the seven tools; each takes typed input and returns typed output
-src/lint/       # semantic validation (also `teleplot lint`)
-src/store.rs    # atomic save, history, hash checks
+src/mcp.rs      # rmcp server: the seven tools and two resources; mounted at /mcp and run by `teleplot mcp`
+src/lint/       # parse with error paths, then semantic checks (also `teleplot lint`)
+src/store.rs    # atomic save into dashboards/agents, history, hash checks
 ```
 
 ### Testing
 
-1. **Protocol unit tests** on the pure dispatcher, using recorded exchanges for both spec generations:
-   - discover / initialize, tools/list, tools/call;
-   - malformed input, unknown tool, and headers that disagree with the body;
-   - an unsupported protocol version.
+1. **Protocol tests** over HTTP against a running server, for both spec generations: a 2026-07-28 stateless `tools/call`, and a legacy `initialize` followed by `tools/list`. These check the tools as clients see them, including schemas and annotations.
 2. **Lint tests.** Seeded mistakes must each be reported with the right path:
    - a missing field;
    - a date histogram on a keyword field;
@@ -173,8 +162,9 @@ Not pursued, and why:
 5. **Baseline comparison (gap 6),** the feature that sets Teleplot apart, then chained/ad-hoc variables (gap 5).
 6. **Revisit 7–10** once there is a decision about sharing and authentication.
 
-## Open questions
+## Decisions (2026-10-03)
 
-- **Writes on by default?** The plan enables writes when bound to localhost, and makes `--mcp-read-only` available. The alternative is read-only by default, with writes opted in.
-- **Is `.history/` enough as version history,** or should agent saves commit to git when the dashboards directory is a repository? That would make them reviewable, but it adds a git dependency (the vault says not to shell out).
-- **Where do agent-written dashboards go?** The plan puts them beside hand-written ones, marked `written_by: mcp`. The alternative is a separate `dashboards/agent/` directory, which would need recursive loading.
+1. Agent writes are allowed only while Teleplot is bound to localhost.
+2. `.history/` is enough version history.
+3. Agent dashboards go in `dashboards/agents/`.
+4. Use `rmcp` rather than a hand-written protocol layer, because the protocol is still evolving.

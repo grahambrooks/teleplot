@@ -73,4 +73,4 @@ jobs:
       - name: Kibana parity tests
         env:
           TELEPLOT_TEST_ES: 8.19=http://localhost:9208,9.5=http://localhost:9209
-        run: cargo test --test elasticsearch
+        run: cargo test --test elasticsearch --test mcp

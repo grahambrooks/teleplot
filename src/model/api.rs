@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use super::{PanelData, Query};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct DashboardSummary {
     pub id: String,
     pub title: String,
@@ -16,6 +17,7 @@ pub struct DashboardSummary {
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct Catalog {
     pub dashboards: Vec<DashboardSummary>,
     /// Files that failed to load, and why.
@@ -28,6 +30,7 @@ pub struct Catalog {
 
 /// `POST /api/dashboards/{id}/data`
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct DataRequest {
     /// Kibana date math; the dashboard default when absent.
     #[serde(default)]
@@ -43,6 +46,7 @@ pub struct DataRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct DataResponse {
     /// The resolved range, epoch milliseconds.
     pub from_ms: i64,
@@ -54,11 +58,13 @@ pub struct DataResponse {
 
 /// `POST /api/dashboards/{id}/controls/{control}`: values to choose from.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct ControlValues {
     pub values: Vec<(String, u64)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct ApiError {
     pub error: String,
 }

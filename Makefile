@@ -40,4 +40,4 @@ fixtures:
 # Kibana parity tests against the local fixture stacks (make fixtures, or
 # `docker compose -f fixtures/docker-compose.yml --profile v8 --profile v9 up -d` and seed).
 integration:
-	TELEPLOT_TEST_ES=8.19=http://localhost:9208,9.5=http://localhost:9209 cargo test --test elasticsearch
+	TELEPLOT_TEST_ES=8.19=http://localhost:9208,9.5=http://localhost:9209 cargo test --test elasticsearch --test mcp

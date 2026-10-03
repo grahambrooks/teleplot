@@ -15,6 +15,7 @@ pub use data::{Cell, LayerData, PanelData, Series};
 pub use interval::{Interval, IntervalUnit};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct Dashboard {
     pub id: String,
     pub title: String,
@@ -41,12 +42,14 @@ pub struct Dashboard {
 
 /// Kibana date math, e.g. `now-90d/d` or an ISO timestamp.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct TimeRange {
     pub from: String,
     pub to: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum QueryLanguage {
     #[default]
@@ -55,6 +58,7 @@ pub enum QueryLanguage {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct Query {
     #[serde(default)]
     pub language: QueryLanguage,
@@ -77,6 +81,7 @@ impl Query {
 
 /// A filter pill. The query is Elasticsearch DSL, applied as-is.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct Filter {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
@@ -92,6 +97,7 @@ pub struct Filter {
 
 /// A dashboard control, offered to the viewer as a filter on one field.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct Control {
     pub id: String,
     pub title: String,
@@ -100,6 +106,7 @@ pub struct Control {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct DataView {
     /// Index pattern, e.g. `delivery-*`.
     pub index: String,
@@ -108,6 +115,7 @@ pub struct DataView {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct Panel {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -121,6 +129,7 @@ pub struct Panel {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct Grid {
     pub x: u32,
     pub y: u32,
@@ -129,6 +138,7 @@ pub struct Grid {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PanelContent {
     Chart(Chart),
@@ -138,6 +148,7 @@ pub enum PanelContent {
 
 /// A panel Teleplot cannot render, shown as a labelled card.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct Placeholder {
     /// What the source called it, e.g. `vega`, `map`, `lens:lnsHeatmap`.
     pub kind: String,
@@ -146,6 +157,7 @@ pub struct Placeholder {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum PlaceholderReason {
     /// Deliberately not supported (see the MVP scope).
@@ -157,6 +169,7 @@ pub enum PlaceholderReason {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct Chart {
     pub kind: ChartKind,
     #[serde(default, skip_serializing_if = "Query::is_empty")]
@@ -167,6 +180,7 @@ pub struct Chart {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ChartKind {
     Xy,
@@ -178,6 +192,7 @@ pub enum ChartKind {
 
 /// One query against one data view, and how its columns are drawn.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct Layer {
     pub id: String,
     pub data_view: DataView,
@@ -190,6 +205,7 @@ pub struct Layer {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct Documents {
     /// At most this many documents (newest first, then shown in order).
     pub limit: u32,
@@ -204,6 +220,7 @@ impl Layer {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 #[serde(tag = "as", rename_all = "snake_case")]
 pub enum Encoding {
     Xy {
@@ -295,6 +312,7 @@ impl Encoding {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum SeriesType {
     Line,
@@ -310,6 +328,7 @@ pub enum SeriesType {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct Column {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -336,6 +355,7 @@ pub struct Column {
 /// A labelled range of values: `from` inclusive, `to` exclusive; open-ended
 /// when absent.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct Threshold {
     pub label: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -354,6 +374,7 @@ impl Threshold {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Operation {
     // Metrics. `field: None` on count means "documents".
@@ -468,6 +489,7 @@ pub enum Operation {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum OverallFunction {
     Sum,
@@ -504,6 +526,7 @@ impl Operation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 #[serde(tag = "by", rename_all = "snake_case")]
 pub enum TermsOrder {
     /// Descending by a metric column.
@@ -521,12 +544,14 @@ pub enum TermsOrder {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct NamedQuery {
     pub label: String,
     pub query: Query,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct Range {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from: Option<f64>,
@@ -538,6 +563,7 @@ pub struct Range {
 
 /// A formula expression over the layer's columns (Kibana's tinymath AST).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum Expr {
     Number(f64),
@@ -556,6 +582,7 @@ impl Expr {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct Format {
     pub kind: FormatKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -567,6 +594,7 @@ pub struct Format {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum FormatKind {
     Number,

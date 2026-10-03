@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct PanelData {
     pub layers: Vec<LayerData>,
     /// Things the viewer should know, e.g. an interval that was scaled up.
@@ -12,6 +13,7 @@ pub struct PanelData {
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct LayerData {
     pub layer: String,
     pub rows: usize,
@@ -32,6 +34,7 @@ impl LayerData {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct Series {
     pub id: String,
     pub values: Vec<Cell>,
@@ -39,6 +42,7 @@ pub struct Series {
 
 /// A table cell. Date histogram keys are epoch milliseconds.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum Cell {
     Number(f64),

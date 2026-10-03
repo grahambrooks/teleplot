@@ -102,6 +102,22 @@ impl<'de> Deserialize<'de> for Interval {
     }
 }
 
+/// In schemas an interval is a string: `auto`, or a count and unit such as `1w`.
+#[cfg(feature = "ssr")]
+impl schemars::JsonSchema for Interval {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Interval".into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "type": "string",
+            "pattern": "^(auto|[0-9]*(ms|s|m|h|d|w|M|q|y))$",
+            "description": "auto, or a count and unit: ms s m h d w M (month) q y, e.g. 1w, 12h, 1M"
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

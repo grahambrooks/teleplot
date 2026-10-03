@@ -32,7 +32,11 @@ clap = { version = "4", features = ["derive"], optional = true }
 leptos_axum = { version = "0.8", optional = true }
 mime_guess = { version = "2", optional = true }
 moka = { version = "0.12", features = ["future"], optional = true }
+rmcp = { version = "3.5", default-features = false, features = ["server", "macros", "schemars", "transport-io", "transport-streamable-http-server"], optional = true }
 rust-embed = { version = "8", optional = true }
+schemars = { version = "1", optional = true }
+serde_path_to_error = { version = "0.1", optional = true }
+sha2 = { version = "0.10", optional = true }
 serde_yaml_ng = { version = "0.10", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"], optional = true }
 tracing = { version = "0.1", optional = true }
@@ -84,8 +88,12 @@ ssr = [
     "dep:leptos_axum",
     "dep:mime_guess",
     "dep:moka",
+    "dep:rmcp",
     "dep:reqwest",
     "dep:rust-embed",
+    "dep:schemars",
+    "dep:serde_path_to_error",
+    "dep:sha2",
     "dep:serde_yaml_ng",
     "dep:tokio",
     "dep:tracing",

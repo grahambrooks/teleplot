@@ -14,7 +14,7 @@ use axum::routing::{get, post};
 use leptos::prelude::*;
 use leptos_axum::{LeptosRoutes, generate_route_list};
 
-pub use catalog::Catalog;
+pub use catalog::{AGENTS_DIR, Catalog, Entry, Source};
 
 use crate::config::Config;
 use crate::engine::Engine;
@@ -66,12 +66,14 @@ pub fn router(addr: SocketAddr, app: Arc<Teleplot>) -> Router {
         .site_addr(addr)
         .build();
     let routes = generate_route_list(App);
+    let mcp = mcp_service(addr, app.clone());
     let state = AppState {
         leptos: leptos.clone(),
         app,
     };
 
     Router::new()
+        .nest_service("/mcp", mcp)
         .route("/api/dashboards", get(api::list))
         .route("/api/dashboards/{id}", get(api::dashboard))
         .route("/api/dashboards/{id}/data", post(api::data))
@@ -85,6 +87,42 @@ pub fn router(addr: SocketAddr, app: Arc<Teleplot>) -> Router {
         })
         .fallback(assets::serve)
         .with_state(state)
+}
+
+/// The MCP endpoint. Agents may save dashboards only while Teleplot is bound
+/// to a loopback address; browsers from other origins are refused (rmcp also
+/// accepts only loopback `Host` names), which blocks DNS-rebinding attacks.
+fn mcp_service(
+    addr: SocketAddr,
+    app: Arc<Teleplot>,
+) -> rmcp::transport::streamable_http_server::StreamableHttpService<
+    crate::mcp::TeleplotMcp,
+    rmcp::transport::streamable_http_server::session::local::LocalSessionManager,
+> {
+    use rmcp::transport::streamable_http_server::{
+        StreamableHttpServerConfig, StreamableHttpService,
+    };
+    let writes = addr.ip().is_loopback();
+    let base_url = format!("http://{addr}");
+    let port = addr.port();
+    let config = StreamableHttpServerConfig::default()
+        .with_json_response(true)
+        .with_allowed_origins([
+            format!("http://{addr}"),
+            format!("http://localhost:{port}"),
+            format!("http://127.0.0.1:{port}"),
+        ]);
+    StreamableHttpService::new(
+        move || {
+            Ok(crate::mcp::TeleplotMcp::new(
+                app.clone(),
+                writes,
+                base_url.clone(),
+            ))
+        },
+        Default::default(),
+        config,
+    )
 }
 
 /// Serves until Ctrl-C.
@@ -101,6 +139,13 @@ pub async fn serve(addr: SocketAddr, app: Teleplot) -> std::io::Result<()> {
     let app = Arc::new(app);
     app.catalog.clone().watch();
     let listener = tokio::net::TcpListener::bind(addr).await?;
+    if addr.ip().is_loopback() {
+        tracing::info!("MCP endpoint at http://{addr}/mcp (agents may save dashboards)");
+    } else {
+        tracing::info!(
+            "MCP endpoint at http://{addr}/mcp is read-only: Teleplot is not bound to localhost"
+        );
+    }
     tracing::info!("Teleplot listening on http://{}", listener.local_addr()?);
     axum::serve(listener, router(addr, app))
         .with_graceful_shutdown(async {

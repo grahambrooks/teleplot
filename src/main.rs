@@ -54,6 +54,33 @@ enum Command {
         #[command(flatten)]
         connection: Connection,
     },
+    /// Check dashboard files: the format, references between columns, KQL,
+    /// and with --online the indexes and fields against Elasticsearch. Exits 1
+    /// on errors, so it can gate CI.
+    Lint {
+        /// Teleplot YAML dashboards and/or Kibana exports.
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+        /// Also check indexes and field types against Elasticsearch.
+        #[arg(long)]
+        online: bool,
+        #[command(flatten)]
+        connection: Connection,
+    },
+    /// Print the JSON Schema of Teleplot's YAML dashboard format (for editors).
+    Schema,
+    /// Serve the MCP endpoint over stdio, for agents that launch Teleplot
+    /// themselves (`teleplot serve` also serves it at /mcp).
+    Mcp {
+        /// Directory of dashboards; agents save into its `agents/` folder.
+        #[arg(long)]
+        dashboards: Option<PathBuf>,
+        /// Where Teleplot's UI runs, for links in results.
+        #[arg(long, default_value = "http://127.0.0.1:3000")]
+        url: String,
+        #[command(flatten)]
+        connection: Connection,
+    },
     /// Convert a Kibana export to Teleplot YAML dashboards.
     Convert {
         /// Kibana saved-object export (.ndjson).
@@ -123,6 +150,24 @@ async fn main() -> ExitCode {
         .map_err(|e| e.to_string()),
         Command::Check { exports } => check(&exports),
         Command::Convert { export, out } => convert(&export, out.as_deref()),
+        Command::Lint {
+            files,
+            online,
+            connection,
+        } => lint(&files, online.then_some(&connection)).await,
+        Command::Schema => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&teleplot::mcp::dashboard_schema_json())
+                    .unwrap_or_default()
+            );
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Mcp {
+            dashboards,
+            url,
+            connection,
+        } => mcp_stdio(dashboards, url, &connection).await,
         Command::Query {
             file,
             dashboard,
@@ -260,6 +305,109 @@ fn cell(c: &Cell) -> String {
         Cell::Text(t) => t.clone(),
         Cell::Null => "-".into(),
     }
+}
+
+async fn lint(files: &[PathBuf], online: Option<&Connection>) -> Result<ExitCode, String> {
+    use teleplot::lint;
+    let engine = online
+        .map(|c| c.config().and_then(|c| Engine::new(&c)))
+        .transpose()?;
+    let mut errors = 0;
+    for file in files {
+        let text = std::fs::read_to_string(file).map_err(|e| format!("{}: {e}", file.display()))?;
+        let is_yaml = file.extension().is_some_and(|e| e == "yaml" || e == "yml");
+        // YAML is parsed from raw values so problems carry exact paths.
+        let parsed: Vec<Result<Dashboard, lint::Problem>> = if is_yaml {
+            serde_yaml_ng::Deserializer::from_str(&text)
+                .map(|doc| {
+                    let value: serde_json::Value =
+                        serde::Deserialize::deserialize(doc).map_err(|e| lint::Problem {
+                            path: String::new(),
+                            severity: lint::Severity::Error,
+                            message: e.to_string(),
+                        })?;
+                    lint::parse(value)
+                })
+                .collect()
+        } else {
+            teleplot::kibana::read(&text)
+                .map_err(|e| format!("{}: {e}", file.display()))?
+                .into_iter()
+                .map(Ok)
+                .collect()
+        };
+        for result in parsed {
+            let (name, problems) = match result {
+                Err(p) => ("(unparsed)".to_string(), vec![p]),
+                Ok(d) => {
+                    let problems = match &engine {
+                        Some(engine) => {
+                            let indexes: Vec<String> = d
+                                .panels
+                                .iter()
+                                .filter_map(|p| match &p.content {
+                                    PanelContent::Chart(c) => {
+                                        Some(c.layers.iter().map(|l| l.data_view.index.clone()))
+                                    }
+                                    _ => None,
+                                })
+                                .flatten()
+                                .chain(d.controls.iter().map(|c| c.data_view.index.clone()))
+                                .collect();
+                            lint::check(&d, Some(&engine.fields_for(&indexes).await))
+                        }
+                        None => lint::check(&d, None),
+                    };
+                    (d.id.clone(), problems)
+                }
+            };
+            for p in &problems {
+                let level = if p.severity == lint::Severity::Error {
+                    "error"
+                } else {
+                    "warning"
+                };
+                println!(
+                    "{}: {name}: {level}: {}: {}",
+                    file.display(),
+                    if p.path.is_empty() {
+                        "(dashboard)"
+                    } else {
+                        &p.path
+                    },
+                    p.message
+                );
+            }
+            errors += problems
+                .iter()
+                .filter(|p| p.severity == lint::Severity::Error)
+                .count();
+        }
+    }
+    if errors > 0 {
+        eprintln!("{errors} error(s)");
+        return Ok(ExitCode::FAILURE);
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+async fn mcp_stdio(
+    dashboards: Option<PathBuf>,
+    url: String,
+    connection: &Connection,
+) -> Result<ExitCode, String> {
+    use rmcp::ServiceExt;
+    let app = std::sync::Arc::new(teleplot::server::Teleplot::new(
+        connection.config(),
+        dashboards,
+    ));
+    // A process the agent launched is local, so saving is allowed.
+    let server = teleplot::mcp::TeleplotMcp::new(app, true, url)
+        .serve(rmcp::transport::stdio())
+        .await
+        .map_err(|e| e.to_string())?;
+    server.waiting().await.map_err(|e| e.to_string())?;
+    Ok(ExitCode::SUCCESS)
 }
 
 fn to_yaml(d: &Dashboard) -> Result<String, String> {
