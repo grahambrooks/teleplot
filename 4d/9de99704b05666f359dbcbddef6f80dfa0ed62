@@ -1,0 +1,37 @@
+src/ui/panels.rs
+  s_a16a72bbb1a561::t_2e57e3dbaa2656 651-655
+src/mcp.rs
+  s_a16a72bbb1a561::t_cea01b63706f15 16-18,766-772,792-798
+  s_a16a72bbb1a561::t_4d0c4e79a031a6 140,169,190,199,208,221,239,241,243
+tests/mcp.rs
+  s_a16a72bbb1a561::t_cea01b63706f15 241-245
+  s_a16a72bbb1a561::t_e804a57d4fac02 82,92-112
+docs/mcp-plan.md
+  s_a16a72bbb1a561::t_a7bdfd341cfad4 131-146
+src/lint/mod.rs
+  s_a16a72bbb1a561::t_8d86de2bb7070a 224-237
+Cargo.toml
+  s_a16a72bbb1a561::t_b553a2e448b857 64
+src/query/mod.rs
+  s_a16a72bbb1a561::t_8d86de2bb7070a 663-668
+tests/query.rs
+  s_a16a72bbb1a561::t_8d86de2bb7070a 162-191
+Cargo.lock
+  s_a16a72bbb1a561::t_3b2cbf473b951d 5-18,28-33,278-292,323-328,335-340,823-831,894-904,917-927,934-939,949-958,1083,1087,1168-1172,1649-1701,2032-2037,2123-2191,2236-2241,2699-2715,3416-3436,3569,3968-3973,4039-4048,4061-4066
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4d9de99704b05666f359dbcbddef6f80dfa0ed62",
+  "prompts": {},
+  "sessions": {
+    "s_a16a72bbb1a561": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c4825dcb-6aec-4b49-b368-aeeb721d6552",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
