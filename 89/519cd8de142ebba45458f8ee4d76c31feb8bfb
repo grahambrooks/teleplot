@@ -1,0 +1,19 @@
+docs/mcp-plan.md
+  s_a16a72bbb1a561::t_d11b7e89d7fa35 1-180
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "89519cd8de142ebba45458f8ee4d76c31feb8bfb",
+  "prompts": {},
+  "sessions": {
+    "s_a16a72bbb1a561": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c4825dcb-6aec-4b49-b368-aeeb721d6552",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
