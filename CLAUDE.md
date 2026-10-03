@@ -36,6 +36,7 @@ Ingestion/ETL · writing to ES (except the dev-only fixture seeder) · UI editin
 * `make pre-commit` — fmt, clippy (server and WASM client), tests. Run before every commit; CI runs the same
 * `make smoke` — release build, then checks that the binary serves the whole UI from an empty directory
 * `make deny` — cargo-deny supply-chain checks
+* `make fixtures` — rebuild Kibana fixtures against dockerised ES/Kibana 8.19 and 9.5 (see `fixtures/README.md`). Fixtures are Kibana's own exports; review the screenshots before committing
 * Hooks: `prek install --hook-type pre-commit --hook-type pre-push`
 
 Build gotchas, learned in M0:

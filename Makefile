@@ -1,4 +1,4 @@
-.PHONY: pre-commit fmt lint test dev release smoke deny
+.PHONY: pre-commit fmt lint test dev release smoke deny fixtures
 
 CLIENT := --lib --target wasm32-unknown-unknown --no-default-features --features hydrate
 SERVER := --all-targets --no-default-features --features ssr
@@ -32,3 +32,7 @@ smoke: release
 
 deny:
 	cargo deny check
+
+# Rebuild Kibana fixtures against real ES + Kibana (Docker). See fixtures/README.md.
+fixtures:
+	fixtures/make-fixtures.sh

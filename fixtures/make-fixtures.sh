@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Rebuilds the Kibana fixtures from scratch against real ES + Kibana stacks.
+#   fixtures/make-fixtures.sh            # both versions
+#   fixtures/make-fixtures.sh v8         # one version
+# Needs Docker. Leaves the stacks running; stop them with
+#   docker compose -f fixtures/docker-compose.yml --profile v8 --profile v9 down
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+COMPOSE="docker compose -f fixtures/docker-compose.yml"
+END=2026-10-01   # fixed so the seeded data, and so the fixtures, are reproducible
+
+build() {
+  local profile=$1 es=$2 kibana=$3 version=$4 dir=$5
+  echo "== $profile: Elasticsearch :$es, Kibana :$kibana ($version)"
+  $COMPOSE --profile "$profile" up -d --wait
+  mkdir -p "fixtures/kibana/$dir/screenshots"
+
+  cargo run -q --example seed -- --es "http://localhost:$es" --end "$END"
+
+  for set in ecommerce flights logs; do
+    curl -sf -X POST "localhost:$kibana/api/sample_data/$set" -H 'kbn-xsrf: true' >/dev/null
+  done
+  curl -sf -X POST "localhost:$kibana/api/saved_objects/_export" \
+    -H 'kbn-xsrf: true' -H 'content-type: application/json' \
+    -d '{"type":["dashboard"],"includeReferencesDeep":true}' \
+    >"fixtures/kibana/$dir/sample-data.ndjson"
+
+  cargo run -q --example kibana_fixtures -- \
+    --kibana "http://localhost:$kibana" --out "fixtures/kibana/$dir/delivery.ndjson"
+
+  # Reference screenshots come from Kibana's own reporting, which needs a
+  # (local, throwaway) trial licence.
+  curl -sf -X POST "localhost:$es/_license/start_trial?acknowledge=true" >/dev/null || true
+  for dashboard in delivery-overview pr-flow investment; do
+    fixtures/screenshot.sh "$kibana" "$version" "teleplot-$dashboard" \
+      "fixtures/kibana/$dir/screenshots/$dashboard.png"
+  done
+}
+
+want=${1:-all}
+[[ $want == all || $want == v8 ]] && build v8 9208 5608 8.19.22 8.19
+[[ $want == all || $want == v9 ]] && build v9 9209 5609 9.5.3 9.5
+echo "Fixtures rebuilt. Review the screenshots before committing."

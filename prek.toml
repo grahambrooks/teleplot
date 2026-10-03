@@ -5,8 +5,9 @@
 repo = "https://github.com/pre-commit/pre-commit-hooks"
 rev = "v6.0.0"
 hooks = [
-  { id = "trailing-whitespace" },
-  { id = "end-of-file-fixer" },
+  # Kibana exports are kept byte-for-byte as Kibana wrote them.
+  { id = "trailing-whitespace", exclude = "^fixtures/kibana/" },
+  { id = "end-of-file-fixer", exclude = "^fixtures/kibana/" },
   { id = "check-yaml" },
   { id = "check-toml" },
   { id = "check-added-large-files" }
