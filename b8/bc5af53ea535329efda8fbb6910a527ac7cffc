@@ -1,0 +1,98 @@
+src/ui/mod.rs
+  s_ae1a5b1be5a92c::t_0cf0a48cb3d76e 12
+src/query/mod.rs
+  s_ae1a5b1be5a92c::t_05cc3ebcc5ed72 1882
+src/ui/uplot.rs
+  s_ae1a5b1be5a92c::t_d260ba0ec07e67 36-41,168,209-218,370-372
+  s_ae1a5b1be5a92c::t_7ef016484648d6 373
+style/main.css
+  s_ae1a5b1be5a92c::t_cc268665ab3bed 530
+  s_ae1a5b1be5a92c::t_b0167ca0907558 508-514,520-528
+  s_ae1a5b1be5a92c::t_fbc4df471382b1 529
+  s_ae1a5b1be5a92c::t_c69ea548c4898d 515-519
+docs/charting-plan.md
+  s_ae1a5b1be5a92c::t_5ca58f22544212 7
+docs/roadmap.md
+  s_ae1a5b1be5a92c::t_c12cec17512e7d 96
+  s_ae1a5b1be5a92c::t_5ca58f22544212 8,84,88-95,97
+src/kibana/lens.rs
+  s_ae1a5b1be5a92c::t_05cc3ebcc5ed72 14-17,33,37-38,308,346-366,498-547
+  s_ae1a5b1be5a92c::t_507c75be3a9937 548-549
+fixtures/README.md
+  s_ae1a5b1be5a92c::t_b3572e05cc59d4 28
+docs/dashboards.md
+  s_ae1a5b1be5a92c::t_8c3cfc554040c8 32,60,62-64,335-350,352-377
+  s_ae1a5b1be5a92c::t_16e6d640a0cf83 351
+  s_ae1a5b1be5a92c::t_1d4e52ed153ba4 378
+examples/kibana_fixtures.rs
+  s_ae1a5b1be5a92c::t_c14e0619b62199 1165-1210,1215-1256,1259-1268,1273-1278
+  s_ae1a5b1be5a92c::t_c97b9be30ff2f6 1211-1214,1269-1272
+  s_ae1a5b1be5a92c::t_d59e58661c20ac 1257-1258
+fixtures/make-fixtures.sh
+  s_ae1a5b1be5a92c::t_c14e0619b62199 41
+fixtures/kibana/8.19/delivery.ndjson
+  s_ae1a5b1be5a92c::t_1b8df1c404af21 1-12
+src/ui/shapes.rs
+  s_ae1a5b1be5a92c::t_5e116cf7610969 281-283,292
+  s_ae1a5b1be5a92c::t_0cf0a48cb3d76e 1-8,10-280,284-291,293-350,367,372-594
+  s_ae1a5b1be5a92c::t_b0167ca0907558 9
+  s_ae1a5b1be5a92c::t_c69ea548c4898d 351-366,368-371
+src/ui/panels.rs
+  s_ae1a5b1be5a92c::t_b0167ca0907558 243-256,269-283
+  s_ae1a5b1be5a92c::t_0cf0a48cb3d76e 323,338
+  s_ae1a5b1be5a92c::t_66644e77832eaf 661
+src/lint/mod.rs
+  s_ae1a5b1be5a92c::t_a02a33e820dc6a 407-412,464-465,470-476,481-486
+  s_ae1a5b1be5a92c::t_0cf0a48cb3d76e 466-469,477-480
+src/model/mod.rs
+  s_ae1a5b1be5a92c::t_6d5bfcf2db91a9 1469-1510
+  s_ae1a5b1be5a92c::t_a53bfc43586cf3 300-307,365-366,368-384,464-557,559-634,935,941-942,966-976
+  s_ae1a5b1be5a92c::t_05cc3ebcc5ed72 385,936-940
+  s_ae1a5b1be5a92c::t_661f657c5945d1 558
+dashboards/delivery-overview.yaml
+  s_ae1a5b1be5a92c::t_4c69c0e711a3f3 447-552
+src/kibana/legacy.rs
+  s_ae1a5b1be5a92c::t_05cc3ebcc5ed72 109,129-131
+src/ui/series.rs
+  s_ae1a5b1be5a92c::t_9201082b4c0403 334-337
+  s_ae1a5b1be5a92c::t_fbc4df471382b1 422-425
+  s_ae1a5b1be5a92c::t_cc268665ab3bed 426-435
+  s_ae1a5b1be5a92c::t_05cc3ebcc5ed72 193,1188
+  s_ae1a5b1be5a92c::t_25b3dcfdca8a1d 28-32,305-333,338,377-403,405-421,436-450,707-709,787-789,1075-1077
+tests/elasticsearch.rs
+  s_ae1a5b1be5a92c::t_0c413652e4264b 299-367
+tests/snapshots/kibana__8_19_delivery_ndjson.snap
+  s_ae1a5b1be5a92c::t_012bfa7338361c 990-1182
+tests/snapshots/kibana__8_19_sample-data_ndjson.snap
+  s_ae1a5b1be5a92c::t_89e827c59b9428 63,90,117,144,370,477,516,560,609,696,746,1014,1155,1233,1349,1619
+tests/snapshots/kibana__9_5_delivery_ndjson.snap
+  s_ae1a5b1be5a92c::t_83ff67fe012296 990-1182
+tests/snapshots/kibana__9_5_sample-data_ndjson.snap
+  s_ae1a5b1be5a92c::t_8cdbcc5d72ba9d 63,90,117,144,370,483,522,566,615,702,752,1020,1171,1249,1367,1633
+tests/snapshots/query__native-delivery-overview.snap
+  s_ae1a5b1be5a92c::t_ebb9ec8f73502a 31-92,755-800,1157-1231,1723-1765,1860-2055
+tests/snapshots/query__teleplot-delivery-overview.snap
+  s_ae1a5b1be5a92c::t_bf7a904625ebe8 389-442,883-952,1336-1420,1592-1646
+fixtures/kibana/8.19/sample-data.ndjson
+  s_ae1a5b1be5a92c::t_6bed5159f12763 1-16
+fixtures/kibana/9.5/delivery.ndjson
+  s_ae1a5b1be5a92c::t_0ae82a09d736b6 1-12
+fixtures/kibana/9.5/sample-data.ndjson
+  s_ae1a5b1be5a92c::t_0335b16396d13b 1-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b8bc5af53ea535329efda8fbb6910a527ac7cffc",
+  "prompts": {},
+  "sessions": {
+    "s_ae1a5b1be5a92c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70378e7a-4351-4fcf-99d5-ebdcf2e157f9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
