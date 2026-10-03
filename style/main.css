@@ -177,7 +177,7 @@ a { color: inherit; text-decoration: none; }
   border-radius: 2px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
-.control .popover { left: 0; right: auto; flex-direction: column; gap: 2px; max-height: 360px; overflow: auto; min-width: 220px; }
+.control .popover { flex-direction: column; gap: 2px; max-height: 360px; overflow: auto; min-width: 220px; }
 .quick-ranges { display: flex; flex-direction: column; min-width: 140px; }
 .custom-range { display: flex; flex-direction: column; gap: 8px; min-width: 220px; }
 .custom-range label { display: flex; flex-direction: column; gap: 4px; color: var(--text-muted); font-size: 12px; }
@@ -280,8 +280,8 @@ a { color: inherit; text-decoration: none; }
 
 /* pie */
 .pie { height: 100%; display: flex; align-items: center; gap: 12px; }
-.pie-svg { height: 100%; max-height: 100%; aspect-ratio: 1; flex: none; }
-.legend { list-style: none; padding: 0; margin: 0; overflow: auto; max-height: 100%; font-size: 12px; }
+.pie-svg { height: 100%; max-height: 100%; max-width: 62%; aspect-ratio: 1; flex: 0 1 auto; }
+.legend { flex: 1 0 120px; list-style: none; padding: 0; margin: 0; overflow: auto; max-height: 100%; font-size: 12px; }
 .legend li { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
 .legend-label { flex: 1; }
 .legend-value { color: var(--text-muted); }

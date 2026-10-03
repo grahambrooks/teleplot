@@ -208,10 +208,13 @@ fn metric_tile(
     let compare = secondary.map(|(col, cell)| {
         let shown = match &cell {
             // A time-shifted count beside a formula shares its format only if it has one.
-            Cell::Number(n) => format::value(*n, col.format.as_ref().or(column.format.as_ref())),
+            Cell::Number(n) => format::value(*n, col.format.as_ref()),
             other => cell_text(other),
         };
-        let delta = match (value.number(), cell.number(), col.time_shift.is_some()) {
+        // A change is only meaningful between the same measure, shifted in
+        // time (a count per week beside a raw count is not).
+        let same_measure = std::mem::discriminant(&col.op) == std::mem::discriminant(&column.op);
+        let delta = match (value.number(), cell.number(), col.time_shift.is_some() && same_measure) {
             (Some(now), Some(before), true) => format::change(now, before),
             _ => None,
         };
@@ -519,12 +522,8 @@ fn TimeChart(xy: series::Xy, ctx: PanelContext) -> impl IntoView {
             let _ = ctx.dark.get(); // redraw with the new theme's colours
             let Some(el) = node.get() else { return };
             let el: web_sys::HtmlElement = el.unchecked_into();
-            let size = |el: &web_sys::HtmlElement| {
-                (
-                    el.client_width() as f64,
-                    (el.client_height() as f64 - 34.0).max(60.0),
-                )
-            };
+            let size =
+                |el: &web_sys::HtmlElement| (el.client_width() as f64, el.client_height() as f64);
             let (width, height) = size(&el);
             let zoom = ctx.on_zoom;
             let options = super::uplot::Options {
@@ -539,6 +538,17 @@ fn TimeChart(xy: series::Xy, ctx: PanelContext) -> impl IntoView {
             chart.set_value(Some(
                 xy.with_value(|xy| super::uplot::draw(&el, xy, options)),
             ));
+            // uPlot's legend has no layout until the browser's next frame;
+            // fit again then, so the plot takes the space the legend leaves.
+            let target = el.clone();
+            request_animation_frame(move || {
+                let (w, h) = size(&target);
+                chart.with_value(|c| {
+                    if let Some(c) = c {
+                        c.fit(w, h);
+                    }
+                });
+            });
 
             if observer.with_value(Option::is_none) {
                 let target = el.clone();
@@ -546,7 +556,7 @@ fn TimeChart(xy: series::Xy, ctx: PanelContext) -> impl IntoView {
                     let (w, h) = size(&target);
                     chart.with_value(|c| {
                         if let Some(c) = c {
-                            c.resize(w, h);
+                            c.fit(w, h);
                         }
                     });
                 });

@@ -1,7 +1,6 @@
 //! Bindings to the vendored uPlot (`public/vendor/uplot`), and building a
 //! chart from [`Xy`] series. Browser only.
 
-use std::cell::RefCell;
 use std::rc::Rc;
 
 use js_sys::{Array, Function, Object, Reflect};
@@ -9,8 +8,9 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 
 use super::format;
-use super::series::{XAxis, Xy, stacked};
+use super::series::{XAxis, Xy, XySeries, stacked};
 use super::theme;
+use crate::model::{Format, FormatKind, SeriesType};
 
 #[wasm_bindgen]
 extern "C" {
@@ -39,6 +39,7 @@ type Callback = Closure<dyn FnMut(JsValue, JsValue, JsValue, JsValue) -> JsValue
 /// A live chart. Dropping it destroys the chart and frees its callbacks.
 pub struct Chart {
     plot: UPlot,
+    target: web_sys::HtmlElement,
     _callbacks: Vec<Callback>,
 }
 
@@ -49,10 +50,18 @@ impl Drop for Chart {
 }
 
 impl Chart {
-    pub fn resize(&self, width: f64, height: f64) {
+    /// Fits the chart, legend included, into `width` × `height` pixels.
+    pub fn fit(&self, width: f64, height: f64) {
+        let legend = self
+            .target
+            .query_selector(".u-legend")
+            .ok()
+            .flatten()
+            .and_then(|e| e.dyn_into::<web_sys::HtmlElement>().ok())
+            .map_or(0.0, |e| e.offset_height() as f64);
         let size = Object::new();
         set(&size, "width", width);
-        set(&size, "height", height);
+        set(&size, "height", (height - legend - 4.0).max(60.0));
         self.plot.set_size(&size);
     }
 }
@@ -71,12 +80,19 @@ fn obj(pairs: &[(&str, JsValue)]) -> Object {
 
 pub struct Options<'a> {
     pub width: f64,
+    /// Total height, legend included.
     pub height: f64,
     /// Charts with the same key share a crosshair (Grafana's shared tooltip).
     pub sync_key: &'a str,
     pub time_zone: &'a str,
     /// Called with the selected x range (epoch ms) after a drag on a time chart.
     pub on_zoom: Option<Rc<dyn Fn(f64, f64)>>,
+}
+
+/// Formats differ in kind or suffix: series that differ get their own axis
+/// (as Lens does by default), e.g. a percentage beside a duration in days.
+fn format_key(f: Option<&Format>) -> (Option<FormatKind>, Option<String>) {
+    (f.map(|f| f.kind), f.and_then(|f| f.suffix.clone()))
 }
 
 /// Draws `xy` (time or numeric x axis) into `target`.
@@ -92,6 +108,19 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
     let originals: Rc<Vec<Vec<Option<f64>>>> =
         Rc::new(xy.series.iter().map(|s| s.values.clone()).collect());
     let mut callbacks = Vec::new();
+    let percentage = xy.series.iter().any(|s| s.kind.is_percentage());
+
+    // Left axis: the first series' format. Right axis: the first other format.
+    let left_key = format_key(xy.series.first().and_then(|s| s.format.as_ref()));
+    let right_series = (!percentage)
+        .then(|| {
+            xy.series
+                .iter()
+                .find(|s| format_key(s.format.as_ref()) != left_key)
+        })
+        .flatten();
+    let on_right =
+        |s: &XySeries| right_series.is_some() && format_key(s.format.as_ref()) != left_key;
 
     // Stacked series are drawn tallest first so each band stays visible.
     let mut order: Vec<usize> = (0..xy.series.len()).collect();
@@ -118,11 +147,9 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
             ("width", if s.kind.is_bar() { 0.0 } else { 2.0 }.into()),
             ("spanGaps", (!s.kind.is_bar()).into()),
             ("points", obj(&[("show", false.into())]).into()),
+            ("scale", if on_right(s) { "y2" } else { "y" }.into()),
         ]);
-        if s.kind.is_bar()
-            || s.kind.is_stacked()
-            || matches!(s.kind, crate::model::SeriesType::Area)
-        {
+        if s.kind.is_bar() || s.kind.is_stacked() || matches!(s.kind, SeriesType::Area) {
             set(
                 &spec,
                 "fill",
@@ -130,11 +157,12 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
             );
         }
         if s.kind.is_bar() {
-            let opts = obj(&[
-                ("size", Array::of2(&0.7.into(), &60.into()).into()),
-                ("align", 0.into()),
-            ]);
-            set(&spec, "paths", bars(&opts));
+            let size = Array::of2(&0.8.into(), &f64::INFINITY.into());
+            set(
+                &spec,
+                "paths",
+                bars(&obj(&[("size", size.into()), ("align", 0.into())])),
+            );
         }
         // Legend values show the series' own numbers, not stacked totals.
         let originals = originals.clone();
@@ -156,11 +184,23 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
         series.push(&spec);
     }
 
-    // Y axis ticks use the first series' format; percentage stacks are 0–100%.
-    let percentage = xy.series.iter().any(|s| s.kind.is_percentage());
-    let y_format = if percentage {
-        Some(crate::model::Format {
-            kind: crate::model::FormatKind::Percent,
+    let tick_formatter = |fmt: Option<Format>| {
+        Callback::new(
+            move |_u: JsValue, splits: JsValue, _a: JsValue, _b: JsValue| {
+                let out = Array::new();
+                for v in Array::from(&splits).iter() {
+                    let text = v
+                        .as_f64()
+                        .map_or(String::new(), |v| format::value(v, fmt.as_ref()));
+                    out.push(&JsValue::from_str(&text));
+                }
+                out.into()
+            },
+        )
+    };
+    let left_format = if percentage {
+        Some(Format {
+            kind: FormatKind::Percent,
             decimals: Some(0),
             suffix: None,
             compact: false,
@@ -168,19 +208,6 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
     } else {
         xy.series.first().and_then(|s| s.format.clone())
     };
-    let ticks = Callback::new(
-        move |_u: JsValue, splits: JsValue, _a: JsValue, _b: JsValue| {
-            let out = Array::new();
-            for v in Array::from(&splits).iter() {
-                let text = v
-                    .as_f64()
-                    .map_or(String::new(), |v| format::value(v, y_format.as_ref()));
-                out.push(&JsValue::from_str(&text));
-            }
-            out.into()
-        },
-    );
-
     let axis = |extra: &[(&str, JsValue)]| {
         let a = obj(&[
             ("stroke", colors.text.clone().into()),
@@ -198,36 +225,82 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
         }
         a
     };
+    let left_ticks = tick_formatter(left_format);
     let axes = Array::of2(
         &axis(&[]).into(),
         &axis(&[
+            ("scale", "y".into()),
             (
                 "values",
-                ticks.as_ref().unchecked_ref::<Function>().clone().into(),
+                left_ticks
+                    .as_ref()
+                    .unchecked_ref::<Function>()
+                    .clone()
+                    .into(),
             ),
             ("size", 64.into()),
         ])
         .into(),
     );
-    callbacks.push(ticks);
-
-    let y_scale = obj(&[]);
-    if percentage {
-        set(&y_scale, "range", Array::of2(&0.into(), &1.into()));
+    callbacks.push(left_ticks);
+    if let Some(right) = right_series {
+        let right_ticks = tick_formatter(right.format.clone());
+        axes.push(&axis(&[
+            ("scale", "y2".into()),
+            ("side", 1.into()),
+            ("grid", obj(&[("show", false.into())]).into()),
+            (
+                "values",
+                right_ticks
+                    .as_ref()
+                    .unchecked_ref::<Function>()
+                    .clone()
+                    .into(),
+            ),
+            ("size", 64.into()),
+        ]));
+        callbacks.push(right_ticks);
     }
+
+    // Bars and percentage stacks start at zero; lines may float.
+    let range = |on_right_axis: bool| -> Option<Array> {
+        if percentage && !on_right_axis {
+            return Some(Array::of2(&0.into(), &1.into()));
+        }
+        let mine: Vec<usize> = (0..xy.series.len())
+            .filter(|&i| on_right(&xy.series[i]) == on_right_axis)
+            .collect();
+        let has_bars = mine.iter().any(|&i| xy.series[i].kind.is_bar());
+        let values: Vec<f64> = mine
+            .iter()
+            .flat_map(|&i| drawn[i].iter().flatten().copied())
+            .collect();
+        let max = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let min = values.iter().copied().fold(f64::INFINITY, f64::min);
+        (has_bars && min >= 0.0 && max > 0.0).then(|| Array::of2(&0.into(), &(max * 1.05).into()))
+    };
+    let y_scale = obj(&[]);
+    if let Some(r) = range(false) {
+        set(&y_scale, "range", r);
+    }
+    let scales = obj(&[
+        ("x", obj(&[("time", is_time.into())]).into()),
+        ("y", y_scale.into()),
+    ]);
+    if right_series.is_some() {
+        let y2 = obj(&[]);
+        if let Some(r) = range(true) {
+            set(&y2, "range", r);
+        }
+        set(&scales, "y2", y2);
+    }
+
     let opts = obj(&[
         ("width", options.width.into()),
-        ("height", options.height.into()),
+        ("height", (options.height - 30.0).max(60.0).into()),
         ("series", series.into()),
         ("axes", axes.into()),
-        (
-            "scales",
-            obj(&[
-                ("x", obj(&[("time", is_time.into())]).into()),
-                ("y", y_scale.into()),
-            ])
-            .into(),
-        ),
+        ("scales", scales.into()),
         (
             "legend",
             obj(&[("show", true.into()), ("live", true.into())]).into(),
@@ -267,8 +340,7 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
 
     // Drag to zoom: report the selected range instead of zooming locally,
     // so the whole dashboard moves to it (as in Grafana).
-    let selection = Rc::new(RefCell::new(options.on_zoom.clone()));
-    if is_time && options.on_zoom.is_some() {
+    if let (true, Some(callback)) = (is_time, options.on_zoom.clone()) {
         let on_select = Callback::new(move |u: JsValue, _a: JsValue, _b: JsValue, _c: JsValue| {
             let select = Reflect::get(&u, &"select".into()).unwrap_or(JsValue::NULL);
             let left = Reflect::get(&select, &"left".into())
@@ -289,9 +361,7 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
                         .ok()
                         .and_then(|v| v.as_f64())
                 };
-                if let (Some(from), Some(to), Some(callback)) =
-                    (at(left), at(left + width), selection.borrow().clone())
-                {
+                if let (Some(from), Some(to)) = (at(left), at(left + width)) {
                     callback(from, to);
                 }
             }
@@ -306,8 +376,11 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
     }
 
     let plot = UPlot::new(&opts, &data, target);
-    Chart {
+    let chart = Chart {
         plot,
+        target: target.clone(),
         _callbacks: callbacks,
-    }
+    };
+    chart.fit(options.width, options.height);
+    chart
 }
