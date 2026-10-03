@@ -1,0 +1,95 @@
+src/ui/series.rs
+  s_ae1a5b1be5a92c::t_8943cb5cb848f6 541-647,666-676,691-703,718-719,722-723,728-729
+  s_ae1a5b1be5a92c::t_4a5e56cd1070b2 298-303
+  s_ae1a5b1be5a92c::t_86235578b092b0 648-665,677-685,687-690
+  s_ae1a5b1be5a92c::t_d8692c53b925dc 686,938-1071
+  s_ae1a5b1be5a92c::t_332b8036ca1fe8 704-706,714-717,720-721
+  s_ae1a5b1be5a92c::t_fb345ad2dd531d 21-23,147,288-297,312,317-332,426,445,501,505-519,523-540,707-713,724-727,730-748,769
+  s_ae1a5b1be5a92c::t_a09a6279cab977 24-25,281-287,313,427,502,770
+src/ui/theme.rs
+  s_ae1a5b1be5a92c::t_0b06e3713613fe 58-68,74-76
+  s_ae1a5b1be5a92c::t_ec161349e824ef 69-73
+src/lint/tests.rs
+  s_ae1a5b1be5a92c::t_c6965ab623b882 220,222,238-289
+examples/kibana_fixtures.rs
+  s_ae1a5b1be5a92c::t_adc25da7328daf 424-438,843-857
+  s_ae1a5b1be5a92c::t_a7b6a0428242bb 858-859
+fixtures/screenshot.sh
+  s_ae1a5b1be5a92c::t_b4e89741ccc175 2,6-7
+src/ui/uplot.rs
+  s_ae1a5b1be5a92c::t_0d74da2a569606 845
+  s_ae1a5b1be5a92c::t_ec161349e824ef 691-695,968,1074-1076
+  s_ae1a5b1be5a92c::t_4a5e56cd1070b2 746-748,800-801
+  s_ae1a5b1be5a92c::t_4b0f95542a2a91 11,93,471-474,487-542
+  s_ae1a5b1be5a92c::t_a09a6279cab977 112-114,196-203,282-287,289,371-377,420-421,423,614-690,696-703
+  s_ae1a5b1be5a92c::t_babdb8e6986a6d 876-878,883-889,1032-1044
+  s_ae1a5b1be5a92c::t_b8644738ca6216 879-882
+  s_ae1a5b1be5a92c::t_6cf9042885762f 543,704,817-844,846-875,890-967,969-1031,1045-1073,1077-1127
+  s_ae1a5b1be5a92c::t_b867e16cbb4e08 544,705
+src/model/mod.rs
+  s_ae1a5b1be5a92c::t_c21deab46e3288 196-197,276-287,322-374,449-453,666-677,730
+  s_ae1a5b1be5a92c::t_d8692c53b925dc 827-858
+dashboards/delivery-overview.yaml
+  s_ae1a5b1be5a92c::t_048034698631ec 227-242,244-245,249-251,254-271,273-274,279,306,323
+  s_ae1a5b1be5a92c::t_86235578b092b0 243,272
+src/kibana/legacy.rs
+  s_ae1a5b1be5a92c::t_ec161349e824ef 123-125
+  s_ae1a5b1be5a92c::t_ef1d243faf1893 358
+docs/dashboards.md
+  s_ae1a5b1be5a92c::t_b07c49bdc50a3f 31,38,63-64,144-182
+  s_ae1a5b1be5a92c::t_9dfd8eaa4532e7 183
+tests/elasticsearch.rs
+  s_ae1a5b1be5a92c::t_5bf772b44029b9 196-204
+  s_ae1a5b1be5a92c::t_86ebc8cff6ef0a 23,176-189,194-195,205-212,218-219
+  s_ae1a5b1be5a92c::t_b8644738ca6216 190-193,213-217
+src/query/mod.rs
+  s_ae1a5b1be5a92c::t_ec161349e824ef 1108-1110
+  s_ae1a5b1be5a92c::t_49920c8e232705 189-190,721-752,1107
+src/kibana/lens.rs
+  s_ae1a5b1be5a92c::t_c1d23e6a4c20b3 30,213-222
+fixtures/make-fixtures.sh
+  s_ae1a5b1be5a92c::t_b4e89741ccc175 40-43
+src/ui/panels.rs
+  s_ae1a5b1be5a92c::t_0d74da2a569606 54-56,65-69,222-225,229,232,246,790-797,799,810,813,826,830-833,872
+docs/charting-plan.md
+  s_ae1a5b1be5a92c::t_a379fbee6ec807 7,12
+src/lint/mod.rs
+  s_ae1a5b1be5a92c::t_ef1d243faf1893 297,318-341,343-346,348-351,424-425
+  s_ae1a5b1be5a92c::t_927b402c03bcf1 342,347
+fixtures/README.md
+  s_ae1a5b1be5a92c::t_9655949ffc33c4 19
+docs/roadmap.md
+  s_ae1a5b1be5a92c::t_a379fbee6ec807 8,31,38-43
+tests/snapshots/kibana__8_19_delivery_ndjson.snap
+  s_ae1a5b1be5a92c::t_35819f3f284d24 629-669
+tests/snapshots/kibana__9_5_delivery_ndjson.snap
+  s_ae1a5b1be5a92c::t_2b0d62fb6dab90 629-669
+tests/snapshots/query__native-delivery-overview.snap
+  s_ae1a5b1be5a92c::t_c06e4ef7285ef9 128,131-180,197,208-215,222-318,326-358,382-391,397-404
+tests/snapshots/query__teleplot-delivery-overview.snap
+  s_ae1a5b1be5a92c::t_7d95baf595299e 727-783
+fixtures/kibana/8.19/delivery.ndjson
+  s_ae1a5b1be5a92c::t_505437b74c24db 1-12
+fixtures/kibana/8.19/sample-data.ndjson
+  s_ae1a5b1be5a92c::t_8ced4ef1835023 1-16
+fixtures/kibana/9.5/delivery.ndjson
+  s_ae1a5b1be5a92c::t_06ec566d731739 1-12
+fixtures/kibana/9.5/sample-data.ndjson
+  s_ae1a5b1be5a92c::t_40ecb40e4d75e2 1-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "49b6d84cdb7060dd2d964b70f856404b9b35281b",
+  "prompts": {},
+  "sessions": {
+    "s_ae1a5b1be5a92c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70378e7a-4351-4fcf-99d5-ebdcf2e157f9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
