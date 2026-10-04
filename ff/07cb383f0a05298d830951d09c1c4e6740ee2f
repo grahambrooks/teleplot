@@ -1,0 +1,21 @@
+dashboards/commits.yaml
+  s_6c8864d1d71304::t_5ac6709c6e2866 1-250
+src/model/mod.rs
+  s_6c8864d1d71304::t_c1a246d2f282c3 344,363,372-377,382,391
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ff07cb383f0a05298d830951d09c1c4e6740ee2f",
+  "prompts": {},
+  "sessions": {
+    "s_6c8864d1d71304": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "376d933a-1b6e-458c-a29f-4f695ab3e7be",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
