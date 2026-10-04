@@ -1,0 +1,33 @@
+tests/query.rs
+  s_ae1a5b1be5a92c::t_eb07de247b39e3 172-195
+  s_ae1a5b1be5a92c::t_f7acbe0af10bdc 171
+src/ui/panels.rs
+  s_ae1a5b1be5a92c::t_eb07de247b39e3 1019,1080-1099
+style/main.css
+  s_ae1a5b1be5a92c::t_eb07de247b39e3 341-344,540-553
+src/ui/shapes.rs
+  s_ae1a5b1be5a92c::t_eb07de247b39e3 128,338-346,348,350-351,353,378,542-547
+src/ui/series.rs
+  s_ae1a5b1be5a92c::t_eb07de247b39e3 453-491,1167-1213
+src/query/mod.rs
+  s_ae1a5b1be5a92c::t_eb07de247b39e3 1142-1157,1349-1374,1395,1820-1833
+  s_ae1a5b1be5a92c::t_75bc398359020f 1834
+src/ui/uplot.rs
+  s_ae1a5b1be5a92c::t_eb07de247b39e3 198-224
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "010e90309aac95d2c1d3f09ada2b8f89115d31ee",
+  "prompts": {},
+  "sessions": {
+    "s_ae1a5b1be5a92c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70378e7a-4351-4fcf-99d5-ebdcf2e157f9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
