@@ -126,6 +126,7 @@ pub fn convert(export: &Export, attrs: &Value, refs: &[Reference]) -> Result<Cha
             }
         }
         layers.push(Layer {
+            insight: None,
             id: layer_id,
             data_view,
             columns,
@@ -208,6 +209,7 @@ fn esql_layer(
         })
         .collect();
     Ok(Layer {
+        insight: None,
         id,
         data_view: DataView { index, time_field },
         columns,

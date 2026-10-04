@@ -260,6 +260,13 @@ fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Probl
     for (l, layer) in chart.layers.iter().enumerate() {
         let at = format!("{at}.layers[{l}]");
         let index = &layer.data_view.index;
+        // An insight layer's index is a record type, not an Elasticsearch
+        // index, so Elasticsearch's field list doesn't describe it.
+        let fields = if layer.insight.is_some() {
+            None
+        } else {
+            fields
+        };
         if let Some(all) = fields
             && all.get(index).is_none_or(Vec::is_empty)
         {
@@ -323,22 +330,24 @@ fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Probl
                     ),
                 ));
             }
-            // An ES|QL layer's `value` columns name result columns, not fields.
+            // ES|QL and insight layers' `value` columns name result columns,
+            // not Elasticsearch fields.
             if let Some((name, need)) = needs(&column.op)
                 && layer.esql.is_none()
+                && layer.insight.is_none()
             {
                 field(fields, index, name, need, &format!("{at}.field"), problems);
             }
-            let rows = layer.documents.is_some() || layer.esql.is_some();
+            let rows = layer.documents.is_some() || layer.esql.is_some() || layer.insight.is_some();
             match (&column.op, rows) {
                 (Operation::Value { .. }, false) => problems.push(Problem::error(
                     at.clone(),
-                    "`value` columns need a document layer (`documents: { limit, sort }`) or an `esql` query",
+                    "`value` columns need a document layer (`documents: { limit, sort }`), an `esql` query or an `insight` series",
                 )),
                 (op, true) if op.inputs().is_empty() && !matches!(op, Operation::Value { .. }) => {
                     problems.push(Problem::error(
                         at.clone(),
-                        "document and ES|QL layers can only have `value` and computed columns; aggregate in the ES|QL query",
+                        "document, ES|QL and insight layers can only have `value` and computed columns; aggregate in the ES|QL query or `insight.columns`",
                     ))
                 }
                 _ => {}
@@ -379,6 +388,20 @@ fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Probl
                             .collect::<Vec<_>>()
                             .join(", ")
                     ),
+                ));
+            }
+        }
+        if layer.insight.is_some() {
+            if layer.esql.is_some() || layer.documents.is_some() {
+                problems.push(Problem::error(
+                    format!("{at}.insight"),
+                    "a layer queries insight, runs an ES|QL query or fetches documents: only one",
+                ));
+            }
+            if layer.data_view.time_field.is_none() {
+                problems.push(Problem::error(
+                    format!("{at}.data_view.time_field"),
+                    "an insight layer needs the record type's time field, e.g. `changed_at`",
                 ));
             }
         }
@@ -536,9 +559,10 @@ fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Probl
                 ));
             }
         }
-        // ES|QL layers group in the query.
+        // ES|QL and insight layers group in the query.
         if matches!(layer.encoding, Encoding::Xy { .. } | Encoding::Band { .. })
             && layer.esql.is_none()
+            && layer.insight.is_none()
             && !layer.columns.iter().any(|c| c.op.is_bucket())
         {
             problems.push(Problem::warning(

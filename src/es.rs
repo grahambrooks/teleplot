@@ -19,6 +19,8 @@ use crate::kql::Field;
 pub struct Client {
     http: reqwest::Client,
     base: String,
+    /// insight's base URL, for [`Endpoint::Insight`] searches.
+    insight: Option<String>,
 }
 
 impl Client {
@@ -55,7 +57,45 @@ impl Client {
             builder = builder.add_root_certificate(cert);
         }
         let http = builder.build().map_err(|e| e.to_string())?;
-        Ok(Self { http, base })
+        Ok(Self {
+            http,
+            base,
+            insight: None,
+        })
+    }
+
+    /// Send [`Endpoint::Insight`] searches to this insight server.
+    pub fn with_insight(mut self, url: Option<&str>) -> Self {
+        self.insight = url.map(|u| u.trim_end_matches('/').to_string());
+        self
+    }
+
+    /// Run a series request on insight and reshape the response like an
+    /// ES|QL one: `{columns: [{name, type}], values: [[...]]}`.
+    pub async fn insight_series(&self, body: &Value) -> Result<Value, String> {
+        let base = self
+            .insight
+            .as_deref()
+            .ok_or("this layer queries insight, but teleplot.yaml has no `insight: { url }`")?;
+        let response = self
+            .http
+            .post(format!("{base}/api/series"))
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| format!("insight unreachable: {e}"))?;
+        let status = response.status();
+        let value: Value = response
+            .json()
+            .await
+            .map_err(|e| format!("bad /api/series response: {e}"))?;
+        if !status.is_success() {
+            return Err(value["error"]
+                .as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("/api/series failed: {status}")));
+        }
+        Ok(series_as_esql(&value))
     }
 
     pub fn base_url(&self) -> &str {
@@ -86,16 +126,23 @@ impl Client {
         searches: &[Search],
         filter_path: &str,
     ) -> Result<Vec<Result<Value, String>>, String> {
-        let (esql, dsl): (Vec<usize>, Vec<usize>) =
-            (0..searches.len()).partition(|&i| searches[i].endpoint == Endpoint::Esql);
-        if esql.is_empty() {
+        let (tabular, dsl): (Vec<usize>, Vec<usize>) =
+            (0..searches.len()).partition(|&i| searches[i].endpoint != Endpoint::Search);
+        if tabular.is_empty() {
             return self.msearch_only(searches, filter_path).await;
         }
         let mut queries = tokio::task::JoinSet::new();
-        for &i in &esql {
+        for &i in &tabular {
             let client = self.clone();
             let body = searches[i].body.clone();
-            queries.spawn(async move { (i, client.esql(&body).await) });
+            let endpoint = searches[i].endpoint;
+            queries.spawn(async move {
+                let response = match endpoint {
+                    Endpoint::Insight => client.insight_series(&body).await,
+                    _ => client.esql(&body).await,
+                };
+                (i, response)
+            });
         }
         let only_dsl: Vec<Search> = dsl.iter().map(|&i| searches[i].clone()).collect();
         let dsl_responses = self.msearch_only(&only_dsl, filter_path).await?;
@@ -271,6 +318,9 @@ pub enum Endpoint {
     Search,
     /// `POST /_query`, with the body as an ES|QL request.
     Esql,
+    /// insight's `POST /api/series`, with the body as a series request. The
+    /// response is reshaped like an ES|QL one, so it is read the same way.
+    Insight,
 }
 
 impl Search {
@@ -306,6 +356,18 @@ pub fn fields_from_caps(value: &Value) -> Vec<Field> {
         .collect();
     fields.sort_by(|a, b| a.name.cmp(&b.name));
     fields
+}
+
+/// An insight series response (`{columns: [{id, type}], rows}`) in the
+/// shape of an ES|QL response, which the ES|QL layer evaluation reads.
+pub fn series_as_esql(series: &Value) -> Value {
+    let columns: Vec<Value> = series["columns"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|c| json!({ "name": c["id"], "type": c["type"] }))
+        .collect();
+    json!({ "columns": columns, "values": series["rows"].clone() })
 }
 
 fn error_reason(value: &Value) -> Option<String> {

@@ -123,6 +123,7 @@ mod tests {
     #[test]
     fn csv_labels_columns_formats_dates_and_quotes_text() {
         let layer = Layer {
+            insight: None,
             id: "l".into(),
             data_view: DataView {
                 index: "i".into(),

@@ -321,12 +321,70 @@ pub struct Layer {
     /// [`Operation::Value`]s naming result columns, and computed columns.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub esql: Option<Esql>,
+    /// Ask insight's series API instead of Elasticsearch: one row per result
+    /// row. `data_view.index` names the record type and
+    /// `data_view.time_field` its time field. Columns are then
+    /// [`Operation::Value`]s naming result columns (`t`, the group_by fields
+    /// and the series column ids), and computed columns.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub insight: Option<InsightSeries>,
     pub columns: Vec<Column>,
     pub encoding: Encoding,
     /// Fetch individual documents (one row each) instead of aggregating.
     /// Columns are then [`Operation::Value`]s and computed columns.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub documents: Option<Documents>,
+}
+
+/// A request to insight's series API (`POST /api/series`, software-analytics
+/// delivery schema §7), less the record type and time range, which come
+/// from the layer's data view and the dashboard.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+pub struct InsightSeries {
+    /// Bucket width: `<n>h`, `<n>d`, `1w` or `1M` (UTC). Without it, one
+    /// row per group for the whole range.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interval: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub filters: Vec<InsightFilter>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub group_by: Vec<InsightGroupBy>,
+    pub columns: Vec<InsightColumn>,
+    /// Aggregate the latest record per value of this field at or before each
+    /// bucket's end, carrying values into buckets where nothing changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_by: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+pub struct InsightFilter {
+    pub field: String,
+    /// `eq`, `in`, `not_in`, `exists` or `range`.
+    pub op: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub values: Vec<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+pub struct InsightGroupBy {
+    pub field: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+pub struct InsightColumn {
+    pub id: String,
+    /// `count`, `sum`, `avg`, `min`, `max`, `unique_count` or `last_value`.
+    pub op: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
 }
 
 /// An ES|QL query (`POST /_query`). The dashboard's time range (on the data

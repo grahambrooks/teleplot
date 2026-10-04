@@ -268,6 +268,46 @@ are `value` columns that name result columns:
 - **Types.** Date columns (for example from `BUCKET(merged_at, 1 week)`) are drawn on a time axis; numbers on a numeric axis.
 - **Kibana.** Lens ES|QL panels (`textBased`) convert, with their data view's time field and column formats.
 
+### insight layers
+
+A layer with an `insight` block asks an [insight](https://github.com/grahambrooks/insight)
+server's series API (`POST /api/series`) instead of Elasticsearch, so a dashboard can chart
+data that insight collects. The data view's `index` names the record type, and its
+`time_field` names the record's time field. The dashboard's time range is sent with the
+request. The server is set in `teleplot.yaml`:
+
+```yaml
+insight:
+  url: http://127.0.0.1:3000
+```
+
+```yaml
+- id: teams
+  data_view: { index: duplication_repo, time_field: changed_at }
+  insight:
+    interval: 1w                         # <n>h, <n>d, 1w or 1M (UTC); omit for the whole range
+    latest_by: repo                      # carry each repo's latest value into later weeks
+    group_by: [{ field: team, size: 10 }]
+    filters: [{ field: removed, op: eq, value: false }]   # eq, in, not_in, exists, range
+    columns:                             # count, sum, avg, min, max, unique_count, last_value
+      - { id: dup, op: sum, field: duplicate_lines }
+      - { id: sig, op: sum, field: significant_lines }
+  columns:
+    - { id: week, op: value, field: t }  # the bucket start, when there is an interval
+    - { id: team, op: value, field: team }
+    - { id: dup, op: value, field: dup, helper: true }
+    - { id: sig, op: value, field: sig, helper: true }
+    - { id: ratio, op: formula, expr: { call: divide, args: [dup, sig] }, format: { kind: percent } }
+  encoding: { as: xy, series: line, x: week, y: [ratio], split: team }
+```
+
+- **Columns.** Aggregate in `insight.columns`. The layer's own columns are `value` columns naming result columns (`t`, the `group_by` fields and the `insight.columns` ids), plus computed columns such as formulas.
+- **`latest_by`.** For records written only when a value changes, such as mimeo's duplication records: each bucket aggregates the latest record per key at or before its end.
+- **Filters.** The dashboard's query, filter pills and controls are Elasticsearch queries and don't apply to insight layers. Filter in `insight.filters`.
+- **No Elasticsearch needed.** A dashboard whose layers are all insight layers sends nothing to Elasticsearch. `teleplot.yaml` still needs an `elasticsearch` section.
+- **Inspect** shows the series request and insight's response, including the query insight ran.
+- `dashboards/duplication.yaml` is a complete example over mimeo's duplication records.
+
 ### Small samples and drill-down
 
 With `min_samples` set:

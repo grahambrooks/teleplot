@@ -265,7 +265,9 @@ impl Plan {
                     if b.documents.is_some() {
                         what.push_str(", documents");
                     }
-                    if b.esql.is_some() {
+                    if layer.insight.is_some() {
+                        what.push_str(", insight series");
+                    } else if b.esql.is_some() {
                         what.push_str(", ES|QL");
                     }
                     if g.shift_ms != 0 {
@@ -536,6 +538,9 @@ fn build_layer(
     if let Some(esql) = &layer.esql {
         return build_esql(chart, layer, esql, ctx);
     }
+    if let Some(series) = &layer.insight {
+        return build_insight(layer, series, ctx);
+    }
 
     // Bucket aggregations, outermost first. A date histogram's interval
     // depends on the range, which is the same for every shift group.
@@ -703,6 +708,82 @@ fn build_documents(
         }],
         documents: Some(doc_fields),
         esql: None,
+        range: ctx.range,
+        time_zone: time_zone(ctx),
+    })
+}
+
+/// An insight layer: one `POST /api/series`. The record type is the data
+/// view's index and the time range the dashboard's. The response is
+/// reshaped like an ES|QL one (`es::series_as_esql`), so it is evaluated
+/// the same way. The dashboard's query, filter pills and controls don't
+/// apply: they are Elasticsearch queries.
+fn build_insight(
+    layer: &Layer,
+    series: &crate::model::InsightSeries,
+    ctx: &Context,
+) -> Result<Built, String> {
+    let time_field = layer
+        .data_view
+        .time_field
+        .as_deref()
+        .ok_or("an insight layer needs data_view.time_field")?;
+    let mut wanted = Vec::new();
+    for column in &layer.columns {
+        match &column.op {
+            Operation::Value { field } => wanted.push(EsqlField {
+                column: column.id.clone(),
+                name: field.clone(),
+            }),
+            op if op.inputs().is_empty() => {
+                return Err(format!(
+                    "column {} aggregates; in an insight layer, aggregate in `insight.columns` and name the result column with `op: value`",
+                    column.id
+                ));
+            }
+            _ => {}
+        }
+    }
+    let iso = |ms: i64| {
+        jiff::Timestamp::from_millisecond(ms)
+            .map(|t| t.to_string())
+            .unwrap_or_default()
+    };
+    let mut time = json!({
+        "field": time_field,
+        "from": iso(ctx.range.from_ms),
+        "to": iso(ctx.range.to_ms),
+    });
+    if let Some(interval) = &series.interval {
+        time["interval"] = json!(interval);
+    }
+    let mut body = json!({
+        "record_type": layer.data_view.index,
+        "time": time,
+        "columns": series.columns,
+    });
+    if !series.filters.is_empty() {
+        body["filters"] = json!(series.filters);
+    }
+    if !series.group_by.is_empty() {
+        body["group_by"] = json!(series.group_by);
+    }
+    if let Some(key) = &series.latest_by {
+        body["latest_by"] = json!(key);
+    }
+    Ok(Built {
+        buckets: Vec::new(),
+        groups: vec![ShiftGroup {
+            shift_ms: 0,
+            metrics: Vec::new(),
+            search: Some(Search {
+                index: layer.data_view.index.clone(),
+                body,
+                endpoint: crate::es::Endpoint::Insight,
+            }),
+        }],
+        documents: None,
+        esql: Some(wanted),
         range: ctx.range,
         time_zone: time_zone(ctx),
     })
@@ -1916,6 +1997,7 @@ mod tests {
             query: Default::default(),
             filters: vec![],
             layers: vec![Layer {
+                insight: None,
                 id: "l".into(),
                 data_view: DataView {
                     index: "deploys".into(),
@@ -1981,6 +2063,7 @@ mod tests {
             query: Default::default(),
             filters: vec![],
             layers: vec![Layer {
+                insight: None,
                 id: "l".into(),
                 data_view: DataView {
                     index: "deploys".into(),
@@ -2124,5 +2207,118 @@ mod tests {
             ["team", "field"]
         );
         assert!(esql_variables("FROM x | WHERE t <= ?_tend").is_empty());
+    }
+
+    fn insight_chart(columns: Vec<crate::model::Column>) -> Chart {
+        use crate::model::{
+            ChartKind, Encoding, InsightColumn, InsightGroupBy, InsightSeries, Layer,
+        };
+        Chart {
+            kind: ChartKind::Table,
+            query: Default::default(),
+            filters: vec![],
+            layers: vec![Layer {
+                id: "l".into(),
+                data_view: DataView {
+                    index: "duplication_repo".into(),
+                    time_field: Some("changed_at".into()),
+                },
+                encoding: Encoding::Table {
+                    columns: columns.iter().map(|c| c.id.clone()).collect(),
+                    styles: Vec::new(),
+                    sparkline: None,
+                },
+                columns,
+                documents: None,
+                esql: None,
+                insight: Some(InsightSeries {
+                    interval: Some("1w".into()),
+                    filters: vec![],
+                    group_by: vec![InsightGroupBy {
+                        field: "team".into(),
+                        size: None,
+                    }],
+                    columns: vec![InsightColumn {
+                        id: "dup".into(),
+                        op: "sum".into(),
+                        field: Some("duplicate_lines".into()),
+                    }],
+                    latest_by: Some("repo".into()),
+                }),
+            }],
+            annotations: vec![],
+            warnings: vec![],
+        }
+    }
+
+    #[test]
+    fn insight_layers_send_one_series_request() {
+        let chart = insight_chart(vec![value("week", "t"), value("dup", "dup")]);
+        with_context(&[], &[], |ctx| {
+            let searches = plan(&chart, ctx).searches();
+            assert_eq!(searches.len(), 1);
+            let s = &searches[0];
+            assert_eq!(s.endpoint, crate::es::Endpoint::Insight);
+            assert_eq!(s.body["record_type"], "duplication_repo");
+            assert_eq!(s.body["time"]["field"], "changed_at");
+            assert_eq!(s.body["time"]["interval"], "1w");
+            assert!(s.body["time"]["from"].as_str().unwrap().ends_with('Z'));
+            assert_eq!(s.body["latest_by"], "repo");
+            assert_eq!(s.body["group_by"][0]["field"], "team");
+            assert_eq!(s.body["columns"][0]["op"], "sum");
+        });
+    }
+
+    #[test]
+    fn insight_responses_are_read_like_esql() {
+        let chart = insight_chart(vec![
+            value("week", "t"),
+            value("team", "team"),
+            value("dup", "dup"),
+        ]);
+        with_context(&[], &[], |ctx| {
+            let p = plan(&chart, ctx);
+            let series = json!({
+                "columns": [
+                    { "id": "t", "type": "date" },
+                    { "id": "team", "type": "keyword" },
+                    { "id": "dup", "type": "number" }
+                ],
+                "rows": [
+                    ["2026-09-28T00:00:00+00:00", "personal:o", 30.0],
+                    ["2026-10-05T00:00:00+00:00", "personal:o", 50.0]
+                ],
+                "coverage": { "matched": 4, "with_inputs": 4 },
+                "query": "SELECT ...",
+                "schema_version": "1.0"
+            });
+            let data = p.evaluate(&[Ok(crate::es::series_as_esql(&series))]);
+            let layer = &data.layers[0];
+            assert_eq!(layer.error, None);
+            assert_eq!(layer.dates, ["week"]);
+            assert_eq!(
+                layer.series("week").unwrap().values,
+                [
+                    Cell::Number(ms("2026-09-28T00:00:00Z")),
+                    Cell::Number(ms("2026-10-05T00:00:00Z"))
+                ]
+            );
+            assert_eq!(
+                layer.series("dup").unwrap().values,
+                [Cell::Number(30.0), Cell::Number(50.0)]
+            );
+        });
+    }
+
+    #[test]
+    fn insight_layers_aggregate_in_the_request_not_in_columns() {
+        let mut count = value("n", "n");
+        count.op = crate::model::Operation::Count { field: None };
+        let chart = insight_chart(vec![count]);
+        with_context(&[], &[], |ctx| {
+            let data = plan(&chart, ctx).evaluate(&[]);
+            let error = data.layers[0].error.as_deref().unwrap();
+            assert!(error.contains("insight.columns"), "{error}");
+        });
     }
 }

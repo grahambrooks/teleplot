@@ -63,7 +63,8 @@ impl Engine {
             .or_else(|| time_zone.iana_name().map(String::from))
             .unwrap_or_else(|| "UTC".into());
         Ok(Self::with_client(
-            Client::new(&config.elasticsearch)?,
+            Client::new(&config.elasticsearch)?
+                .with_insight(config.insight.as_ref().map(|i| i.url.as_str())),
             time_zone,
             time_zone_name,
         ))

@@ -75,6 +75,9 @@ fn searches(d: &Dashboard, stats: &HashMap<(String, String), (f64, f64)>) -> Val
                     json!({ "endpoint": "_query", "index": s.index, "body": s.body })
                 }
                 teleplot::es::Endpoint::Search => json!({ "index": s.index, "body": s.body }),
+                teleplot::es::Endpoint::Insight => {
+                    json!({ "endpoint": "/api/series", "index": s.index, "body": s.body })
+                }
             })
             .collect();
         out.insert(panel.id.clone(), Value::Array(searches));

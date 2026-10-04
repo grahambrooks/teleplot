@@ -139,6 +139,7 @@ fn convert(export: &Export, vis: Vis, refs: &[Reference]) -> Result<PanelContent
         query: search::query(&vis.search_source["query"]),
         filters: search::filters(&vis.search_source["filter"]),
         layers: vec![Layer {
+            insight: None,
             id: "layer".into(),
             data_view,
             columns,

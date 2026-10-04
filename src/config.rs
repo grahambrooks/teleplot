@@ -25,6 +25,17 @@ pub struct Config {
     /// IANA time zone; the system's if unset.
     #[serde(default)]
     pub time_zone: Option<String>,
+    /// An insight server, for layers with an `insight` series request.
+    #[serde(default)]
+    pub insight: Option<Insight>,
+}
+
+/// An insight server (software-analytics), queried through its series API.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Insight {
+    /// E.g. `http://127.0.0.1:3000`.
+    pub url: String,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]

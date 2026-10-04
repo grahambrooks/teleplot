@@ -1260,6 +1260,7 @@ mod tests {
             query: Default::default(),
             filters: vec![],
             layers: vec![Layer {
+                insight: None,
                 id: "l".into(),
                 data_view: DataView {
                     index: "i".into(),
