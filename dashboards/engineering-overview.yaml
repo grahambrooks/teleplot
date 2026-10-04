@@ -214,25 +214,26 @@ panels:
 
   # ── Practice ──────────────────────────────────────────────────────────
   - id: ai-lines
-    title: AI-written lines accepted per week
-    description: "Lines accepted from AI assistants, from git-ai notes on commits. The share of all new lines isn't shown: git-ai records only AI sessions, so its human line count is always 0. Widen the time range to see earlier AI-heavy work."
+    title: AI-written lines accepted, cumulative
+    description: "Running total of lines accepted from git-ai sessions, by repository. A session can span commits and git-ai counts its accepted lines cumulatively, so this totals each session once. Widen the time range to see earlier AI-heavy work."
     grid: { x: 24, y: 40, w: 24, h: 10 }
     content:
       type: chart
       kind: xy
       layers:
         - id: ai
-          data_view: { index: ai_attribution, time_field: committed_at }
+          data_view: { index: ai_session, time_field: committed_at }
           insight:
             interval: 1w
+            latest_by: session
             group_by: [{ field: repo, size: 10 }]
             columns:
-              - { id: lines, op: sum, field: ai_accepted }
+              - { id: lines, op: sum, field: accepted }
           columns:
             - { id: week, label: Week, op: value, field: t }
             - { id: repo, label: Repository, op: value, field: repo }
-            - { id: lines, label: AI lines accepted, op: value, field: lines }
-          encoding: { as: xy, series: bar_stacked, x: week, y: [lines], split: repo }
+            - { id: lines, label: AI lines accepted (total), op: value, field: lines }
+          encoding: { as: xy, series: area_stacked, x: week, y: [lines], split: repo }
 
   # ── Changeability ─────────────────────────────────────────────────────
   - id: duplication

@@ -1,0 +1,242 @@
+# The code itself, from insight: file analysis (language and size of every
+# file), blame-based ownership (how concentrated and how stale), and git-ai
+# attribution (which assistants wrote what, and how much of it was kept).
+#
+# File and ownership panels show the latest analysis; AI panels are dated by
+# commit. The default range is a year, because AI-heavy work is often older
+# than a quarter. Owner names are not shown: ownership is reported as
+# concentration, never per person.
+id: code
+title: Code
+description: Languages, file sizes, ownership concentration and AI attribution, from insight
+time:
+  from: now-1y/d
+  to: now
+panels:
+  # ── File and code analysis ────────────────────────────────────────────
+  - id: languages
+    title: Code by language
+    description: "Lines of code (not comments or blank lines) across the collected repositories, by language."
+    grid: { x: 0, y: 0, w: 24, h: 10 }
+    content:
+      type: chart
+      kind: xy
+      layers:
+        - id: languages
+          data_view: { index: file_snapshot, time_field: observed_at }
+          insight:
+            filters: [{ field: language, op: not_in, values: [""] }]
+            group_by: [{ field: language, size: 12 }]
+            columns:
+              - { id: code, op: sum, field: code_lines }
+          columns:
+            - { id: language, label: Language, op: value, field: language }
+            - { id: code, label: Lines of code, op: value, field: code }
+          encoding: { as: xy, series: bar_horizontal, x: language, y: [code] }
+
+  - id: repo-lines
+    title: Code, comments and blank lines by repository
+    grid: { x: 24, y: 0, w: 24, h: 10 }
+    content:
+      type: chart
+      kind: xy
+      layers:
+        - id: repos
+          data_view: { index: file_snapshot, time_field: observed_at }
+          insight:
+            group_by: [{ field: repo }]
+            columns:
+              - { id: code, op: sum, field: code_lines }
+              - { id: comment, op: sum, field: comment_lines }
+              - { id: blank, op: sum, field: blank_lines }
+          columns:
+            - { id: repo, label: Repository, op: value, field: repo }
+            - { id: code, label: Code, op: value, field: code }
+            - { id: comment, label: Comments, op: value, field: comment }
+            - { id: blank, label: Blank, op: value, field: blank }
+          encoding: { as: xy, series: bar_stacked, x: repo, y: [code, comment, blank] }
+
+  - id: file-sizes
+    title: Files by size
+    description: "Files by total lines. Very large files are harder to change and review."
+    grid: { x: 0, y: 10, w: 24, h: 10 }
+    content:
+      type: chart
+      kind: xy
+      layers:
+        - id: sizes
+          data_view: { index: file_snapshot, time_field: observed_at }
+          insight:
+            group_by: [{ field: repo }, { field: size_band }]
+            columns: [{ id: n, op: count }]
+          columns:
+            - { id: repo, label: Repository, op: value, field: repo }
+            - { id: band, label: Lines per file, op: value, field: size_band }
+            - { id: n, label: Files, op: value, field: n }
+          encoding: { as: xy, series: bar_percentage_stacked, x: repo, y: [n], split: band }
+
+  - id: language-table
+    title: Languages
+    grid: { x: 24, y: 10, w: 24, h: 10 }
+    content:
+      type: chart
+      kind: table
+      layers:
+        - id: languages
+          data_view: { index: file_snapshot, time_field: observed_at }
+          insight:
+            filters: [{ field: language, op: not_in, values: [""] }]
+            group_by: [{ field: language }]
+            columns:
+              - { id: files, op: count }
+              - { id: code, op: sum, field: code_lines }
+              - { id: comment, op: sum, field: comment_lines }
+              - { id: median, op: median, field: total_lines }
+              - { id: largest, op: max, field: total_lines }
+          columns:
+            - { id: language, label: Language, op: value, field: language }
+            - { id: files, label: Files, op: value, field: files }
+            - { id: code, label: Lines of code, op: value, field: code }
+            - { id: comment, op: value, field: comment, helper: true }
+            - id: density
+              label: Comment density
+              op: formula
+              text: "comment / (code + comment)"
+              expr: { call: divide, args: [comment, { call: add, args: [code, comment] }] }
+              format: { kind: percent, decimals: 0 }
+            - { id: median, label: Median file, op: value, field: median, format: { kind: number, decimals: 0, suffix: " lines" } }
+            - { id: largest, label: Largest file, op: value, field: largest, format: { kind: number, decimals: 0, suffix: " lines" } }
+          encoding: { as: table, columns: [language, files, code, density, median, largest] }
+
+  # ── Ownership (git blame) ─────────────────────────────────────────────
+  - id: contributors
+    title: Files by number of contributors
+    description: "From git blame. Files only one person has written are a knowledge-concentration risk (a bus factor of one); on a personal account, that is every file."
+    grid: { x: 0, y: 20, w: 24, h: 10 }
+    content:
+      type: chart
+      kind: xy
+      layers:
+        - id: owners
+          data_view: { index: file_ownership, time_field: observed_at }
+          insight:
+            group_by: [{ field: repo }, { field: contributors_band }]
+            columns: [{ id: n, op: count }]
+          columns:
+            - { id: repo, label: Repository, op: value, field: repo }
+            - { id: band, label: Contributors, op: value, field: contributors_band }
+            - { id: n, label: Files, op: value, field: n }
+          encoding: { as: xy, series: bar_percentage_stacked, x: repo, y: [n], split: band }
+
+  - id: staleness
+    title: Time since files last changed
+    description: "From git blame: how long since each file's most recent change. Old, untouched code is either stable or forgotten."
+    grid: { x: 24, y: 20, w: 24, h: 10 }
+    content:
+      type: chart
+      kind: xy
+      layers:
+        - id: ages
+          data_view: { index: file_ownership, time_field: observed_at }
+          insight:
+            group_by: [{ field: repo }, { field: age_band }]
+            columns: [{ id: n, op: count }]
+          columns:
+            - { id: repo, label: Repository, op: value, field: repo }
+            - { id: band, label: Last changed, op: value, field: age_band }
+            - { id: n, label: Files, op: value, field: n }
+          encoding: { as: xy, series: bar_percentage_stacked, x: repo, y: [n], split: band }
+
+  - id: ownership-table
+    title: Ownership by repository
+    grid: { x: 0, y: 30, w: 48, h: 8 }
+    content:
+      type: chart
+      kind: table
+      layers:
+        - id: repos
+          data_view: { index: file_ownership, time_field: observed_at }
+          insight:
+            group_by: [{ field: repo }, { field: team }]
+            columns:
+              - { id: files, op: count }
+              - { id: contributors, op: avg, field: contributors }
+              - { id: share, op: median, field: primary_share }
+              - { id: days, op: median, field: days_since_change }
+          columns:
+            - { id: repo, label: Repository, op: value, field: repo }
+            - { id: team, label: Team, op: value, field: team }
+            - { id: files, label: Files, op: value, field: files }
+            - { id: contributors, label: Contributors per file, op: value, field: contributors, format: { kind: number, decimals: 1 } }
+            - { id: share, label: "Main author's share (median)", op: value, field: share, format: { kind: number, decimals: 0, suffix: "%" } }
+            - { id: days, label: Days since change (median), op: value, field: days, format: { kind: number, decimals: 0 } }
+          encoding: { as: table, columns: [repo, team, files, contributors, share, days] }
+
+  # ── AI attribution (git-ai) ───────────────────────────────────────────
+  - id: ai-models
+    title: AI assistants and models
+    description: "git-ai sessions by tool and model. Lines accepted and overridden are each session's totals: a session can span several commits, and git-ai counts accepted lines cumulatively per session."
+    grid: { x: 0, y: 38, w: 48, h: 8 }
+    content:
+      type: chart
+      kind: table
+      layers:
+        - id: models
+          data_view: { index: ai_session, time_field: committed_at }
+          insight:
+            latest_by: session
+            group_by: [{ field: tool }, { field: model }]
+            columns:
+              - { id: sessions, op: count }
+              - { id: accepted, op: sum, field: accepted }
+              - { id: overridden, op: sum, field: overridden }
+          columns:
+            - { id: tool, label: Tool, op: value, field: tool }
+            - { id: model, label: Model, op: value, field: model }
+            - { id: sessions, label: Sessions, op: value, field: sessions }
+            - { id: accepted, label: Lines accepted, op: value, field: accepted }
+            - { id: overridden, label: Lines later overridden, op: value, field: overridden }
+          encoding: { as: table, columns: [tool, model, sessions, accepted, overridden] }
+
+  - id: ai-by-model
+    title: AI-written lines accepted, cumulative, by model
+    description: "Running total of lines accepted from AI sessions, at the end of each month."
+    grid: { x: 0, y: 46, w: 24, h: 10 }
+    content:
+      type: chart
+      kind: xy
+      layers:
+        - id: monthly
+          data_view: { index: ai_session, time_field: committed_at }
+          insight:
+            interval: 1M
+            latest_by: session
+            group_by: [{ field: model }]
+            columns: [{ id: lines, op: sum, field: accepted }]
+          columns:
+            - { id: month, label: Month, op: value, field: t }
+            - { id: model, label: Model, op: value, field: model }
+            - { id: lines, label: Lines accepted (total), op: value, field: lines }
+          encoding: { as: xy, series: area_stacked, x: month, y: [lines], split: model }
+
+  - id: ai-by-repo
+    title: AI attribution by repository
+    description: "AI sessions and the lines accepted from them, per repository."
+    grid: { x: 24, y: 46, w: 24, h: 10 }
+    content:
+      type: chart
+      kind: table
+      layers:
+        - id: repos
+          data_view: { index: ai_session, time_field: committed_at }
+          insight:
+            latest_by: session
+            group_by: [{ field: repo }]
+            columns:
+              - { id: sessions, op: count }
+              - { id: lines, op: sum, field: accepted }
+          columns:
+            - { id: repo, label: Repository, op: value, field: repo }
+            - { id: sessions, label: AI sessions, op: value, field: sessions }
+            - { id: lines, label: AI lines accepted, op: value, field: lines }
+          encoding: { as: table, columns: [repo, sessions, lines] }
