@@ -289,7 +289,7 @@ insight:
     latest_by: repo                      # carry each repo's latest value into later weeks
     group_by: [{ field: team, size: 10 }]
     filters: [{ field: removed, op: eq, value: false }]   # eq, in, not_in, exists, range
-    columns:                             # count, sum, avg, min, max, unique_count, last_value
+    columns:                             # count, sum, avg, min, max, median, percentile (p: 0-100), unique_count, last_value
       - { id: dup, op: sum, field: duplicate_lines }
       - { id: sig, op: sum, field: significant_lines }
   columns:

@@ -377,14 +377,18 @@ pub struct InsightGroupBy {
     pub size: Option<u32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 pub struct InsightColumn {
     pub id: String,
-    /// `count`, `sum`, `avg`, `min`, `max`, `unique_count` or `last_value`.
+    /// `count`, `sum`, `avg`, `min`, `max`, `median`, `percentile`,
+    /// `unique_count` or `last_value`.
     pub op: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub field: Option<String>,
+    /// For `percentile`: 0–100.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub p: Option<f64>,
 }
 
 /// An ES|QL query (`POST /_query`). The dashboard's time range (on the data

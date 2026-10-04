@@ -2242,6 +2242,7 @@ mod tests {
                         id: "dup".into(),
                         op: "sum".into(),
                         field: Some("duplicate_lines".into()),
+                        p: None,
                     }],
                     latest_by: Some("repo".into()),
                 }),
