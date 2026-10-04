@@ -1,0 +1,21 @@
+dashboards/code.yaml
+  s_6c8864d1d71304::t_7ce8c56d516639 1-242
+dashboards/engineering-overview.yaml
+  s_6c8864d1d71304::t_d9858dc970a12a 217-218,225,228,231,235-236
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a6a52b5eecd0c7450fce5f997f4d6f0d02376b01",
+  "prompts": {},
+  "sessions": {
+    "s_6c8864d1d71304": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "376d933a-1b6e-458c-a29f-4f695ab3e7be",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
