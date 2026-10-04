@@ -341,6 +341,7 @@ pub struct Layer {
 /// from the layer's data view and the dashboard.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
 pub struct InsightSeries {
     /// Bucket width: `<n>h`, `<n>d`, `1w` or `1M` (UTC). Without it, one
     /// row per group for the whole range.
@@ -359,6 +360,7 @@ pub struct InsightSeries {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
 pub struct InsightFilter {
     pub field: String,
     /// `eq`, `in`, `not_in`, `exists` or `range`.
@@ -367,10 +369,17 @@ pub struct InsightFilter {
     pub value: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub values: Vec<serde_json::Value>,
+    /// For `range`: inclusive lower bound.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gte: Option<serde_json::Value>,
+    /// For `range`: exclusive upper bound.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lt: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
 pub struct InsightGroupBy {
     pub field: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -379,6 +388,7 @@ pub struct InsightGroupBy {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
 pub struct InsightColumn {
     pub id: String,
     /// `count`, `sum`, `avg`, `min`, `max`, `median`, `percentile`,
