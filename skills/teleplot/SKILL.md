@@ -92,7 +92,10 @@ with service-level expectations, heatmaps, annotations, ES|QL, tables, small
 multiples — and adapt field names to the cluster you looked at in step 3.
 
 Keep panels honest: medians and percentiles for durations, `min_samples` so
-small buckets are flagged, a time range wide enough to mean something.
+small buckets are flagged, a time range wide enough to mean something. Give
+every headline panel a `description` that defines what it counts. "Median
+hours from commit to production, planned deployments only" settles arguments
+that a title alone starts.
 
 ## 5. Verify the numbers
 

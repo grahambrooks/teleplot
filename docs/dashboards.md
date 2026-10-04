@@ -23,9 +23,16 @@ annotations: [...]               # events marked on every time-series chart (bel
 panels:
   - id: lead-time
     title: Change lead time
+    description: Median hours from commit to production.   # optional; shown as ⓘ by the title
     grid: { x: 0, y: 0, w: 12, h: 7 }   # Kibana's 48-column grid, 20px rows
     content: { type: chart, kind: metric, layers: [...] }
 ```
+
+A panel's `description` says what it measures and how to read it: the
+definition behind a number, its unit, what counts. It shows as an ⓘ beside
+the title, and hovering or focusing it reveals the text. Kibana panel
+descriptions convert as Kibana shows them: the dashboard's panel setting, or
+else a library visualization's own description. Descriptions don't appear in printed PDFs.
 
 Panel `content` is one of:
 

@@ -111,7 +111,12 @@ pub fn PanelView(
     };
     let is_chart = matches!(panel.content, PanelContent::Chart(_));
     // Chart panels always get a header: it carries their CSV and Inspect actions.
-    let title = panel.title.clone().or_else(|| is_chart.then(String::new));
+    // A description needs a header to sit in, even without a title.
+    let description = panel.description.clone();
+    let title = panel
+        .title
+        .clone()
+        .or_else(|| (is_chart || description.is_some()).then(String::new));
     let exportable = drawn_on_canvas(&panel.content);
     let csv_chart = match &panel.content {
         PanelContent::Chart(c) => Some(c.clone()),
@@ -142,6 +147,9 @@ pub fn PanelView(
                 view! {
                     <header class="panel-title">
                         <span>{t}</span>
+                        {description.clone().map(|d| view! {
+                            <span class="panel-info" tabindex="0" role="img" aria-label=d.clone() title=d>"i"</span>
+                        })}
                         {move || warnings().map(|w| view! { <span class="panel-warning" title=w>"!"</span> })}
                         <span class="spacer"></span>
                         {csv_chart.map(|chart| {

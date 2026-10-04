@@ -48,6 +48,7 @@ panels:
   # ---------------------------------------------------------------- DORA tiles
   - id: deploy-frequency
     title: Deployment frequency
+    description: "Production deployments per week over the selected range, excluding rework (unplanned fixes). The line is the weekly count; the bar tracks progress to the 50-a-week target."
     grid: { x: 0, y: 0, w: 10, h: 7 }
     content:
       type: chart
@@ -85,6 +86,7 @@ panels:
 
   - id: lead-time
     title: Change lead time
+    description: "Median hours from commit to running in production, over planned deployments. DORA bands: elite under a day, high under a week, medium under a month."
     grid: { x: 10, y: 0, w: 10, h: 7 }
     content:
       type: chart
@@ -121,6 +123,7 @@ panels:
 
   - id: change-fail-rate
     title: Change fail rate
+    description: "Share of planned deployments that failed in production. DORA bands: elite under 5%, high under 10%, medium under 15%."
     grid: { x: 20, y: 0, w: 10, h: 7 }
     content:
       type: chart
@@ -155,6 +158,7 @@ panels:
 
   - id: recovery
     title: Failed deployment recovery
+    description: "Median hours to recover from incidents that a deployment caused. DORA bands: elite under an hour, high under a day, medium under a week."
     grid: { x: 30, y: 0, w: 9, h: 7 }
     content:
       type: chart
@@ -184,6 +188,7 @@ panels:
 
   - id: rework
     title: Deployment rework rate
+    description: "Share of deployments that were unplanned, made to fix a problem in production. A rising rate often follows a rising change fail rate."
     grid: { x: 39, y: 0, w: 9, h: 7 }
     content:
       type: chart
@@ -265,6 +270,7 @@ panels:
   # say what a team can commit to ("85% of PRs merge within …").
   - id: cycle-distribution
     title: PR cycle time distribution, with service-level expectations
+    description: "How long merged PRs took from first commit to production, on a log scale. p85 is a service-level expectation: 85% of PRs finish within it."
     grid: { x: 0, y: 20, w: 24, h: 12 }
     content:
       type: chart
@@ -336,6 +342,7 @@ panels:
 
   - id: investment
     title: Investment allocation (story points, by type of work)
+    description: "Where effort went, by story points on completed work. Feature against defect, debt and risk work."
     grid: { x: 24, y: 32, w: 24, h: 12 }
     content:
       type: chart
@@ -421,6 +428,7 @@ panels:
   # median cycle time for AI-assisted PRs against the rest, and the change.
   - id: ai-cycle
     title: Does AI assistance shorten cycle time? (ES|QL, by team)
+    description: "Median cycle time of AI-assisted PRs against the rest, per team. This is a correlation, not a cause: teams may use AI on different kinds of work."
     grid: { x: 0, y: 58, w: 48, h: 12 }
     content:
       type: chart
@@ -464,6 +472,7 @@ panels:
 
   - id: cfr-gauge
     title: Change fail rate against the DORA bands
+    description: "Change fail rate over the selected range, against the DORA bands. The tick marks the 5% elite threshold."
     grid: { x: 24, y: 70, w: 12, h: 10 }
     content:
       type: chart
@@ -514,6 +523,7 @@ panels:
   # that is slow, or getting slower, is plain at a glance.
   - id: team-multiples
     title: Weekly median cycle time, team by team
+    description: "Weekly median PR cycle time for each team, all on the same scale. Weeks with too few PRs are shaded."
     grid: { x: 0, y: 80, w: 48, h: 16 }
     content:
       type: chart

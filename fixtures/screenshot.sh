@@ -19,7 +19,7 @@ done
 for _ in $(seq 1 60); do
   code=$(curl -s -o "$out" -w '%{http_code}' "localhost:$port$path" -H 'kbn-xsrf: true')
   if [ "$code" = 200 ]; then
-    command -v sips >/dev/null && sips -Z 1600 "$out" >/dev/null
+    command -v sips >/dev/null && sips --resampleWidth 1600 "$out" >/dev/null
     echo "wrote $out"
     exit 0
   fi

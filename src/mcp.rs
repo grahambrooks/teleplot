@@ -179,6 +179,9 @@ pub struct DashboardDetail {
 pub struct PanelSummary {
     pub id: String,
     pub title: Option<String>,
+    /// What the panel's author says it shows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     /// chart:xy, chart:metric, markdown, placeholder:… (unsupported in Teleplot).
     pub kind: String,
     pub indexes: Vec<String>,
@@ -509,6 +512,7 @@ impl TeleplotMcp {
                 PanelSummary {
                     id: panel.id.clone(),
                     title: panel.title.clone(),
+                    description: panel.description.clone(),
                     kind,
                     indexes,
                     shows,

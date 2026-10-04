@@ -445,6 +445,21 @@ impl Dashboard {
         }));
     }
 
+    /// Sets the description of the Lens panel added last, inside its by-value
+    /// visualization. Kibana keeps it but doesn't show it; the fixture pins
+    /// that Teleplot doesn't either.
+    fn describe(&mut self, text: &str) {
+        let panel = self.panels.last_mut().expect("a panel");
+        panel["embeddableConfig"]["attributes"]["description"] = json!(text);
+    }
+
+    /// Sets the dashboard's own description for the panel added last (panel
+    /// settings → Description), which overrides the visualization's.
+    fn custom_description(&mut self, text: &str) {
+        let panel = self.panels.last_mut().expect("a panel");
+        panel["embeddableConfig"]["description"] = json!(text);
+    }
+
     /// A panel that references a saved object (Lens or legacy visualization).
     fn by_ref(&mut self, index: &str, grid: Grid, kind: &str, id: &str) {
         let name = format!("panel_{index}");
@@ -697,6 +712,9 @@ fn delivery_overview() -> Value {
         cols,
         metric_vis(&l, "dpw", Some("dpw-prev")),
         "is_rework : false",
+    );
+    d.describe(
+        "Production deployments per week, excluding rework. DORA: elite teams deploy on demand, several times a day.",
     );
 
     let l = layer_of("lead-time");
@@ -1494,8 +1512,9 @@ fn pr_flow() -> Vec<Value> {
         "visualization",
         "teleplot-vis-cycle-line",
     );
+    d.custom_description("Weekly p50 and p85 cycle time, from first commit to merge.");
 
-    let lens_ref = lens_object(
+    let mut lens_ref = lens_object(
         "teleplot-lens-review-load",
         "Review load by team (by reference)",
         "lnsXY",
@@ -1506,8 +1525,10 @@ fn pr_flow() -> Vec<Value> {
         ],
         |layer| xy(layer, "bar_horizontal", "rl-team", &["rl-n"], None),
     );
+    lens_ref["attributes"]["description"] =
+        json!("Open pull requests waiting for review, by team.");
 
-    let legacy_line = legacy_vis(
+    let mut legacy_line = legacy_vis(
         "teleplot-vis-cycle-line",
         "Cycle time p50/p85 (legacy line)",
         "line",
@@ -1521,6 +1542,9 @@ fn pr_flow() -> Vec<Value> {
         ]),
         legacy_line_params("Cycle time (h)"),
     );
+    // Overridden on the dashboard by the panel's own description.
+    legacy_line["attributes"]["description"] =
+        json!("Cycle time percentiles (the visualization's own description).");
 
     let dash = dashboard_object(
         "teleplot-pr-flow",

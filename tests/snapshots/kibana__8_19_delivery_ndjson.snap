@@ -1554,6 +1554,7 @@ panels:
         - ds-y
 - id: lens-ref
   title: Review load by team (by reference)
+  description: Open pull requests waiting for review, by team.
   grid:
     x: 24
     y: 36
@@ -1590,6 +1591,7 @@ panels:
         - rl-n
 - id: legacy-line
   title: Cycle time p50/p85 (legacy line)
+  description: Weekly p50 and p85 cycle time, from first commit to merge.
   grid:
     x: 0
     y: 43

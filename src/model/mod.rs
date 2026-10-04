@@ -193,6 +193,10 @@ pub struct Panel {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// What the panel shows and how to read it: shown as an ⓘ beside the
+    /// title, as Grafana and Kibana do.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     /// Position on a 48-column grid; `h` is in grid rows.
     pub grid: Grid,
     /// Overrides the dashboard time range for this panel.

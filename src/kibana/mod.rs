@@ -100,7 +100,7 @@ fn panel(export: &Export, dashboard: &objects::SavedObject, n: usize, p: &Value)
         })
         .collect();
 
-    let (content, own_title) = match by_reference(export, dashboard, &id, p, kind) {
+    let (content, own) = match by_reference(export, dashboard, &id, p, kind) {
         Some(Ok(object)) => {
             let content = match object.kind.as_str() {
                 "lens" => lens::convert(export, &object.attributes, &object.references)
@@ -113,12 +113,9 @@ fn panel(export: &Export, dashboard: &objects::SavedObject, n: usize, p: &Value)
                     format!("{other} panels are not in the MVP"),
                 )),
             };
-            (
-                content,
-                str_field(&object.attributes, "title").map(String::from),
-            )
+            (content, Own::of(&object.attributes))
         }
-        Some(Err(placeholder)) => (Err(placeholder), None),
+        Some(Err(placeholder)) => (Err(placeholder), Own::default()),
         None => match kind {
             "lens" if config["attributes"].is_object() => {
                 let attrs = &config["attributes"];
@@ -129,14 +126,14 @@ fn panel(export: &Export, dashboard: &objects::SavedObject, n: usize, p: &Value)
                 }
                 (
                     lens::convert(export, attrs, &refs).map(PanelContent::Chart),
-                    str_field(attrs, "title").map(String::from),
+                    Own::by_value(attrs),
                 )
             }
             "visualization" if config["savedVis"].is_object() => {
                 let vis = &config["savedVis"];
                 (
                     legacy::from_saved_vis(export, vis, &refs),
-                    str_field(vis, "title").map(String::from),
+                    Own::by_value(vis),
                 )
             }
             "lens" | "visualization" => (
@@ -144,29 +141,33 @@ fn panel(export: &Export, dashboard: &objects::SavedObject, n: usize, p: &Value)
                     kind,
                     "panel has neither a reference nor an embedded visualization",
                 )),
-                None,
+                Own::default(),
             ),
             other => (
                 Err(out_of_scope(
                     other,
                     format!("{other} panels are not in the MVP"),
                 )),
-                None,
+                Own::default(),
             ),
         },
     };
 
-    // Panel-level title wins, including "" (deliberately blank).
-    let title = if bool_field(config, "hidePanelTitles") {
-        None
-    } else {
-        p.get("title")
-            .or_else(|| config.get("title"))
+    // Panel-level title and description win, including "" (deliberately
+    // blank). Hidden titles hide the description too: it lives in the title bar.
+    let panel_level = |key: &str, own: Option<String>| {
+        if bool_field(config, "hidePanelTitles") {
+            return None;
+        }
+        p.get(key)
+            .or_else(|| config.get(key))
             .and_then(Value::as_str)
             .map(String::from)
-            .or(own_title)
-            .filter(|t| !t.is_empty())
+            .or(own)
+            .filter(|t| !t.trim().is_empty())
     };
+    let title = panel_level("title", own.title);
+    let description = panel_level("description", own.description);
 
     let time = config["timeRange"]
         .is_object()
@@ -181,6 +182,7 @@ fn panel(export: &Export, dashboard: &objects::SavedObject, n: usize, p: &Value)
     Panel {
         id,
         title,
+        description,
         grid: Grid {
             x: cell("x"),
             y: cell("y"),
@@ -189,6 +191,33 @@ fn panel(export: &Export, dashboard: &objects::SavedObject, n: usize, p: &Value)
         },
         time,
         content: content.unwrap_or_else(PanelContent::Placeholder),
+    }
+}
+
+/// The title and description a visualization carries itself, which the
+/// dashboard panel can override.
+#[derive(Default)]
+struct Own {
+    title: Option<String>,
+    description: Option<String>,
+}
+
+impl Own {
+    fn of(attributes: &Value) -> Self {
+        Own {
+            title: str_field(attributes, "title").map(String::from),
+            description: str_field(attributes, "description").map(String::from),
+        }
+    }
+
+    /// A by-value visualization's own description isn't shown: Kibana (8.19
+    /// and 9.5) only shows the panel's, or a library object's. The fixtures'
+    /// screenshots show this.
+    fn by_value(attributes: &Value) -> Self {
+        Own {
+            description: None,
+            ..Own::of(attributes)
+        }
     }
 }
 

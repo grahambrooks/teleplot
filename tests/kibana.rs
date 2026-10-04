@@ -258,6 +258,33 @@ fn by_reference_panels_resolve_to_their_saved_objects() {
 }
 
 #[test]
+fn panel_descriptions_follow_kibanas_precedence() {
+    for version in ["8.19", "9.5"] {
+        let dashboards = read(&format!("{version}/delivery.ndjson"));
+        let overview = dashboard(&dashboards, "teleplot-delivery-overview");
+        let flow = dashboard(&dashboards, "teleplot-pr-flow");
+        let description = |d, id| panel(d, id).description.as_deref();
+
+        // Kibana doesn't show a by-value Lens panel's own description.
+        assert_eq!(description(overview, "deploys-per-week"), None, "{version}");
+        // A by-reference panel takes its saved object's...
+        assert_eq!(
+            description(flow, "lens-ref"),
+            Some("Open pull requests waiting for review, by team."),
+            "{version}"
+        );
+        // ...unless the dashboard sets one for the panel.
+        assert_eq!(
+            description(flow, "legacy-line"),
+            Some("Weekly p50 and p85 cycle time, from first commit to merge."),
+            "{version}"
+        );
+        // Empty descriptions are no description.
+        assert_eq!(description(overview, "lead-time"), None, "{version}");
+    }
+}
+
+#[test]
 fn dashboard_settings_come_through() {
     let dashboards = read("8.19/delivery.ndjson");
     let investment = dashboard(&dashboards, "teleplot-investment");

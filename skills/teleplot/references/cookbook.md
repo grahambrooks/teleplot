@@ -55,6 +55,7 @@ a target:
 ```yaml
 id: deploy-frequency
 title: Deployment frequency
+description: Production deployments per week over the selected range.
 grid: { x: 0, y: 0, w: 12, h: 7 }
 content:
   type: chart
@@ -89,6 +90,7 @@ trend badge (lower is better):
 ```yaml
 id: lead-time
 title: Change lead time
+description: Median hours from commit to running in production.
 grid: { x: 12, y: 0, w: 12, h: 7 }
 content:
   type: chart
