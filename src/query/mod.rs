@@ -1139,6 +1139,22 @@ fn terms_order(
                         let key = percentile_key(&agg);
                         (json!({ format!("o[{key}]"): dir(*ascending) }), Some(agg))
                     }
+                    // A column with its own filter is a `filter` agg around the
+                    // metric; Elasticsearch orders through it by path.
+                    (Read::Filtered(inner), Some(agg)) => {
+                        let path = match *inner {
+                            Read::DocCount => Some("o>_count".to_string()),
+                            Read::Value => Some("o>v".to_string()),
+                            Read::FirstOfValues => {
+                                Some(format!("o>v[{}]", percentile_key(&agg["aggs"]["v"])))
+                            }
+                            _ => None,
+                        };
+                        match path {
+                            Some(path) => (json!({ path: dir(*ascending) }), Some(agg)),
+                            None => (json!({ "_count": dir(*ascending) }), None),
+                        }
+                    }
                     // Kibana orders by formulas and pipeline columns client-side;
                     // falling back to document count keeps the top-N stable.
                     _ => (json!({ "_count": dir(*ascending) }), None),
@@ -1330,6 +1346,32 @@ fn evaluate_layer(
     })
 }
 
+/// One cell of a document row, from the `fields` API's array of values. A
+/// field with several values (a keyword array) shows them all, as Kibana's
+/// Discover does; numbers and dates take the first.
+fn document_cell(values: &Value, date: bool) -> Cell {
+    let text = |v: &Value| match v {
+        Value::String(s) => Some(s.clone()),
+        Value::Bool(b) => Some(b.to_string()),
+        Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    };
+    match &values[0] {
+        Value::Number(v) => v.as_f64().map_or(Cell::Null, Cell::Number),
+        Value::String(s) if date => s.parse::<f64>().map_or(Cell::Null, Cell::Number),
+        Value::String(_) | Value::Bool(_) => {
+            let all: Vec<String> = values
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(text)
+                .collect();
+            Cell::Text(all.join(", "))
+        }
+        _ => Cell::Null,
+    }
+}
+
 fn evaluate_documents(
     plan: &LayerPlan,
     built: &Built,
@@ -1350,13 +1392,7 @@ fn evaluate_documents(
     for d in doc_fields {
         let values = hits
             .iter()
-            .map(|hit| match &hit["fields"][&d.field][0] {
-                Value::Number(v) => v.as_f64().map_or(Cell::Null, Cell::Number),
-                Value::String(s) if d.date => s.parse::<f64>().map_or(Cell::Null, Cell::Number),
-                Value::String(s) => Cell::Text(s.clone()),
-                Value::Bool(b) => Cell::Text(b.to_string()),
-                _ => Cell::Null,
-            })
+            .map(|hit| document_cell(&hit["fields"][&d.field], d.date))
             .collect();
         columns.insert(d.column.clone(), values);
     }
@@ -1779,6 +1815,21 @@ mod tests {
         .unwrap();
         let filter = search.body["query"]["bool"]["filter"].as_array().unwrap();
         assert_eq!(filter.len(), 2, "range and own query only: {filter:#?}");
+    }
+
+    #[test]
+    fn document_cells_show_every_value_of_a_keyword_array() {
+        assert_eq!(
+            document_cell(&json!(["claude-code", "github-copilot"]), false),
+            Cell::Text("claude-code, github-copilot".into())
+        );
+        assert_eq!(
+            document_cell(&json!([true]), false),
+            Cell::Text("true".into())
+        );
+        assert_eq!(document_cell(&json!([3, 4]), false), Cell::Number(3.0));
+        assert_eq!(document_cell(&json!(["1000"]), true), Cell::Number(1000.0));
+        assert_eq!(document_cell(&Value::Null, false), Cell::Null);
     }
 
     #[test]

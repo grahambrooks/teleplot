@@ -195,7 +195,33 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
                 set(&spec, "stroke", format!("{color}66"));
                 set(&spec, "width", 1);
             }
-            Style::Normal => {}
+            Style::Normal => {
+                // A value with no line through it (one run, or empty buckets
+                // either side) gets a dot, or it wouldn't show at all.
+                let lone = super::series::isolated(&drawn[i], xy.span_gaps);
+                if !s.kind.is_bar() && !lone.is_empty() {
+                    let indices: Array = lone.iter().map(|&i| JsValue::from(i as u32)).collect();
+                    let filter =
+                        Callback::new(move |_: JsValue, _: JsValue, _: JsValue, _: JsValue| {
+                            indices.clone().into()
+                        });
+                    set(
+                        &spec,
+                        "points",
+                        obj(&[
+                            ("show", true.into()),
+                            ("size", 7.into()),
+                            ("fill", color.into()),
+                            ("width", 0.into()),
+                            (
+                                "filter",
+                                filter.as_ref().unchecked_ref::<Function>().clone().into(),
+                            ),
+                        ]),
+                    );
+                    callbacks.push(filter);
+                }
+            }
         }
         if s.style == Style::Normal
             && (s.kind.is_bar() || s.kind.is_stacked() || matches!(s.kind, SeriesType::Area))

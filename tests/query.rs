@@ -169,6 +169,31 @@ fn document_layers_fetch_raw_documents_newest_first() {
 }
 
 #[test]
+fn terms_ordered_by_a_filtered_column_order_through_its_filter() {
+    let mut d = native();
+    let PanelContent::Chart(chart) = &mut d
+        .panels
+        .iter_mut()
+        .find(|p| p.id == "teams")
+        .unwrap()
+        .content
+    else {
+        panic!()
+    };
+    // `failed` is a count with its own KQL filter.
+    if let teleplot::model::Operation::Terms { order, .. } = &mut chart.layers[0].columns[0].op {
+        *order = teleplot::model::TermsOrder::Column {
+            column: "failed".into(),
+            ascending: false,
+        };
+    }
+    let s = searches(&d, &HashMap::new());
+    let b0 = &s["teams"][0]["body"]["aggs"]["root"]["aggs"]["b0"];
+    assert_eq!(b0["terms"]["order"], json!({ "o>_count": "desc" }), "{b0}");
+    assert!(b0["aggs"]["o"]["filter"].is_object(), "{b0}");
+}
+
+#[test]
 fn ordering_terms_by_a_formula_falls_back_to_document_count() {
     let mut d = native();
     let PanelContent::Chart(chart) = &mut d

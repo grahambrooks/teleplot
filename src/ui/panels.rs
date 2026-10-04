@@ -1016,11 +1016,7 @@ fn CategoryBars(xy: series::Xy, drill_field: Option<String>, ctx: PanelContext) 
                     Some(view! { <div class="cat-bar" style=style title=title></div> })
                 })
                 .collect();
-            let value = xy
-                .series
-                .iter()
-                .filter_map(|s| s.values[i].map(|v| format::value(v, s.format.as_ref())))
-                .next();
+            let value = series::category_end_value(&xy, i);
             let track = if stacked {
                 "cat-track stacked"
             } else {
@@ -1081,7 +1077,26 @@ fn CategoryBars(xy: series::Xy, drill_field: Option<String>, ctx: PanelContext) 
             })
         })
         .collect();
-    view! { <div class=class>{rows}</div>{(!key.is_empty()).then(|| view! { <div class="chart-note ref-key">{key}</div> })} }.into_any()
+    // Several series need a key; bars coloured by benchmark band don't (the
+    // colour is the band).
+    let legend = (xy.series.len() > 1 && xy.thresholds.is_empty()).then(|| {
+        xy.series
+            .iter()
+            .enumerate()
+            .map(|(s, series)| {
+                let style = format!("background:{}", colors[s % colors.len()]);
+                view! { <span class="cat-key-item"><span class="swatch" style=style></span>{series.label.clone()}</span> }
+            })
+            .collect_view()
+    });
+    view! {
+        <div class="cat-wrap">
+            {legend.map(|l| view! { <div class="cat-key">{l}</div> })}
+            <div class=class>{rows}</div>
+            {(!key.is_empty()).then(|| view! { <div class="chart-note ref-key">{key}</div> })}
+        </div>
+    }
+    .into_any()
 }
 
 /// What a canvas chart draws.

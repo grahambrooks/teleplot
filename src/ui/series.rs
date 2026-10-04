@@ -450,6 +450,45 @@ pub fn facets(chart: &Chart, data: &PanelData, min_samples: Option<u32>) -> Vec<
     out
 }
 
+/// The label at the end of a horizontal category bar: its total when the
+/// series stack, its value when there is one series, and none for grouped
+/// bars (each bar's tooltip has its own).
+pub fn category_end_value(xy: &Xy, i: usize) -> Option<String> {
+    let format = xy.series.first().and_then(|s| s.format.clone());
+    let values: Vec<f64> = xy
+        .series
+        .iter()
+        .filter_map(|s| s.values.get(i).copied().flatten())
+        .collect();
+    let stacked = xy.series.iter().any(|s| s.kind.is_stacked());
+    match (stacked, xy.series.len()) {
+        (_, 1) | (true, _) if !values.is_empty() => Some(crate::ui::format::value(
+            values.iter().sum(),
+            format.as_ref(),
+        )),
+        _ => None,
+    }
+}
+
+/// Values no line passes through, which need a dot to be seen: with gaps
+/// left open, a value with empty buckets on both sides; with gaps bridged,
+/// only a series' single value.
+pub fn isolated(values: &[Option<f64>], span_gaps: bool) -> Vec<usize> {
+    let present: Vec<usize> = (0..values.len()).filter(|&i| values[i].is_some()).collect();
+    if span_gaps {
+        return if present.len() == 1 {
+            present
+        } else {
+            Vec::new()
+        };
+    }
+    let has = |i: Option<usize>| i.and_then(|i| values.get(i)).is_some_and(Option::is_some);
+    present
+        .into_iter()
+        .filter(|&i| !has(i.checked_sub(1)) && !has(Some(i + 1)))
+        .collect()
+}
+
 /// The bounds of the x axis's log histogram, when the chart has one.
 fn log_histogram(chart: &Chart) -> Option<Vec<f64>> {
     chart.layers.iter().find_map(|l| match &l.encoding {
@@ -1125,6 +1164,53 @@ pub fn first(layer: &LayerData, column: &str) -> Option<Cell> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn stacked_category_bars_end_with_their_total() {
+        use crate::model::SeriesType;
+        let series = |kind: SeriesType, values: Vec<Option<f64>>| super::XySeries {
+            label: "s".into(),
+            kind,
+            values,
+            format: None,
+            style: super::Style::Normal,
+        };
+        let mut xy = super::Xy {
+            x: super::XAxis::Category(vec!["a".into()]),
+            series: vec![
+                series(SeriesType::BarHorizontalStacked, vec![Some(2306.0)]),
+                series(SeriesType::BarHorizontalStacked, vec![Some(579.0)]),
+                series(SeriesType::BarHorizontalStacked, vec![None]),
+            ],
+            thresholds: vec![],
+            low_sample: vec![],
+            band: None,
+            log_scale: false,
+            reference_lines: vec![],
+            bin_ends: vec![],
+            x_format: None,
+            annotations: vec![],
+            interpolation: Default::default(),
+            span_gaps: true,
+            y_range: None,
+        };
+        assert_eq!(super::category_end_value(&xy, 0).as_deref(), Some("2,885"));
+        for s in &mut xy.series {
+            s.kind = SeriesType::BarHorizontal;
+        }
+        assert_eq!(super::category_end_value(&xy, 0), None, "grouped bars");
+        xy.series.truncate(1);
+        assert_eq!(super::category_end_value(&xy, 0).as_deref(), Some("2,306"));
+    }
+
+    #[test]
+    fn isolated_values_are_the_ones_no_line_reaches() {
+        let v = [None, Some(1.0), None, Some(2.0), Some(3.0), None, Some(4.0)];
+        assert_eq!(super::isolated(&v, false), [1, 6]);
+        assert!(super::isolated(&v, true).is_empty());
+        assert_eq!(super::isolated(&[None, Some(0.2), None], true), [1]);
+        assert!(super::isolated(&[None, None], false).is_empty());
+    }
+
     use super::*;
     use crate::model::{Column, DataView, Interval, Layer, Series, TermsOrder};
 

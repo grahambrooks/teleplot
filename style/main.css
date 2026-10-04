@@ -338,6 +338,10 @@ a { color: inherit; text-decoration: none; }
 .data-table tr:hover td { background: var(--secondary); }
 
 /* bars over categories */
+.cat-wrap { height: 100%; display: flex; flex-direction: column; gap: 4px; }
+.cat-wrap > .cat-chart { flex: 1; min-height: 0; }
+.cat-key { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--text-muted); }
+.cat-key-item { display: inline-flex; align-items: center; gap: 4px; }
 .cat-chart { height: 100%; overflow: auto; font-size: 12px; }
 .cat-chart.horizontal { display: flex; flex-direction: column; justify-content: center; gap: 6px; }
 .cat-chart.horizontal .cat-row { display: grid; grid-template-columns: minmax(60px, 30%) 1fr auto; align-items: center; gap: 8px; }
@@ -533,9 +537,20 @@ html.printing .panel { break-inside: avoid; }
 .treemap-key { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0; padding: 0; list-style: none; font-size: 12px; }
 .treemap-key li { display: flex; align-items: center; gap: 4px; }
 .treemap-key .legend-value { color: var(--text-muted); }
-.treemap-svg { width: 100%; flex: 1; min-height: 0; }
-.treemap-label { font-size: 9px; fill: #111; }
-.treemap-value { font-size: 8px; fill: #111; opacity: 0.75; }
+.treemap-area { position: relative; flex: 1; min-height: 0; }
+.treemap-cell {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid var(--panel);
+  padding: 3px 5px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  color: #111;
+  line-height: 1.25;
+}
+.treemap-label { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.treemap-value { font-size: 11px; opacity: 0.75; }
 .calendar { height: 100%; display: flex; flex-direction: column; gap: 4px; overflow: auto; }
 .calendar-svg { width: 100%; max-height: calc(100% - 20px); }
 .calendar-label { font-size: 8px; fill: var(--text-muted); }

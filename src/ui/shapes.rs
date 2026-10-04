@@ -125,7 +125,7 @@ pub fn GaugeChart(chart: Chart, data: PanelData) -> impl IntoView {
             };
             let goal_tick = goal.map(|g| {
                 let x = share(g) * 100.0;
-                view! { <line x1=x x2=x y1=4 y2=26 stroke="var(--text)" stroke-width=1.5></line> }
+                view! { <line x1=x x2=x y1=4 y2=26 stroke="var(--text)" stroke-width=1.5 vector-effect="non-scaling-stroke"></line> }
             });
             let transform = vertical.then_some("rotate(-90 50 50) translate(0 35)");
             view! {
@@ -335,14 +335,22 @@ pub fn TreemapChart(chart: Chart, data: PanelData) -> impl IntoView {
                     let title = format!("{label}: {} ({:.1}%)", format::value(value, format.as_ref()), value / total * 100.0);
                     let short = label.rsplit(" › ").next().unwrap_or(&label).to_string();
                     let show = w > 40.0 && h > 18.0;
+                    // HTML boxes placed in percentages fill any panel shape
+                    // without stretching their text, as an SVG would.
+                    let style = format!(
+                        "left:{:.3}%;top:{:.3}%;width:{:.3}%;height:{:.3}%;background:{color}",
+                        x / width * 100.0,
+                        y / height * 100.0,
+                        w / width * 100.0,
+                        h / height * 100.0
+                    );
                     view! {
-                        <g>
-                            <rect x=x y=y width=w height=h fill=color stroke="var(--panel)" stroke-width=1.5><title>{title}</title></rect>
+                        <div class="treemap-cell" style=style title=title>
                             {show.then(|| view! {
-                                <text x=x + 4.0 y=y + 12.0 class="treemap-label">{short}</text>
-                                <text x=x + 4.0 y=y + 24.0 class="treemap-value">{format!("{:.1}%", value / total * 100.0)}</text>
+                                <span class="treemap-label">{short}</span>
+                                <span class="treemap-value">{format!("{:.1}%", value / total * 100.0)}</span>
                             })}
-                        </g>
+                        </div>
                     }
                 })
                 .collect::<Vec<_>>()
@@ -367,7 +375,7 @@ pub fn TreemapChart(chart: Chart, data: PanelData) -> impl IntoView {
     view! {
         <div class="treemap">
             {key.map(|key| view! { <ul class="treemap-key">{key}</ul> })}
-            <svg viewBox=format!("0 0 {width} {height}") class="treemap-svg" preserveAspectRatio="none">{cells}</svg>
+            <div class="treemap-area">{cells}</div>
         </div>
     }
     .into_any()
@@ -531,7 +539,12 @@ pub fn CalendarChart(
                 {rows}
                 {squares}
             </svg>
-            <div class="muted small">{format!("{label}: darker is more, up to {}", format::value(max, format.as_ref()))}</div>
+            <div class="muted small">{format!(
+                "{label}: {} is more, up to {}",
+                // The ramp runs towards the contrast colour: dark on light, light on dark.
+                if dark { "brighter" } else { "darker" },
+                format::value(max, format.as_ref())
+            )}</div>
         </div>
     }
     .into_any()
