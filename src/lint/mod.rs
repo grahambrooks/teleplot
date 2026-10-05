@@ -453,10 +453,16 @@ fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Probl
                 format!("encoding does not suit a {:?} chart", chart.kind),
             ));
         }
-        if matches!(layer.encoding, Encoding::Scatter { .. }) && layer.documents.is_none() {
+        // One point per row: documents, or the rows an insight or ES|QL
+        // query returns.
+        if matches!(layer.encoding, Encoding::Scatter { .. })
+            && layer.documents.is_none()
+            && layer.insight.is_none()
+            && layer.esql.is_none()
+        {
             problems.push(Problem::error(
                 format!("{at}.encoding"),
-                "scatter charts need a document layer",
+                "scatter charts need a document, insight or ES|QL layer",
             ));
         }
         if let Encoding::Table {

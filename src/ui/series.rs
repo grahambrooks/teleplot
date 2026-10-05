@@ -877,20 +877,36 @@ pub fn scatter(chart: &Chart, data: &PanelData) -> Xy {
         trend,
         log_scale,
         percentiles,
+        series_styles,
     } = &layer.encoding
     else {
         return empty();
     };
-    let xs: Vec<f64> = numbers(d, x)
+    // Points in x order: uPlot draws an x axis that only ascends, and query
+    // rows (unlike documents sorted by time) come in any order.
+    let raw_xs = numbers(d, x);
+    let mut order: Vec<usize> = (0..raw_xs.len()).collect();
+    order.sort_by(|&a, &b| {
+        raw_xs[a]
+            .unwrap_or_default()
+            .total_cmp(&raw_xs[b].unwrap_or_default())
+    });
+    let permute = |v: Vec<Option<f64>>| -> Vec<Option<f64>> {
+        order.iter().map(|&i| v.get(i).copied().flatten()).collect()
+    };
+    let xs: Vec<f64> = permute(raw_xs.clone())
         .into_iter()
         .map(|v| v.unwrap_or_default())
         .collect();
-    let ys = numbers(d, y);
+    let ys = permute(numbers(d, y));
     let y_column = layer.column(y);
     let format = y_column.and_then(|c| c.display_format());
     let mut series: Vec<XySeries> = Vec::new();
     let groups: Vec<String> = match split.as_deref().and_then(|s| d.series(s)) {
-        Some(s) => s.values.iter().map(cell_text).collect(),
+        Some(s) => order
+            .iter()
+            .map(|&i| s.values.get(i).map(cell_text).unwrap_or_default())
+            .collect(),
         None => vec![label(y_column, y); xs.len()],
     };
     for (i, group) in groups.iter().enumerate() {
@@ -910,11 +926,18 @@ pub fn scatter(chart: &Chart, data: &PanelData) -> Xy {
         };
         series[index].values[i] = ys[i];
     }
+    style_series(
+        &mut series,
+        &crate::model::XyOptions {
+            series_styles: series_styles.clone(),
+            ..Default::default()
+        },
+    );
     if let Some(t) = trend {
         series.push(XySeries {
             label: label(layer.column(t), t),
             kind: SeriesType::Line,
-            values: numbers(d, t),
+            values: permute(numbers(d, t)),
             format: format.clone(),
             style: Style::Normal,
             color: SeriesColor::Auto,
@@ -1672,6 +1695,73 @@ mod tests {
         );
         assert_eq!(percentile(&[], 50.0), None);
         assert_eq!(percentile(&values, 0.0), None);
+    }
+
+    #[test]
+    fn scatter_points_follow_x_order_with_their_groups() {
+        let mut c = chart(false);
+        let layer = &mut c.layers[0];
+        layer.columns = vec![
+            col(
+                "x",
+                Operation::Value {
+                    field: "churn".into(),
+                },
+            ),
+            col(
+                "y",
+                Operation::Value {
+                    field: "fan_in".into(),
+                },
+            ),
+            col(
+                "g",
+                Operation::Value {
+                    field: "repo".into(),
+                },
+            ),
+        ];
+        layer.encoding = Encoding::Scatter {
+            x: "x".into(),
+            y: "y".into(),
+            split: Some("g".into()),
+            trend: None,
+            log_scale: false,
+            percentiles: vec![],
+            series_styles: [(
+                "b".to_string(),
+                crate::model::SeriesStyle {
+                    label: Some("Bee".into()),
+                    color: Some("critical".into()),
+                },
+            )]
+            .into(),
+        };
+        let d = data(vec![
+            (
+                "x",
+                vec![Cell::Number(9.0), Cell::Number(1.0), Cell::Number(5.0)],
+            ),
+            (
+                "y",
+                vec![Cell::Number(90.0), Cell::Number(10.0), Cell::Number(50.0)],
+            ),
+            (
+                "g",
+                vec![
+                    Cell::Text("a".into()),
+                    Cell::Text("b".into()),
+                    Cell::Text("a".into()),
+                ],
+            ),
+        ]);
+        let xy = super::scatter(&c, &d);
+        assert_eq!(xy.x, super::XAxis::Numeric(vec![1.0, 5.0, 9.0]));
+        let a = xy.series.iter().find(|s| s.label == "a").unwrap();
+        let b = xy.series.iter().find(|s| s.label == "Bee").unwrap();
+        assert_eq!(b.color.resolve(0, true), "#d03b3b", "styled like xy series");
+        assert_eq!(a.values, [None, Some(50.0), Some(90.0)]);
+        assert_eq!(b.values, [Some(10.0), None, None]);
     }
 
     fn heatmap_chart(y_op: Operation) -> Chart {

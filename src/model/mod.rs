@@ -530,6 +530,9 @@ pub enum Encoding {
         /// level expectations. Computed over the points shown (nearest rank).
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         percentiles: Vec<f64>,
+        /// Per `split` value: a display label and a colour, as on `xy`.
+        #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+        series_styles: std::collections::BTreeMap<String, SeriesStyle>,
     },
     /// Cells coloured by `value`, `x` buckets across and `y` buckets up, e.g.
     /// PR cycle time (log buckets) per week.
