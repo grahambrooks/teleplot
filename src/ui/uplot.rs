@@ -114,7 +114,6 @@ fn format_key(f: Option<&Format>) -> (Option<FormatKind>, Option<String>) {
 
 /// Draws `xy` (time or numeric x axis) into `target`.
 pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
-    let palette = theme::palette();
     let colors = theme::chart_colors();
     let (xs, is_time) = match &xy.x {
         XAxis::Time(v) => (v.clone(), true),
@@ -160,7 +159,8 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
         }
         data.push(&values);
 
-        let color = palette[i % palette.len()];
+        let color = s.color.resolve(i, options.dark);
+        let color = color.as_str();
         let spec = obj(&[
             ("label", s.label.clone().into()),
             ("stroke", color.into()),
@@ -300,11 +300,15 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
         });
         Callback::new(
             move |_u: JsValue, splits: JsValue, _a: JsValue, _b: JsValue| {
+                let splits = Array::from(&splits);
+                let values: Vec<f64> = splits.iter().filter_map(|v| v.as_f64()).collect();
+                let mut texts = format::ticks(&values, fmt.as_ref()).into_iter();
                 let out = Array::new();
-                for v in Array::from(&splits).iter() {
-                    let text = v
-                        .as_f64()
-                        .map_or(String::new(), |v| format::value(v, fmt.as_ref()));
+                for v in splits.iter() {
+                    let text = match v.as_f64() {
+                        Some(_) => texts.next().unwrap_or_default(),
+                        None => String::new(),
+                    };
                     out.push(&JsValue::from_str(&text));
                 }
                 out.into()
@@ -338,6 +342,30 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
         }
         a
     };
+    // A value axis as wide as its longest label: a fixed width cut
+    // "1,000 lines" to "000 lines".
+    let axis_size = Callback::new(
+        move |_u: JsValue, values: JsValue, _axis: JsValue, _cycle: JsValue| {
+            // uPlot asks before it has ticks, passing null.
+            if !Array::is_array(&values) {
+                return JsValue::from_f64(50.0);
+            }
+            let longest = Array::from(&values)
+                .iter()
+                .filter_map(|v| v.as_string())
+                .map(|t| t.chars().count())
+                .max()
+                .unwrap_or(0);
+            // About 7 px a character at the axis font, plus tick and gap.
+            JsValue::from_f64((longest as f64 * 7.0 + 18.0).max(40.0))
+        },
+    );
+    let size_fn: JsValue = axis_size
+        .as_ref()
+        .unchecked_ref::<Function>()
+        .clone()
+        .into();
+    callbacks.push(axis_size);
     let left_ticks = tick_formatter(left_format);
     let x_axis = axis(&[]);
     if bins {
@@ -357,7 +385,7 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
                     .clone()
                     .into(),
             ),
-            ("size", 64.into()),
+            ("size", size_fn.clone()),
         ])
         .into(),
     );
@@ -376,7 +404,7 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
                     .clone()
                     .into(),
             ),
-            ("size", 64.into()),
+            ("size", size_fn.clone()),
         ]));
         callbacks.push(right_ticks);
     }
@@ -453,7 +481,7 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
     if let Some((low, high)) = xy.band
         && let (Some(lo), Some(hi)) = (uplot_index(low), uplot_index(high))
     {
-        let color = palette[low % palette.len()];
+        let color = xy.series[low].color.resolve(low, options.dark);
         bands.push(&obj(&[
             ("series", Array::of2(&hi.into(), &lo.into()).into()),
             ("fill", format!("{color}30").into()),

@@ -546,6 +546,7 @@ fn xy_options(vis: &Value, warnings: &mut Vec<String>) -> XyOptions {
         missing,
         legend_stats,
         facet: None,
+        ..Default::default()
     }
 }
 

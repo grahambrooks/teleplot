@@ -397,6 +397,47 @@ encoding:
 - **`legend_stats`**: `average`, `median`, `min`, `max`, `range`, `first`, `last`, `total`, `count`, `difference`, `difference_percent` or `std_deviation`, over the series' non-empty values. They are added to the series' legend label, so they also appear in PNG exports. Lens 9.4+ `legendStats` convert.
 - **`facet`** names a terms column. The panel draws one chart per value, in a grid, all on the same y range, so the charts compare at a glance. With one series, each chart's title carries its legend statistics. Dashboard annotations aren't drawn on facets, because they aren't split by facet.
 
+### Series colours and labels
+
+Colour does one job per chart. Pick it by what the series are:
+
+```yaml
+encoding:
+  as: xy
+  series: bar_percentage_stacked
+  x: week
+  y: [n]
+  split: result
+  colors: stable                  # categorical (default), stable or ordinal
+  series_styles:                  # by series name: a split value or a column label
+    success: { label: Succeeded, color: good }
+    failure: { label: Failed, color: critical }
+    cancelled: { label: Cancelled, color: neutral }
+```
+
+- **`categorical`** (the default) gives series the palette's slots in order.
+  Use it when the series are the subject and only appear together on this chart.
+- **`stable`** keeps a series name on the same slot on every chart, e.g. each repository.
+  The slot comes from a hash of the name; a clash on one chart moves to the next free slot.
+- **`ordinal`** colours ordered classes on one hue, light to dark: size bands, age bands, tiers.
+  Series are sorted by name, with leading numbers compared as numbers, so name the classes
+  `1 under 100`, `2 100-299`, ….
+- **`series_styles`** relabel a series (e.g. `"true"` → `Automation`) and set its colour.
+  A colour can be:
+  - a hex code;
+  - a status: `good`, `warning`, `serious` or `critical`, reserved for state such as a CI
+    result or an alert's severity;
+  - `neutral`, for context;
+  - `accent`, for the one series the chart is about (emphasis).
+
+  Quote `"true"` and `"false"` as keys.
+
+The categorical palette and the ordinal ramp pass the dataviz checks against both themes'
+panel surfaces. Those checks cover lightness, chroma, colour-blind separation, normal-vision
+separation and contrast. Grafana's classic palette, used before, failed three of them in the
+dark theme. Past eight series, colours repeat, so fold the tail or use small multiples
+(`facet`) instead.
+
 ### Gauges
 
 ```yaml

@@ -34,7 +34,7 @@ panels:
             - { id: week, label: Week, op: value, field: t }
             - { id: repo, label: Repository, op: value, field: repo }
             - { id: n, label: Merged, op: value, field: n }
-          encoding: { as: xy, series: bar_stacked, x: week, y: [n], split: repo }
+          encoding: { as: xy, series: bar_stacked, x: week, y: [n], split: repo, colors: stable }
 
   - id: pr-cycle
     title: Pull request cycle time, people's PRs
@@ -81,7 +81,7 @@ panels:
             - { id: week, label: Week, op: value, field: t }
             - { id: bot, label: Opened by a bot, op: value, field: is_bot }
             - { id: n, label: Merged, op: value, field: n }
-          encoding: { as: xy, series: bar_stacked, x: week, y: [n], split: bot }
+          encoding: { as: xy, series: bar_stacked, x: week, y: [n], split: bot, series_styles: { "false": { label: People, color: accent }, "true": { label: Automation, color: neutral } } }
 
   - id: commits
     title: Commits per week, people and automation
@@ -100,7 +100,7 @@ panels:
             - { id: week, label: Week, op: value, field: t }
             - { id: bot, label: Committed by a bot, op: value, field: is_bot }
             - { id: n, label: Commits, op: value, field: n }
-          encoding: { as: xy, series: bar_stacked, x: week, y: [n], split: bot }
+          encoding: { as: xy, series: bar_stacked, x: week, y: [n], split: bot, series_styles: { "false": { label: People, color: accent }, "true": { label: Automation, color: neutral } } }
 
   # ── CI and releases ───────────────────────────────────────────────────
   - id: build-results
@@ -122,7 +122,7 @@ panels:
             - { id: week, label: Week, op: value, field: t }
             - { id: result, label: Result, op: value, field: result }
             - { id: n, label: Runs, op: value, field: n }
-          encoding: { as: xy, series: bar_percentage_stacked, x: week, y: [n], split: result }
+          encoding: { as: xy, series: bar_percentage_stacked, x: week, y: [n], split: result, series_styles: { success: { label: Succeeded, color: good }, failure: { label: Failed, color: critical }, timed_out: { label: Timed out, color: serious }, startup_failure: { label: Startup failure, color: critical }, action_required: { label: Action required, color: warning }, cancelled: { label: Cancelled, color: neutral }, skipped: { label: Skipped, color: neutral } } }
 
   - id: build-duration
     title: CI run duration, successful runs
@@ -169,7 +169,7 @@ panels:
             - { id: week, label: Week, op: value, field: t }
             - { id: repo, label: Repository, op: value, field: repo }
             - { id: n, label: Releases, op: value, field: n }
-          encoding: { as: xy, series: bar_stacked, x: week, y: [n], split: repo }
+          encoding: { as: xy, series: bar_stacked, x: week, y: [n], split: repo, colors: stable }
 
   # ── Security ──────────────────────────────────────────────────────────
   - id: security
@@ -190,7 +190,7 @@ panels:
             - { id: week, label: Week, op: value, field: t }
             - { id: severity, label: Severity, op: value, field: severity }
             - { id: n, label: Alerts, op: value, field: n }
-          encoding: { as: xy, series: bar_stacked, x: week, y: [n], split: severity }
+          encoding: { as: xy, series: bar_stacked, x: week, y: [n], split: severity, series_styles: { critical: { label: Critical, color: critical }, high: { label: High, color: serious }, medium: { label: Medium, color: warning }, low: { label: Low, color: neutral } } }
 
   - id: open-alerts
     title: Open security alerts by repository
@@ -233,7 +233,7 @@ panels:
             - { id: week, label: Week, op: value, field: t }
             - { id: repo, label: Repository, op: value, field: repo }
             - { id: lines, label: AI lines accepted (total), op: value, field: lines }
-          encoding: { as: xy, series: area_stacked, x: week, y: [lines], split: repo }
+          encoding: { as: xy, series: area_stacked, x: week, y: [lines], split: repo, colors: stable }
 
   # ── Changeability ─────────────────────────────────────────────────────
   - id: duplication

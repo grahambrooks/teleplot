@@ -73,7 +73,7 @@ panels:
             - { id: repo, label: Repository, op: value, field: repo }
             - { id: band, label: Lines per file, op: value, field: size_band }
             - { id: n, label: Files, op: value, field: n }
-          encoding: { as: xy, series: bar_percentage_stacked, x: repo, y: [n], split: band }
+          encoding: { as: xy, series: bar_percentage_stacked, x: repo, y: [n], split: band, colors: ordinal }
 
   - id: language-table
     title: Languages
@@ -126,7 +126,7 @@ panels:
             - { id: repo, label: Repository, op: value, field: repo }
             - { id: band, label: Contributors, op: value, field: contributors_band }
             - { id: n, label: Files, op: value, field: n }
-          encoding: { as: xy, series: bar_percentage_stacked, x: repo, y: [n], split: band }
+          encoding: { as: xy, series: bar_percentage_stacked, x: repo, y: [n], split: band, colors: ordinal }
 
   - id: staleness
     title: Time since files last changed
@@ -145,7 +145,7 @@ panels:
             - { id: repo, label: Repository, op: value, field: repo }
             - { id: band, label: Last changed, op: value, field: age_band }
             - { id: n, label: Files, op: value, field: n }
-          encoding: { as: xy, series: bar_percentage_stacked, x: repo, y: [n], split: band }
+          encoding: { as: xy, series: bar_percentage_stacked, x: repo, y: [n], split: band, colors: ordinal }
 
   - id: ownership-table
     title: Ownership by repository

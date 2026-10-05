@@ -25,6 +25,44 @@ pub fn value(v: f64, format: Option<&Format>) -> String {
     }
 }
 
+/// Axis tick labels in the column's format, with more decimals when it would
+/// print two ticks the same: over a narrow range such as 11.50%–11.54%, one
+/// decimal labels every tick "11.5%".
+pub fn ticks(values: &[f64], format: Option<&Format>) -> Vec<String> {
+    let render = |f: Option<&Format>| values.iter().map(|v| value(*v, f)).collect::<Vec<_>>();
+    let distinct = |t: &[String]| {
+        let mut sorted = t.to_vec();
+        sorted.sort();
+        sorted.dedup();
+        sorted.len() == t.len()
+    };
+    let first = render(format);
+    let Some(base) = format else {
+        return first;
+    };
+    if distinct(&first) || base.compact || base.kind == FormatKind::Bytes {
+        return first;
+    }
+    let start = base
+        .decimals
+        .unwrap_or(if base.kind == FormatKind::Percent {
+            1
+        } else {
+            0
+        });
+    for decimals in start + 1..=start + 4 {
+        let f = Format {
+            decimals: Some(decimals),
+            ..base.clone()
+        };
+        let t = render(Some(&f));
+        if distinct(&t) {
+            return t;
+        }
+    }
+    first
+}
+
 /// Kibana's default number format: up to three decimals, thousands grouped.
 pub fn plain(v: f64) -> String {
     if !v.is_finite() {
@@ -113,6 +151,37 @@ pub fn change(current: f64, previous: f64) -> Option<f64> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn ticks_gain_decimals_until_they_differ() {
+        let percent = Format {
+            kind: FormatKind::Percent,
+            decimals: Some(1),
+            suffix: None,
+            compact: false,
+        };
+        let narrow = [0.1150, 0.1151, 0.1152, 0.1153];
+        assert_eq!(
+            super::ticks(&narrow, Some(&percent)),
+            ["11.50%", "11.51%", "11.52%", "11.53%"]
+        );
+        let wide = [0.0, 0.1, 0.2];
+        assert_eq!(
+            super::ticks(&wide, Some(&percent)),
+            ["0.0%", "10.0%", "20.0%"],
+            "unchanged when distinct"
+        );
+        let lines = Format {
+            kind: FormatKind::Number,
+            decimals: Some(0),
+            suffix: Some(" lines".into()),
+            compact: false,
+        };
+        assert_eq!(
+            super::ticks(&[0.0, 0.5, 1.0], Some(&lines)),
+            ["0.0 lines", "0.5 lines", "1.0 lines"]
+        );
+    }
+
     use super::*;
 
     fn fmt(kind: FormatKind) -> Format {

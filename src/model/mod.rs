@@ -556,6 +556,38 @@ pub struct XyOptions {
     /// A terms column: one small chart per value, on a shared y scale.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub facet: Option<String>,
+    /// How series are coloured: `categorical` (the default: palette slots
+    /// in order), `stable` (each series name keeps its slot on every chart,
+    /// e.g. a repository) or `ordinal` (a one-hue ramp, light to dark, for
+    /// ordered classes such as size bands; series are sorted by name).
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub colors: SeriesColors,
+    /// Per series, by its name (a split value or a column's label): a
+    /// display label and a colour: a hex code, a status name (`good`,
+    /// `warning`, `serious`, `critical`), `neutral` for context, or `accent`
+    /// for the one series a chart is about.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub series_styles: std::collections::BTreeMap<String, SeriesStyle>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum SeriesColors {
+    #[default]
+    Categorical,
+    Stable,
+    Ordinal,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct SeriesStyle {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]

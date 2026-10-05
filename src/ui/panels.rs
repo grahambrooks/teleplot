@@ -967,7 +967,7 @@ fn CategoryBars(xy: series::Xy, drill_field: Option<String>, ctx: PanelContext) 
     let stacked = xy.series.iter().any(|s| s.kind.is_stacked());
     let drawn = series::stacked(&xy);
     let sizes = series::segments(&xy);
-    let colors = palette();
+    let dark = crate::ui::theme::is_dark();
     let max = (0..labels.len())
         .map(|i| {
             if stacked {
@@ -1009,7 +1009,7 @@ fn CategoryBars(xy: series::Xy, drill_field: Option<String>, ctx: PanelContext) 
                     // With benchmark bands, a bar takes the colour of the band its value is in.
                     let color = threshold_for(&xy.thresholds, v)
                         .map(|(i, t)| threshold_color(t, i))
-                        .unwrap_or_else(|| colors[s % colors.len()].to_string());
+                        .unwrap_or_else(|| series.color.resolve(s, dark));
                     let style = format!("{dim}:{size:.2}%;background:{color}");
                     let title = format!(
                         "{}: {}",
@@ -1087,7 +1087,7 @@ fn CategoryBars(xy: series::Xy, drill_field: Option<String>, ctx: PanelContext) 
             .iter()
             .enumerate()
             .map(|(s, series)| {
-                let style = format!("background:{}", colors[s % colors.len()]);
+                let style = format!("background:{}", series.color.resolve(s, dark));
                 view! { <span class="cat-key-item"><span class="swatch" style=style></span>{series.label.clone()}</span> }
             })
             .collect_view()

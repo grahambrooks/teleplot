@@ -74,6 +74,106 @@ pub struct XySeries {
     pub values: Vec<Option<f64>>,
     pub format: Option<Format>,
     pub style: Style,
+    pub color: SeriesColor,
+}
+
+/// A series' colour, resolved against the theme when it is drawn.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum SeriesColor {
+    /// The categorical slot of the series' position.
+    #[default]
+    Auto,
+    /// A fixed categorical slot.
+    Slot(usize),
+    /// Class `.0` of `.1` ordered classes, on the one-hue ramp.
+    Ordinal(usize, usize),
+    /// A CSS colour, or a status colour already resolved.
+    Css(String),
+}
+
+impl SeriesColor {
+    /// The colour of the series at `position`.
+    pub fn resolve(&self, position: usize, dark: bool) -> String {
+        let palette = crate::ui::theme::categorical(dark);
+        match self {
+            SeriesColor::Auto => palette[position % palette.len()].to_string(),
+            SeriesColor::Slot(slot) => palette[slot % palette.len()].to_string(),
+            SeriesColor::Ordinal(i, n) => crate::ui::theme::ordinal(*i, *n, dark).to_string(),
+            SeriesColor::Css(css) => css.clone(),
+        }
+    }
+}
+
+/// Colours and display labels from the encoding's `colors` and
+/// `series_styles`. Ordinal series are sorted by name first, so their
+/// classes (and stacking) run in order.
+pub fn style_series(series: &mut [XySeries], options: &crate::model::XyOptions) {
+    use crate::model::SeriesColors;
+    match options.colors {
+        SeriesColors::Categorical => {}
+        SeriesColors::Ordinal => {
+            series.sort_by(|a, b| natural_cmp(&a.label, &b.label));
+            let n = series.len();
+            for (i, s) in series.iter_mut().enumerate() {
+                s.color = SeriesColor::Ordinal(i, n);
+            }
+        }
+        SeriesColors::Stable => {
+            // Each name hashes to a slot; a clash on one chart takes the next
+            // free slot, so two series never share a colour while slots last.
+            let slots = crate::ui::theme::CATEGORICAL_DARK.len();
+            let mut used = vec![false; slots];
+            for s in series.iter_mut() {
+                let mut slot = stable_slot(&s.label, slots);
+                if used.iter().all(|u| *u) {
+                    used.fill(false);
+                }
+                while used[slot] {
+                    slot = (slot + 1) % slots;
+                }
+                used[slot] = true;
+                s.color = SeriesColor::Slot(slot);
+            }
+        }
+    }
+    for s in series.iter_mut() {
+        if let Some(style) = options.series_styles.get(&s.label) {
+            if let Some(color) = &style.color {
+                s.color = match color.as_str() {
+                    // The emphasis form: one series in the first slot's hue,
+                    // the rest as context (`neutral`).
+                    "accent" => SeriesColor::Slot(0),
+                    _ => SeriesColor::Css(
+                        crate::ui::theme::status(color)
+                            .map(str::to_string)
+                            .unwrap_or_else(|| color.clone()),
+                    ),
+                };
+            }
+            if let Some(label) = &style.label {
+                s.label = label.clone();
+            }
+        }
+    }
+}
+
+/// FNV-1a: the same name gets the same slot in every browser and release.
+fn stable_slot(name: &str, slots: usize) -> usize {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in name.bytes() {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    (h % slots as u64) as usize
+}
+
+/// Compares names with their digits as numbers: "2 x" before "10 x".
+fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    let key = |s: &str| {
+        let digits: String = s.chars().take_while(|c| c.is_ascii_digit()).collect();
+        (digits.parse::<u64>().unwrap_or(u64::MAX), s.to_string())
+    };
+    key(a).cmp(&key(b))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -224,6 +324,7 @@ pub fn xy(chart: &Chart, data: &PanelData, min_samples: Option<u32>) -> Xy {
                             values: Vec::new(),
                             format: format.clone(),
                             style: Style::Normal,
+                            color: SeriesColor::Auto,
                         });
                         series.len() - 1
                     }
@@ -312,6 +413,7 @@ pub fn xy(chart: &Chart, data: &PanelData, min_samples: Option<u32>) -> Xy {
             _ => None,
         })
         .unwrap_or_default();
+    style_series(&mut series, &options);
     for s in &mut series {
         let stats: Vec<String> = options
             .legend_stats
@@ -719,6 +821,7 @@ pub fn band(chart: &Chart, data: &PanelData, min_samples: Option<u32>) -> Xy {
             values: numbers(d, id),
             format: column.and_then(|c| c.display_format()),
             style,
+            color: SeriesColor::Auto,
         }
     };
     let low_sample = match min_samples {
@@ -791,6 +894,7 @@ pub fn scatter(chart: &Chart, data: &PanelData) -> Xy {
                     values: vec![None; xs.len()],
                     format: format.clone(),
                     style: Style::Points,
+                    color: SeriesColor::Auto,
                 });
                 series.len() - 1
             }
@@ -804,6 +908,7 @@ pub fn scatter(chart: &Chart, data: &PanelData) -> Xy {
             values: numbers(d, t),
             format: format.clone(),
             style: Style::Normal,
+            color: SeriesColor::Auto,
         });
     }
     let time = matches!(layer.column(x).map(|c| &c.op), Some(Operation::Value { field }) if layer.data_view.time_field.as_ref() == Some(field));
@@ -1190,6 +1295,127 @@ pub fn first(layer: &LayerData, column: &str) -> Option<Cell> {
 
 #[cfg(test)]
 mod tests {
+    fn named(labels: &[&str]) -> Vec<super::XySeries> {
+        labels
+            .iter()
+            .map(|l| super::XySeries {
+                label: l.to_string(),
+                kind: crate::model::SeriesType::Bar,
+                values: vec![],
+                format: None,
+                style: super::Style::Normal,
+                color: super::SeriesColor::Auto,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn ordinal_series_sort_by_class_and_take_the_ramp() {
+        use crate::model::{SeriesColors, XyOptions};
+        let mut series = named(&["3 300-999", "10 huge", "1 under 100", "2 100-299"]);
+        let options = XyOptions {
+            colors: SeriesColors::Ordinal,
+            ..Default::default()
+        };
+        super::style_series(&mut series, &options);
+        let labels: Vec<_> = series.iter().map(|s| s.label.as_str()).collect();
+        assert_eq!(labels, ["1 under 100", "2 100-299", "3 300-999", "10 huge"]);
+        let light: Vec<_> = series
+            .iter()
+            .enumerate()
+            .map(|(i, s)| s.color.resolve(i, false))
+            .collect();
+        assert_eq!(
+            light.first().map(String::as_str),
+            Some("#86b6ef"),
+            "lightest first"
+        );
+        assert_eq!(
+            light.last().map(String::as_str),
+            Some("#184f95"),
+            "darkest last"
+        );
+        let dark: Vec<_> = series
+            .iter()
+            .enumerate()
+            .map(|(i, s)| s.color.resolve(i, true))
+            .collect();
+        assert_eq!(
+            dark.first(),
+            light.last(),
+            "the first class recedes on the dark theme too"
+        );
+    }
+
+    #[test]
+    fn stable_colours_follow_the_name_not_the_position() {
+        use crate::model::{SeriesColors, XyOptions};
+        let options = XyOptions {
+            colors: SeriesColors::Stable,
+            ..Default::default()
+        };
+        let colour_of = |labels: &[&str], name: &str| {
+            let mut series = named(labels);
+            super::style_series(&mut series, &options);
+            let (i, s) = series
+                .iter()
+                .enumerate()
+                .find(|(_, s)| s.label == name)
+                .unwrap();
+            s.color.resolve(i, true)
+        };
+        let alone = colour_of(&["o/insight"], "o/insight");
+        assert_eq!(
+            colour_of(&["o/brake", "o/mimeo", "o/insight"], "o/insight"),
+            alone
+        );
+        let mut eight = named(&["a", "b", "c", "d", "e", "f", "g", "h"]);
+        super::style_series(&mut eight, &options);
+        let mut colours: Vec<_> = eight
+            .iter()
+            .enumerate()
+            .map(|(i, s)| s.color.resolve(i, true))
+            .collect();
+        colours.sort();
+        colours.dedup();
+        assert_eq!(
+            colours.len(),
+            8,
+            "no two series share a colour while slots last"
+        );
+    }
+
+    #[test]
+    fn series_styles_relabel_and_take_status_colours() {
+        use crate::model::{SeriesStyle, XyOptions};
+        let mut options = XyOptions::default();
+        options.series_styles.insert(
+            "failure".into(),
+            SeriesStyle {
+                label: Some("Failed".into()),
+                color: Some("critical".into()),
+            },
+        );
+        options.series_styles.insert(
+            "true".into(),
+            SeriesStyle {
+                label: Some("Automation".into()),
+                color: Some("#123456".into()),
+            },
+        );
+        let mut series = named(&["success", "failure", "true"]);
+        super::style_series(&mut series, &options);
+        assert_eq!(series[1].label, "Failed");
+        assert_eq!(series[1].color.resolve(1, true), "#d03b3b");
+        assert_eq!(series[2].label, "Automation");
+        assert_eq!(series[2].color.resolve(2, false), "#123456");
+        assert_eq!(
+            series[0].color,
+            super::SeriesColor::Auto,
+            "unstyled series keep their slot"
+        );
+    }
+
     #[test]
     fn stacked_segments_are_sized_by_value_or_share() {
         use crate::model::SeriesType;
@@ -1207,6 +1433,7 @@ mod tests {
                 values,
                 format: None,
                 style: super::Style::Normal,
+                color: SeriesColor::Auto,
             })
             .collect(),
             thresholds: vec![],
@@ -1257,6 +1484,7 @@ mod tests {
             values,
             format: None,
             style: super::Style::Normal,
+            color: SeriesColor::Auto,
         };
         let mut xy = super::Xy {
             x: super::XAxis::Category(vec!["a".into()]),
