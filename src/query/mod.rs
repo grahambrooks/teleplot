@@ -1442,14 +1442,18 @@ fn shorten_columns(layer: &Layer, data: &mut LayerData) {
 }
 
 fn shorten_values(values: &mut [Cell]) {
-    let owner = |c: &Cell| match c {
-        Cell::Text(t) => t.split_once('/').map(|(o, _)| o.to_string()),
-        _ => None,
-    };
+    // A list value (e.g. the repositories a duplicate set spans) arrives as
+    // one comma-joined text; each item is shortened.
+    const SEP: &str = ", ";
+    let owner = |item: &str| item.split_once('/').map(|(o, _)| o.to_string());
     let mut owners = values
         .iter()
-        .filter(|c| !matches!(c, Cell::Null))
-        .map(owner);
+        .filter_map(|c| match c {
+            Cell::Text(t) => Some(t.split(SEP).map(owner).collect::<Vec<_>>()),
+            Cell::Null => None,
+            _ => Some(vec![None]),
+        })
+        .flatten();
     let Some(Some(first)) = owners.next() else {
         return;
     };
@@ -1458,10 +1462,12 @@ fn shorten_values(values: &mut [Cell]) {
     }
     let prefix = format!("{first}/");
     for cell in values.iter_mut() {
-        if let Cell::Text(t) = cell
-            && let Some(rest) = t.strip_prefix(&prefix)
-        {
-            *t = rest.to_string();
+        if let Cell::Text(t) = cell {
+            *t = t
+                .split(SEP)
+                .map(|item| item.strip_prefix(&prefix).unwrap_or(item))
+                .collect::<Vec<_>>()
+                .join(SEP);
         }
     }
 }
@@ -1787,6 +1793,13 @@ mod tests {
         let mut two_owners = text(&["acme/payments", "globex/billing"]);
         super::shorten_values(&mut two_owners);
         assert_eq!(two_owners, text(&["acme/payments", "globex/billing"]));
+        let mut lists = text(&["acme/payments, acme/billing", "acme/ledger"]);
+        super::shorten_values(&mut lists);
+        assert_eq!(
+            lists,
+            text(&["payments, billing", "ledger"]),
+            "each item of a list"
+        );
         let mut no_owner = text(&["payments", "acme/billing"]);
         super::shorten_values(&mut no_owner);
         assert_eq!(no_owner, text(&["payments", "acme/billing"]));
