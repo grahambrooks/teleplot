@@ -353,6 +353,8 @@ a { color: inherit; text-decoration: none; }
 .cat-chart.vertical .cat-track { flex: 1; display: flex; align-items: flex-end; gap: 2px; }
 .cat-chart.vertical .cat-track.stacked { flex-direction: column-reverse; align-items: stretch; justify-content: flex-start; }
 .cat-chart.vertical .cat-bar { flex: 1; border-radius: 2px 2px 0 0; }
+/* Stacked segments take their computed height; flex: 1 would make them equal. */
+.cat-chart.vertical .cat-track.stacked .cat-bar { flex: none; border-radius: 0; }
 .cat-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
 .cat-chart.vertical .cat-label { text-align: center; padding-top: 4px; }
 .cat-value { font-variant-numeric: tabular-nums; }

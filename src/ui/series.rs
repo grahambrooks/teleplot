@@ -1157,6 +1157,32 @@ pub fn stacked(xy: &Xy) -> Vec<Vec<Option<f64>>> {
         .collect()
 }
 
+/// Each bar segment's own size, in the units [`stacked`] draws: the step
+/// from the series below it in a stack (a share of the total for
+/// percentage stacks), or the value itself for a series that isn't stacked.
+pub fn segments(xy: &Xy) -> Vec<Vec<Option<f64>>> {
+    let drawn = stacked(xy);
+    let mut below = vec![0.0; xy.x.len()];
+    xy.series
+        .iter()
+        .zip(&drawn)
+        .map(|(s, tops)| {
+            if !s.kind.is_stacked() {
+                return s.values.clone();
+            }
+            tops.iter()
+                .enumerate()
+                .map(|(i, top)| {
+                    let top = top.unwrap_or(below[i]);
+                    let size = top - below[i];
+                    below[i] = top;
+                    s.values[i].map(|_| size)
+                })
+                .collect()
+        })
+        .collect()
+}
+
 /// The first value of a column, for metric tiles.
 pub fn first(layer: &LayerData, column: &str) -> Option<Cell> {
     layer.series(column).and_then(|s| s.values.first().cloned())
@@ -1164,6 +1190,64 @@ pub fn first(layer: &LayerData, column: &str) -> Option<Cell> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn stacked_segments_are_sized_by_value_or_share() {
+        use crate::model::SeriesType;
+        let xy = |kind: SeriesType| super::Xy {
+            x: super::XAxis::Category(vec!["a".into(), "b".into()]),
+            series: [
+                vec![Some(75.0), Some(1.0)],
+                vec![Some(15.0), None],
+                vec![Some(10.0), Some(3.0)],
+            ]
+            .into_iter()
+            .map(|values| super::XySeries {
+                label: "s".into(),
+                kind,
+                values,
+                format: None,
+                style: super::Style::Normal,
+            })
+            .collect(),
+            thresholds: vec![],
+            low_sample: vec![],
+            band: None,
+            log_scale: false,
+            reference_lines: vec![],
+            bin_ends: vec![],
+            x_format: None,
+            annotations: vec![],
+            interpolation: Default::default(),
+            span_gaps: true,
+            y_range: None,
+        };
+        let stacked = super::segments(&xy(SeriesType::BarStacked));
+        assert_eq!(
+            stacked,
+            [
+                vec![Some(75.0), Some(1.0)],
+                vec![Some(15.0), None],
+                vec![Some(10.0), Some(3.0)]
+            ]
+        );
+        let percent: Vec<Vec<Option<f64>>> = super::segments(&xy(SeriesType::BarPercentageStacked))
+            .into_iter()
+            .map(|s| {
+                s.into_iter()
+                    .map(|v| v.map(|v| (v * 1e9).round() / 1e9))
+                    .collect()
+            })
+            .collect();
+        assert_eq!(
+            percent,
+            [
+                vec![Some(0.75), Some(0.25)],
+                vec![Some(0.15), None],
+                vec![Some(0.1), Some(0.75)]
+            ]
+        );
+    }
+
     #[test]
     fn stacked_category_bars_end_with_their_total() {
         use crate::model::SeriesType;

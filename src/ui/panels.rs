@@ -966,6 +966,7 @@ fn CategoryBars(xy: series::Xy, drill_field: Option<String>, ctx: PanelContext) 
     let horizontal = xy.series.first().is_some_and(|s| s.kind.is_horizontal());
     let stacked = xy.series.iter().any(|s| s.kind.is_stacked());
     let drawn = series::stacked(&xy);
+    let sizes = series::segments(&xy);
     let colors = palette();
     let max = (0..labels.len())
         .map(|i| {
@@ -1001,7 +1002,9 @@ fn CategoryBars(xy: series::Xy, drill_field: Option<String>, ctx: PanelContext) 
                 .enumerate()
                 .filter_map(|(s, series)| {
                     let v = series.values[i]?;
-                    let size = v / max * 100.0;
+                    // A segment's share of the axis, not its raw value: a
+                    // percentage stack's axis runs to 1.
+                    let size = sizes[s][i].unwrap_or(v) / max * 100.0;
                     let dim = if horizontal { "width" } else { "height" };
                     // With benchmark bands, a bar takes the colour of the band its value is in.
                     let color = threshold_for(&xy.thresholds, v)
