@@ -1,7 +1,8 @@
 # The duplication dashboard over mimeo's own Elasticsearch export
 # (`mimeo fleet push`, data stream mimeo-fleet), for deployments without
-# insight. Panels mirror dashboards/duplication.yaml, except duplication by
-# team: ownership is stamped by insight and isn't in mimeo's events.
+# insight. Panels mirror the software-analytics duplication dashboard
+# (its dashboards/duplication.yaml), except duplication by team: ownership is
+# stamped by insight and isn't in mimeo's events.
 #
 # Unlike the insight version, a week with no mimeo event is empty here:
 # Elasticsearch's last value doesn't carry forward between buckets.

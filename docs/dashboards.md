@@ -310,7 +310,7 @@ insight:
 - **No query bar.** A dashboard whose charts are all insight layers hides the query bar and filter pills, which would filter nothing.
 - **No Elasticsearch needed.** A dashboard whose layers are all insight layers sends nothing to Elasticsearch. `teleplot.yaml` still needs an `elasticsearch` section.
 - **Inspect** shows the series request and insight's response, including the query insight ran.
-- `dashboards/duplication.yaml` is a complete example over mimeo's duplication records.
+- Complete examples are the software-analytics package's dashboards (its `dashboards/` directory), e.g. `duplication.yaml` over mimeo's duplication records.
 
 ### Small samples and drill-down
 
