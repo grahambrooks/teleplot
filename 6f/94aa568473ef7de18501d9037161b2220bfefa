@@ -1,0 +1,39 @@
+dashboards/code.yaml
+  s_6c8864d1d71304::t_d2821e4611c521 76,129,148
+dashboards/commits.yaml
+  s_6c8864d1d71304::t_8567bcff0706fe 36,120,124,141,161,184
+dashboards/engineering-overview.yaml
+  s_6c8864d1d71304::t_5cadc3d06a367c 37,84,103,125,172,193,236
+docs/dashboards.md
+  s_6c8864d1d71304::t_0bb5d63eff32fd 400-440
+src/kibana/lens.rs
+  s_6c8864d1d71304::t_c68e1b6aa2f6e5 549
+src/model/mod.rs
+  s_6c8864d1d71304::t_ef9f7288269f6d 559-590
+src/ui/format.rs
+  s_6c8864d1d71304::t_a1295114bff8a9 28-65,154-184
+src/ui/panels.rs
+  s_6c8864d1d71304::t_d0f66fe0e54d27 970,1012,1090
+src/ui/series.rs
+  s_6c8864d1d71304::t_945821ca55a0db 77-176,327,416,824,897,911,1298-1418,1436,1487
+src/ui/theme.rs
+  s_6c8864d1d71304::t_08c026a95a3799 1-11,13-19,22,24-83
+src/ui/uplot.rs
+  s_6c8864d1d71304::t_31cbdf7b2f38e1 162-163,303-305,307-311,345-368,388,407,484
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6f94aa568473ef7de18501d9037161b2220bfefa",
+  "prompts": {},
+  "sessions": {
+    "s_6c8864d1d71304": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "376d933a-1b6e-458c-a29f-4f695ab3e7be",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
