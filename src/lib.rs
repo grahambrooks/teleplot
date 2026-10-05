@@ -17,6 +17,8 @@ pub mod config;
 #[cfg(feature = "ssr")]
 pub mod dashboards;
 #[cfg(feature = "ssr")]
+pub mod edit;
+#[cfg(feature = "ssr")]
 pub mod engine;
 #[cfg(feature = "ssr")]
 pub mod es;

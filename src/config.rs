@@ -7,6 +7,8 @@
 //!   ca_file: /etc/ssl/corp-ca.pem       # optional extra trusted CA
 //! dashboards: ./dashboards              # Kibana .ndjson exports and Teleplot .yaml
 //! time_zone: Europe/London              # for calendar buckets and date math
+//! mcp:
+//!   edit_dashboards: true               # agents may edit the YAML dashboards here
 //! ```
 //!
 //! `${NAME}` anywhere in the file is replaced by that environment variable,
@@ -28,6 +30,22 @@ pub struct Config {
     /// An insight server, for layers with an `insight` series request.
     #[serde(default)]
     pub insight: Option<Insight>,
+    /// What agents may do through the MCP endpoint.
+    #[serde(default)]
+    pub mcp: Mcp,
+}
+
+/// MCP settings.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Mcp {
+    /// Let agents edit the hand-written YAML dashboards in `dashboards`
+    /// (panel by panel, with the file's hash, keeping comments), and create
+    /// new dashboards there rather than in `agents/`. For a dashboards
+    /// directory under version control, where every change is reviewed as a
+    /// diff. Kibana exports stay read-only.
+    #[serde(default)]
+    pub edit_dashboards: bool,
 }
 
 /// An insight server (software-analytics), queried through its series API.

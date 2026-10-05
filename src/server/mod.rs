@@ -29,6 +29,8 @@ pub struct Teleplot {
     /// `Err` explains why queries cannot run (e.g. no Elasticsearch configured);
     /// dashboards still list and render their layout.
     pub engine: Result<Engine, String>,
+    /// Agents may edit the YAML dashboards in the dashboards directory.
+    pub edit_dashboards: bool,
 }
 
 impl Teleplot {
@@ -36,10 +38,12 @@ impl Teleplot {
         let dir = dashboards
             .or_else(|| config.as_ref().ok().map(|c| c.dashboards.clone()))
             .unwrap_or_else(|| PathBuf::from("dashboards"));
+        let edit_dashboards = config.as_ref().is_ok_and(|c| c.mcp.edit_dashboards);
         let engine = config.and_then(|c| Engine::new(&c));
         Teleplot {
             catalog: Catalog::load(dir),
             engine,
+            edit_dashboards,
         }
     }
 }

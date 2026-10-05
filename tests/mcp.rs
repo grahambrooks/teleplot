@@ -158,22 +158,31 @@ fn cfr_by_team(id: &str) -> Value {
 }
 
 #[tokio::test]
-async fn lists_seven_tools_with_schemas_and_hints() {
+async fn lists_eight_tools_with_schemas_and_hints() {
     let server = start("tools", None, None).await;
     let tools = rpc(&server, "tools/list", None, json!({})).await;
     let tools = tools["tools"].as_array().unwrap();
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
-    assert_eq!(names.len(), 7, "{names:?}");
+    assert_eq!(names.len(), 8, "{names:?}");
     for tool in tools {
         assert!(tool["outputSchema"].is_object(), "{}", tool["name"]);
         let read_only = tool["annotations"]["readOnlyHint"] == json!(true);
-        assert_eq!(
-            read_only,
-            tool["name"] != "teleplot_save_dashboard",
-            "{}",
-            tool["name"]
+        let writes = matches!(
+            tool["name"].as_str(),
+            Some("teleplot_save_dashboard" | "teleplot_update_panel")
         );
+        assert_eq!(read_only, !writes, "{}", tool["name"]);
     }
+    // update_panel's panel parameter carries the panel schema.
+    let update = tools
+        .iter()
+        .find(|t| t["name"] == "teleplot_update_panel")
+        .unwrap();
+    assert!(
+        update["inputSchema"].to_string().contains("grid"),
+        "{}",
+        update["inputSchema"]
+    );
     // The dashboard parameter carries the full dashboard schema, so agents see the format.
     let save = tools
         .iter()
@@ -572,4 +581,33 @@ async fn an_agent_can_discover_check_preview_and_save() {
     assert_eq!(request["hits"], json!(1004), "{request}");
     assert!(request["response"]["aggregations"].is_object(), "{request}");
     assert_eq!(inspection["data"]["layers"][0]["rows"], json!(8));
+}
+
+/// Hand-written dashboards stay read-only unless teleplot.yaml opts in.
+#[tokio::test]
+async fn hand_written_dashboards_need_edit_dashboards() {
+    let server = start("update-refused", None, None).await;
+    let got = call(
+        &server,
+        "teleplot_get_dashboard",
+        json!({ "id": "delivery-overview", "format": "full" }),
+    )
+    .await;
+    let panel = got["dashboard"]["panels"][0].clone();
+    let refused = call(
+        &server,
+        "teleplot_update_panel",
+        json!({ "id": "delivery-overview", "panel": panel, "expected_hash": got["hash"] }),
+    )
+    .await;
+    assert_eq!(refused["saved"], json!(false), "{refused}");
+    assert!(
+        refused["problems"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("mcp.edit_dashboards"),
+        "{refused}"
+    );
+    let list = call(&server, "teleplot_list_dashboards", json!({})).await;
+    assert_eq!(list["dashboards"][0]["editable"], json!(false));
 }

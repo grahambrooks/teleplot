@@ -145,6 +145,32 @@ Fixes that came out of these runs:
 - **Resources carry cache hints,** as 2026-07-28 clients require.
 - **Categorical bars take benchmark band colours.**
 
+## Part 1b: insight data and hand-written dashboards (2026-10-05)
+
+The software-analytics package keeps its dashboards as hand-written YAML under version control,
+and charts insight data rather than Elasticsearch. Two of Part 1's rules didn't fit: discovery
+only knew Elasticsearch, and agents could never change a hand-written file.
+
+- **Discovery.** With `insight: { url }` set, `teleplot_list_indices` also lists insight's record
+  types (`source: insight`). `teleplot_describe_index` describes one from insight's series schema,
+  with field types, units and the top values of keyword and boolean fields over a year. It
+  makes one series request per such field.
+- **Editing hand-written dashboards** is opt-in: `mcp: { edit_dashboards: true }` in
+  `teleplot.yaml`, for a dashboards directory where every change is reviewed as a diff. Kibana
+  exports stay read-only.
+  - `teleplot_update_panel` replaces one panel, or adds one, by id.
+  - Only the panel's changed fields are rewritten. Comments, layout and every other line stay
+    byte for byte the same: a title change is a one-line diff.
+  - The result is parsed again and must equal the intended dashboard, or nothing is written.
+  - A panel that defines a YAML anchor is refused, since other panels may refer to it.
+  - It needs the file's hash from `teleplot_get_dashboard`, validates the whole dashboard
+    against live data, writes atomically, and returns the diff.
+  - `teleplot_save_dashboard` then creates new dashboards in the dashboards directory, not
+    `agents/`. It refuses to overwrite a hand-written one and points to `update_panel`.
+  - `teleplot_list_dashboards` says which dashboards are editable.
+- **Verified** on the package's seven dashboards (62 panels). Updating every panel with itself
+  changed nothing, and a title change produced a one-line diff.
+
 ## Part 2: feature gaps for technical users
 
 Teleplot already treats dashboards as code. The highest-value gaps are the

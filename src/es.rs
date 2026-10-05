@@ -70,6 +70,61 @@ impl Client {
         self
     }
 
+    /// Whether an insight server is configured.
+    pub fn has_insight(&self) -> bool {
+        self.insight.is_some()
+    }
+
+    /// insight's series schema: every record type, its fields and their
+    /// types (`GET /api/series/schema`).
+    pub async fn insight_schema(&self) -> Result<Value, String> {
+        let base = self
+            .insight
+            .as_deref()
+            .ok_or("teleplot.yaml has no `insight: { url }`")?;
+        let response = self
+            .http
+            .get(format!("{base}/api/series/schema"))
+            .send()
+            .await
+            .map_err(|e| format!("insight unreachable: {e}"))?;
+        if !response.status().is_success() {
+            return Err(format!("/api/series/schema failed: {}", response.status()));
+        }
+        response
+            .json()
+            .await
+            .map_err(|e| format!("bad /api/series/schema response: {e}"))
+    }
+
+    /// A raw series request (`POST /api/series`), unreshaped.
+    pub async fn insight_series_raw(&self, body: &Value) -> Result<Value, String> {
+        let base = self
+            .insight
+            .as_deref()
+            .ok_or("teleplot.yaml has no `insight: { url }`")?;
+        let response = self
+            .http
+            .post(format!("{base}/api/series"))
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| format!("insight unreachable: {e}"))?;
+        let status = response.status();
+        let value: Value = response
+            .json()
+            .await
+            .map_err(|e| format!("bad /api/series response: {e}"))?;
+        if status.is_success() {
+            Ok(value)
+        } else {
+            Err(value["error"]
+                .as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("/api/series failed: {status}")))
+        }
+    }
+
     /// Run a series request on insight and reshape the response like an
     /// ES|QL one: `{columns: [{name, type}], values: [[...]]}`.
     pub async fn insight_series(&self, body: &Value) -> Result<Value, String> {

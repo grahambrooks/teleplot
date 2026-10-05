@@ -31,12 +31,15 @@ use crate::server::{Source, Teleplot};
 const SCHEMA_URI: &str = "teleplot://schema/dashboard";
 const DOCS_URI: &str = "teleplot://docs/dashboards";
 
-const INSTRUCTIONS: &str = "Teleplot draws dashboards over Elasticsearch. To build one: \
-find data with teleplot_list_indices and teleplot_describe_index; write a dashboard \
-(format: resource teleplot://docs/dashboards, schema: teleplot://schema/dashboard; \
-dashboards/delivery-overview is a complete example via teleplot_get_dashboard); \
-check it with teleplot_validate_dashboard; look at the numbers with teleplot_preview \
-and make sure they answer the question; then teleplot_save_dashboard. Saved dashboards \
+const INSTRUCTIONS: &str = "Teleplot draws dashboards over Elasticsearch and insight. To build or change one: \
+find data with teleplot_list_indices and teleplot_describe_index (insight record types have \
+source: insight and are queried with an `insight:` series request); write the dashboard or panel \
+(format: resource teleplot://docs/dashboards, schema: teleplot://schema/dashboard; read an \
+existing dashboard with teleplot_get_dashboard format=full); check it with \
+teleplot_validate_dashboard; look at the numbers with teleplot_preview and make sure they answer \
+the question; then save. teleplot_save_dashboard creates a dashboard; teleplot_update_panel \
+changes or adds one panel of an existing one, keeping the file's comments and other panels, and \
+returns the diff. teleplot_list_dashboards says which dashboards are editable. Saved dashboards \
 appear in Teleplot immediately at the returned URL.";
 
 #[derive(Clone)]
@@ -114,6 +117,42 @@ pub struct SaveParams {
     pub expected_hash: Option<String>,
 }
 
+fn panel_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    generator.subschema_for::<crate::model::Panel>()
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct UpdatePanelParams {
+    /// The dashboard's id.
+    pub id: String,
+    /// The panel, whole. Replaces the panel with the same `id`, or is added
+    /// after the last panel when none has it.
+    #[schemars(schema_with = "panel_schema")]
+    pub panel: Value,
+    /// The `hash` teleplot_get_dashboard returned: the file must not have
+    /// changed since you read it.
+    pub expected_hash: String,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct UpdateResult {
+    pub saved: bool,
+    /// Why not, when not saved; warnings when saved.
+    pub problems: Vec<Problem>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// The file's new hash, for the next change.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hash: Option<String>,
+    /// The panel was new and appended, rather than replaced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub added: Option<bool>,
+    /// The lines changed in the file: review it, and commit it if the
+    /// dashboards are under version control.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diff: Option<String>,
+}
+
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct Indices {
     pub indices: Vec<IndexInfo>,
@@ -122,7 +161,13 @@ pub struct Indices {
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct IndexInfo {
     pub name: String,
-    pub documents: u64,
+    /// Documents, for an Elasticsearch index; absent for an insight record type.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub documents: Option<u64>,
+    /// `elasticsearch`, or `insight`: a record type of insight's series API.
+    /// For insight, a layer uses `data_view: { index: <name>, time_field }`
+    /// and an `insight:` series request.
+    pub source: String,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -155,8 +200,11 @@ pub struct DashboardList {
 pub struct DashboardListing {
     pub id: String,
     pub title: String,
-    /// kibana / yaml (people's) / agent (saved through MCP; the only ones agents may replace).
+    /// kibana / yaml (people's) / agent (saved through MCP).
     pub source: Source,
+    /// Agents may change it: with teleplot_update_panel (or, for agent
+    /// dashboards, teleplot_save_dashboard).
+    pub editable: bool,
     pub panels: usize,
     pub url: String,
 }
@@ -298,6 +346,16 @@ impl TeleplotMcp {
         format!("{}/d/{}", self.base_url, id)
     }
 
+    /// Whether agents may change a dashboard from this source.
+    fn editable(&self, source: Source) -> bool {
+        self.writes
+            && match source {
+                Source::Agent => true,
+                Source::Yaml => self.app.edit_dashboards,
+                Source::Kibana => false,
+            }
+    }
+
     fn engine(&self) -> Result<&crate::engine::Engine, ErrorData> {
         self.app
             .engine
@@ -332,28 +390,129 @@ impl TeleplotMcp {
 
     #[tool(
         name = "teleplot_list_indices",
-        description = "List Elasticsearch indices with document counts. Start here to find data.",
+        description = "List what dashboards can chart: Elasticsearch indices with document counts, and, when an insight server is configured, insight's record types (source: insight). Start here to find data.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn list_indices(&self) -> Result<Json<Indices>, ErrorData> {
-        let indices = self.engine()?.client().indices().await.map_err(internal)?;
-        Ok(Json(Indices {
-            indices: indices
-                .into_iter()
-                .map(|(name, documents)| IndexInfo { name, documents })
-                .collect(),
+        let client = self.engine()?.client();
+        let es = client.indices().await;
+        let mut indices: Vec<IndexInfo> = es
+            .as_ref()
+            .map(|list| {
+                list.iter()
+                    .map(|(name, documents)| IndexInfo {
+                        name: name.clone(),
+                        documents: Some(*documents),
+                        source: "elasticsearch".into(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if client.has_insight() {
+            let schema = client.insight_schema().await.map_err(internal)?;
+            indices.extend(
+                schema["record_types"]
+                    .as_object()
+                    .into_iter()
+                    .flatten()
+                    .map(|(name, _)| IndexInfo {
+                        name: name.clone(),
+                        documents: None,
+                        source: "insight".into(),
+                    }),
+            );
+        } else if let Err(e) = es {
+            return Err(internal(e));
+        }
+        Ok(Json(Indices { indices }))
+    }
+
+    /// Describe an insight record type from its series schema, with the
+    /// most common values of its keyword and boolean fields over a year.
+    async fn describe_insight(
+        &self,
+        record_type: &str,
+    ) -> Result<Option<IndexDescription>, ErrorData> {
+        let client = self.engine()?.client();
+        if !client.has_insight() {
+            return Ok(None);
+        }
+        let schema = client.insight_schema().await.map_err(internal)?;
+        let Some(fields) = schema["record_types"][record_type]["fields"].as_object() else {
+            return Ok(None);
+        };
+        let kind = |f: &Value| f["type"].as_str().unwrap_or_default().to_string();
+        let time_fields: Vec<String> = fields
+            .iter()
+            .filter(|(_, f)| kind(f) == "date")
+            .map(|(n, _)| n.clone())
+            .collect();
+        let to = jiff::Timestamp::now();
+        let from = to
+            .checked_sub(jiff::SignedDuration::from_hours(365 * 24))
+            .map_err(internal)?;
+        let mut infos = Vec::new();
+        for (name, f) in fields {
+            let t = kind(f);
+            let mut top_values = Vec::new();
+            if matches!(t.as_str(), "keyword" | "boolean")
+                && let Some(time) = time_fields.first()
+            {
+                let body = json!({
+                    "record_type": record_type,
+                    "time": { "field": time, "from": from.to_string(), "to": to.to_string() },
+                    "group_by": [{ "field": name, "size": 5 }],
+                    "columns": [{ "id": "n", "op": "count" }],
+                });
+                // A field the API refuses to group by (a person) has no top values.
+                if let Ok(r) = client.insight_series_raw(&body).await {
+                    top_values = r["rows"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|row| {
+                            let key = match &row[0] {
+                                Value::String(s) => s.clone(),
+                                Value::Null => return None,
+                                other => other.to_string(),
+                            };
+                            Some((key, row[1].as_f64().unwrap_or(0.0) as u64))
+                        })
+                        .collect();
+                    top_values.sort_by_key(|v| std::cmp::Reverse(v.1));
+                }
+            }
+            let mut types = vec![t.clone()];
+            if let Some(unit) = f["unit"].as_str() {
+                types.push(format!("unit:{unit}"));
+            }
+            infos.push(FieldInfo {
+                name: name.clone(),
+                types,
+                aggregatable: t != "text",
+                top_values,
+            });
+        }
+        Ok(Some(IndexDescription {
+            index: record_type.to_string(),
+            time_fields,
+            fields: infos,
+            sample: None,
         }))
     }
 
     #[tool(
         name = "teleplot_describe_index",
-        description = "Describe an index: its fields and their types, which are dates and which can be grouped by, the top values of keyword fields, and a sample document.",
+        description = "Describe an index or insight record type: its fields and their types, which are dates and which can be grouped by, and the top values of keyword fields (and, for Elasticsearch, a sample document).",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn describe_index(
         &self,
         Parameters(p): Parameters<IndexParams>,
     ) -> Result<Json<IndexDescription>, ErrorData> {
+        if let Some(described) = self.describe_insight(&p.index).await? {
+            return Ok(Json(described));
+        }
         let engine = self.engine()?;
         let fields = engine
             .fields_for(std::slice::from_ref(&p.index))
@@ -455,6 +614,7 @@ impl TeleplotMcp {
                 id: e.dashboard.id.clone(),
                 title: e.dashboard.title.clone(),
                 source: e.source,
+                editable: self.editable(e.source),
                 panels: e.dashboard.panels.len(),
                 url: self.url(&e.dashboard.id),
             })
@@ -752,12 +912,25 @@ impl TeleplotMcp {
         }
         self.app.catalog.reload_if_changed();
         let others = self.app.catalog.entries();
-        match crate::store::save(
-            &self.app.catalog.agents_dir(),
-            &d,
-            p.expected_hash.as_deref(),
-            &others,
-        ) {
+        // With edit_dashboards, a new dashboard joins the people's ones (and
+        // their version control) rather than agents/.
+        let is_new = !others.iter().any(|e| e.dashboard.id == d.id);
+        let dir = if self.app.edit_dashboards && is_new {
+            self.app.catalog.dir().to_path_buf()
+        } else {
+            self.app.catalog.agents_dir()
+        };
+        if self.app.edit_dashboards
+            && others
+                .iter()
+                .any(|e| e.dashboard.id == d.id && e.source == Source::Yaml)
+        {
+            return refused(vec![problem(format!(
+                "{} is a hand-written dashboard: change it panel by panel with teleplot_update_panel, which keeps its comments and layout",
+                d.id
+            ))]);
+        }
+        match crate::store::save(&dir, &d, p.expected_hash.as_deref(), &others) {
             Err(e) => refused(vec![problem(e)]),
             Ok(saved) => {
                 self.app.catalog.reload_if_changed();
@@ -770,6 +943,96 @@ impl TeleplotMcp {
                 })
             }
         }
+    }
+
+    #[tool(
+        name = "teleplot_update_panel",
+        description = "Replace one panel of a dashboard, or add a panel, editing only that panel's lines: comments and every other panel stay exactly as they were. Validates the whole dashboard first and refuses on errors. Needs the hash from teleplot_get_dashboard. Works on agent dashboards, and on hand-written YAML dashboards when teleplot.yaml sets mcp.edit_dashboards. Returns the diff: review it, and commit it if the dashboards are under version control.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn update_panel(
+        &self,
+        Parameters(p): Parameters<UpdatePanelParams>,
+    ) -> Json<UpdateResult> {
+        let refused = |problems: Vec<Problem>| {
+            Json(UpdateResult {
+                saved: false,
+                problems,
+                url: None,
+                hash: None,
+                added: None,
+                diff: None,
+            })
+        };
+        if !self.writes {
+            return refused(vec![problem(
+                "saving is disabled: Teleplot only accepts agent writes when it runs on localhost",
+            )]);
+        }
+        self.app.catalog.reload_if_changed();
+        let Some(entry) = self.app.catalog.entry(&p.id) else {
+            return refused(vec![problem(format!(
+                "no dashboard {:?}; see teleplot_list_dashboards",
+                p.id
+            ))]);
+        };
+        if !self.editable(entry.source) {
+            return refused(vec![problem(match entry.source {
+                Source::Kibana => {
+                    format!("{} is a Kibana export, which agents cannot change", p.id)
+                }
+                _ => format!(
+                    "{} is hand-written, and teleplot.yaml doesn't set mcp.edit_dashboards; save a copy under a new id",
+                    p.id
+                ),
+            })]);
+        }
+        let panel: crate::model::Panel = match serde_json::from_value(p.panel) {
+            Ok(panel) => panel,
+            Err(e) => return refused(vec![problem(format!("panel: {e}"))]),
+        };
+        let text = match std::fs::read_to_string(&entry.path) {
+            Ok(t) => t,
+            Err(e) => return refused(vec![problem(format!("{}: {e}", entry.path.display()))]),
+        };
+        if crate::store::hash(text.as_bytes()) != p.expected_hash {
+            return refused(vec![problem(format!(
+                "{} changed since you read it; call teleplot_get_dashboard again and apply your change to the current version",
+                p.id
+            ))]);
+        }
+        let before = match crate::edit::parse(&text) {
+            Ok(d) => d,
+            Err(e) => return refused(vec![problem(format!("{}: {e}", entry.path.display()))]),
+        };
+        let (edit, after) = match crate::edit::edit_dashboard(&text, &before, &panel) {
+            Ok(x) => x,
+            Err(e) => return refused(vec![problem(e)]),
+        };
+        let (problems, _) = self.check(&after).await;
+        if lint::has_errors(&problems) {
+            return refused(problems);
+        }
+        let tmp = entry.path.with_extension("yaml.tmp");
+        if let Err(e) = std::fs::write(&tmp, edit.text.as_bytes())
+            .and_then(|()| std::fs::rename(&tmp, &entry.path))
+        {
+            return refused(vec![problem(format!("{}: {e}", entry.path.display()))]);
+        }
+        self.app.catalog.reload_if_changed();
+        Json(UpdateResult {
+            saved: true,
+            problems,
+            url: Some(self.url(&p.id)),
+            hash: Some(crate::store::hash(edit.text.as_bytes())),
+            added: Some(edit.added),
+            diff: Some(edit.diff),
+        })
     }
 }
 
