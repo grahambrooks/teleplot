@@ -205,6 +205,7 @@ fn esql_layer(
                 format: format(&c["params"]["format"]),
                 helper: false,
                 thresholds: Vec::new(),
+                shorten: false,
             })
         })
         .collect();
@@ -897,6 +898,7 @@ fn column(id: &str, c: &Value, all: &Map<String, Value>) -> Result<Option<Column
         format: format(&params["format"]),
         helper: false,
         thresholds: Vec::new(),
+        shorten: false,
     }))
 }
 
@@ -941,5 +943,7 @@ pub fn format(value: &Value) -> Option<Format> {
         decimals: number(&params["decimals"]).map(|d| d as u32),
         suffix: str_field(params, "suffix").map(String::from),
         compact: bool_field(params, "compact"),
+        from: None,
+        to: None,
     })
 }

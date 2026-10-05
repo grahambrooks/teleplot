@@ -11,6 +11,7 @@ pub fn value(v: f64, format: Option<&Format>) -> String {
     let text = match format.kind {
         FormatKind::Percent => format!("{}%", fixed(v * 100.0, decimals.unwrap_or(1))),
         FormatKind::Bytes => bytes(v),
+        FormatKind::Duration if format.from.is_some() => duration(v, format, decimals),
         FormatKind::Number | FormatKind::Duration | FormatKind::Currency if format.compact => {
             compact(v)
         }
@@ -23,6 +24,37 @@ pub fn value(v: f64, format: Option<&Format>) -> String {
         Some(suffix) => format!("{text}{suffix}"),
         None => text,
     }
+}
+
+/// A duration in `format.from` units, shown in `format.to` (or the largest
+/// unit that keeps it at least 1, for `auto` or no `to`).
+fn duration(v: f64, format: &Format, decimals: Option<usize>) -> String {
+    use crate::model::{DisplayUnit, TimeUnit};
+    if !v.is_finite() {
+        return "–".into();
+    }
+    let secs = v * format.from.map_or(1.0, TimeUnit::seconds);
+    let unit = match format.to {
+        Some(DisplayUnit::Unit(u)) => u,
+        _ => match secs.abs() {
+            a if a < 60.0 => TimeUnit::Seconds,
+            a if a < 3_600.0 => TimeUnit::Minutes,
+            a if a < 86_400.0 => TimeUnit::Hours,
+            _ => TimeUnit::Days,
+        },
+    };
+    let n = secs / unit.seconds();
+    // Whole values (axis ticks, round durations) need no decimal.
+    let default = if unit == TimeUnit::Seconds || (n * 10.0).round() % 10.0 == 0.0 {
+        0
+    } else {
+        1
+    };
+    format!(
+        "{} {}",
+        fixed(n, decimals.unwrap_or(default)),
+        unit.suffix()
+    )
 }
 
 /// Axis tick labels in the column's format, with more decimals when it would
@@ -152,12 +184,44 @@ pub fn change(current: f64, previous: f64) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn durations_convert_from_seconds() {
+        let f = Format {
+            kind: FormatKind::Duration,
+            decimals: None,
+            suffix: None,
+            compact: false,
+            from: Some(crate::model::TimeUnit::Seconds),
+            to: Some(crate::model::DisplayUnit::Auto(
+                crate::model::AutoUnit::Auto,
+            )),
+        };
+        let hours = Format {
+            to: Some(crate::model::DisplayUnit::Unit(
+                crate::model::TimeUnit::Hours,
+            )),
+            ..f.clone()
+        };
+        assert_eq!(
+            super::value(5_400.0, Some(&hours)),
+            "1.5 h",
+            "a fixed display unit"
+        );
+        let shown: Vec<String> = [45.0, 112.0, 18_720.0, 302_400.0, 1_800.0]
+            .iter()
+            .map(|v| super::value(*v, Some(&f)))
+            .collect();
+        assert_eq!(shown, ["45 s", "1.9 min", "5.2 h", "3.5 d", "30 min"]);
+    }
+
+    #[test]
     fn ticks_gain_decimals_until_they_differ() {
         let percent = Format {
             kind: FormatKind::Percent,
             decimals: Some(1),
             suffix: None,
             compact: false,
+            from: None,
+            to: None,
         };
         let narrow = [0.1150, 0.1151, 0.1152, 0.1153];
         assert_eq!(
@@ -175,6 +239,8 @@ mod tests {
             decimals: Some(0),
             suffix: Some(" lines".into()),
             compact: false,
+            from: None,
+            to: None,
         };
         assert_eq!(
             super::ticks(&[0.0, 0.5, 1.0], Some(&lines)),
@@ -190,6 +256,8 @@ mod tests {
             decimals: None,
             suffix: None,
             compact: false,
+            from: None,
+            to: None,
         }
     }
 
@@ -255,6 +323,8 @@ mod tests {
             decimals: Some(0),
             suffix: None,
             compact: false,
+            from: None,
+            to: None,
         };
         assert_eq!(value(-0.0021, Some(&percent)), "0%");
         assert_eq!(value(-0.12, Some(&percent)), "-12%");

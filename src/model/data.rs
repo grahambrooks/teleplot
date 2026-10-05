@@ -64,6 +64,11 @@ pub struct LayerData {
     /// can't tell, e.g. an ES|QL `BUCKET` of a date.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dates: Vec<String>,
+    /// Every bucket start (epoch ms) of a bucketed query, including empty
+    /// buckets: a time axis spans them all, so bars keep the interval's width
+    /// when only a few buckets have data.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub buckets: Vec<f64>,
 }
 
 impl LayerData {

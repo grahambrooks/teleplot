@@ -496,11 +496,15 @@ fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Probl
                 format!("facet {facet:?} must be a terms column: one small chart per value"),
             ));
         }
+        // insight and ES|QL layers bucket in their query: their result
+        // columns are `value`s naming the buckets.
+        let result_buckets = layer.insight.is_some() || layer.esql.is_some();
+        let is_result_value =
+            |c: &crate::model::Column| result_buckets && matches!(c.op, Operation::Value { .. });
         if let Encoding::Calendar { date, .. } = &layer.encoding
-            && !matches!(
-                layer.column(date).map(|c| &c.op),
-                Some(Operation::DateHistogram { .. }) | None
-            )
+            && !layer.column(date).is_none_or(|c| {
+                matches!(c.op, Operation::DateHistogram { .. }) || is_result_value(c)
+            })
         {
             problems.push(Problem::error(
                 format!("{at}.encoding.date"),
@@ -509,7 +513,10 @@ fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Probl
         }
         if let Encoding::Heatmap { x, y, value } = &layer.encoding {
             for axis in [Some(x), y.as_ref()].into_iter().flatten() {
-                if layer.column(axis).is_some_and(|c| !c.op.is_bucket()) {
+                if layer
+                    .column(axis)
+                    .is_some_and(|c| !c.op.is_bucket() && !is_result_value(c))
+                {
                     problems.push(Problem::error(
                         format!("{at}.encoding"),
                         format!("heatmap axis {axis:?} must be a bucket column"),

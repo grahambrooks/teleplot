@@ -31,32 +31,32 @@ panels:
             columns: [{ id: n, op: count }]
           columns:
             - { id: week, label: Week, op: value, field: t }
-            - { id: repo, label: Repository, op: value, field: repo }
+            - { id: repo, label: Repository, op: value, field: repo, shorten: true }
             - { id: n, label: Commits, op: value, field: n }
           encoding: { as: xy, series: bar_stacked, x: week, y: [n], split: repo, colors: stable }
 
   - id: active-days
-    title: Active days per week
-    description: "Days in each week with at least one commit by a person: steadier delivery shows as more active days, not bigger weeks."
+    title: Commits per day
+    description: "Commits by people each day: a steady rhythm shows as many lightly filled days rather than a few dark ones."
     grid: { x: 24, y: 0, w: 24, h: 10 }
     content:
       type: chart
-      kind: xy
+      kind: calendar
       layers:
         - id: days
           data_view: { index: change, time_field: committed_at }
           insight:
-            interval: 1w
+            interval: 1d
             filters: [{ field: is_bot, op: eq, value: false }]
-            columns: [{ id: days, op: unique_count, field: day }]
+            columns: [{ id: n, op: count }]
           columns:
-            - { id: week, label: Week, op: value, field: t }
-            - { id: days, label: Active days, op: value, field: days }
-          encoding: { as: xy, series: bar, x: week, y: [days] }
+            - { id: day, label: Day, op: value, field: t }
+            - { id: n, label: Commits, op: value, field: n }
+          encoding: { as: calendar, date: day, value: n }
 
   - id: commit-size
     title: Commit size
-    description: "Lines changed (added + deleted) per commit by people: the median and the 85th percentile per week. Small, frequent commits are the trunk-based ideal."
+    description: "Lines changed (added + deleted) per commit by people: each week's median inside its middle 50% (25th to 75th percentile). Small, frequent commits are the trunk-based ideal."
     grid: { x: 0, y: 10, w: 24, h: 10 }
     content:
       type: chart
@@ -68,13 +68,15 @@ panels:
             interval: 1w
             filters: [{ field: is_bot, op: eq, value: false }]
             columns:
+              - { id: p25, op: percentile, field: size_lines, p: 25 }
               - { id: p50, op: median, field: size_lines }
-              - { id: p85, op: percentile, field: size_lines, p: 85 }
+              - { id: p75, op: percentile, field: size_lines, p: 75 }
           columns:
             - { id: week, label: Week, op: value, field: t }
+            - { id: p25, label: 25th percentile, op: value, field: p25, format: { kind: number, decimals: 0, suffix: " lines" } }
             - { id: p50, label: Median, op: value, field: p50, format: { kind: number, decimals: 0, suffix: " lines" } }
-            - { id: p85, label: 85th percentile, op: value, field: p85, format: { kind: number, decimals: 0, suffix: " lines" } }
-          encoding: { as: xy, series: line, x: week, y: [p50, p85] }
+            - { id: p75, label: 75th percentile, op: value, field: p75, format: { kind: number, decimals: 0, suffix: " lines" } }
+          encoding: { as: band, x: week, low: p25, mid: p50, high: p75 }
 
   - id: churn
     title: Lines added and deleted per week
@@ -100,7 +102,7 @@ panels:
 
   - id: work-mix
     title: What the commits were for
-    description: "People's commits by conventional-commit type (feat, fix, refactor, docs, test, chore, …); `other` is a message without a type. A proxy for where effort goes."
+    description: "People's commits by conventional-commit type: the seven most common, the rest as Other types. `other (no type)` is a message without one. A proxy for where effort goes."
     grid: { x: 0, y: 20, w: 24, h: 10 }
     content:
       type: chart
@@ -111,7 +113,7 @@ panels:
           insight:
             interval: 1w
             filters: [{ field: is_bot, op: eq, value: false }]
-            group_by: [{ field: kind }]
+            group_by: [{ field: kind, size: 7, order_by: n, rest: Other types }]
             columns: [{ id: n, op: count }]
           columns:
             - { id: week, label: Week, op: value, field: t }
@@ -179,51 +181,34 @@ panels:
             columns: [{ id: n, op: count }]
           columns:
             - { id: week, label: Week, op: value, field: t }
-            - { id: repo, label: Repository, op: value, field: repo }
+            - { id: repo, label: Repository, op: value, field: repo, shorten: true }
             - { id: n, label: Large commits, op: value, field: n }
           encoding: { as: xy, series: bar_stacked, x: week, y: [n], split: repo, colors: stable }
 
-  - id: weekday
-    title: Commits by day of the week
-    description: "People's commits in the time range, by UTC weekday."
-    grid: { x: 0, y: 40, w: 24, h: 9 }
+  - id: when
+    title: When people commit (UTC)
+    description: "People's commits in the time range by weekday and hour, darker for more. Work outside a team's usual hours shows up here first."
+    grid: { x: 0, y: 40, w: 48, h: 10 }
     content:
       type: chart
-      kind: xy
+      kind: heatmap
       layers:
-        - id: days
+        - id: when
           data_view: { index: change, time_field: committed_at }
           insight:
             filters: [{ field: is_bot, op: eq, value: false }]
-            group_by: [{ field: weekday }]
+            group_by: [{ field: weekday }, { field: hour }]
             columns: [{ id: n, op: count }]
           columns:
             - { id: weekday, label: Weekday, op: value, field: weekday }
-            - { id: n, label: Commits, op: value, field: n }
-          encoding: { as: xy, series: bar, x: weekday, y: [n] }
-
-  - id: hour
-    title: Commits by hour of the day (UTC)
-    grid: { x: 24, y: 40, w: 24, h: 9 }
-    content:
-      type: chart
-      kind: xy
-      layers:
-        - id: hours
-          data_view: { index: change, time_field: committed_at }
-          insight:
-            filters: [{ field: is_bot, op: eq, value: false }]
-            group_by: [{ field: hour }]
-            columns: [{ id: n, op: count }]
-          columns:
             - { id: hour, label: Hour, op: value, field: hour }
             - { id: n, label: Commits, op: value, field: n }
-          encoding: { as: xy, series: bar, x: hour, y: [n] }
+          encoding: { as: heatmap, x: hour, y: weekday, value: n }
 
   - id: by-repo
     title: Repositories
     description: "People's commits in the time range."
-    grid: { x: 0, y: 49, w: 48, h: 9 }
+    grid: { x: 0, y: 50, w: 48, h: 9 }
     content:
       type: chart
       kind: table
@@ -232,7 +217,7 @@ panels:
           data_view: { index: change, time_field: committed_at }
           insight:
             filters: [{ field: is_bot, op: eq, value: false }]
-            group_by: [{ field: repo }, { field: team }]
+            group_by: [{ field: repo, order_by: commits }, { field: team }]
             columns:
               - { id: commits, op: count }
               - { id: days, op: unique_count, field: day }
@@ -240,7 +225,7 @@ panels:
               - { id: added, op: sum, field: lines_added }
               - { id: deleted, op: sum, field: lines_deleted }
           columns:
-            - { id: repo, label: Repository, op: value, field: repo }
+            - { id: repo, label: Repository, op: value, field: repo, shorten: true }
             - { id: team, label: Team, op: value, field: team }
             - { id: commits, label: Commits, op: value, field: commits }
             - { id: days, label: Active days, op: value, field: days }

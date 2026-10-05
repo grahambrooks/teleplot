@@ -150,7 +150,24 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
     let data = Array::new();
     data.push(&js_sys::Float64Array::from(xs.as_slice()));
     let series = Array::new();
-    series.push(&Object::new());
+    // The x entry is blank until hovered, then names the bucket: uPlot's
+    // own shows "Time: --" beside every idle chart.
+    let x_labels: Vec<String> = if is_time {
+        xs.iter().map(|ms| date(*ms, options.time_zone)).collect()
+    } else {
+        xs.iter()
+            .map(|v| format::value(*v, xy.x_format.as_ref()))
+            .collect()
+    };
+    let x_value = Callback::new(move |_u: JsValue, _v: JsValue, _s: JsValue, idx: JsValue| {
+        let label = idx.as_f64().and_then(|i| x_labels.get(i as usize).cloned());
+        JsValue::from_str(&label.unwrap_or_default())
+    });
+    series.push(&obj(&[
+        ("label", "".into()),
+        ("value", function(&x_value).into()),
+    ]));
+    callbacks.push(x_value);
     for &i in &order {
         let s = &xy.series[i];
         let values = Array::new();
@@ -262,9 +279,11 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
         let fmt = s.format.clone();
         let value = Callback::new(
             move |_u: JsValue, _v: JsValue, _series: JsValue, idx: JsValue| {
-                let v = idx
-                    .as_f64()
-                    .and_then(|idx| originals[i].get(idx as usize).copied().flatten());
+                // Nothing hovered: no value, rather than a dash per series.
+                let Some(idx) = idx.as_f64() else {
+                    return JsValue::from_str("");
+                };
+                let v = originals[i].get(idx as usize).copied().flatten();
                 JsValue::from_str(&v.map_or("–".into(), |v| format::value(v, fmt.as_ref())))
             },
         );
@@ -321,6 +340,8 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
             decimals: Some(0),
             suffix: None,
             compact: false,
+            from: None,
+            to: None,
         })
     } else {
         xy.series.first().and_then(|s| s.format.clone())
@@ -366,8 +387,35 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
         .clone()
         .into();
     callbacks.push(axis_size);
+    // Durations tick on round units (30 s, 5 min, 1 h, 1 d), not 33.3 min.
+    // The spacings are in seconds: right for `from: seconds`.
+    let duration_incrs = |f: &Option<Format>| {
+        f.as_ref()
+            .is_some_and(|f| {
+                f.kind == FormatKind::Duration && f.from == Some(crate::model::TimeUnit::Seconds)
+            })
+            .then(|| {
+                let incrs = Array::new();
+                for v in [
+                    1.0, 2.0, 5.0, 10.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0, 900.0, 1800.0,
+                    3600.0, 7200.0, 10800.0, 21600.0, 43200.0, 86400.0, 172800.0, 604800.0,
+                    1209600.0, 2592000.0,
+                ] {
+                    incrs.push(&v.into());
+                }
+                incrs
+            })
+    };
+    let left_incrs = duration_incrs(&left_format);
     let left_ticks = tick_formatter(left_format);
     let x_axis = axis(&[]);
+    // Ticks on bucket boundaries: weekly bars got ticks every 5 days.
+    if is_time
+        && !bins
+        && let Some(incrs) = bucket_ticks(&xs)
+    {
+        set(&x_axis, "incrs", incrs);
+    }
     if bins {
         let x_ticks = tick_formatter(xy.x_format.clone());
         set(&x_axis, "values", function(&x_ticks));
@@ -389,6 +437,9 @@ pub fn draw(target: &web_sys::HtmlElement, xy: &Xy, options: Options) -> Chart {
         ])
         .into(),
     );
+    if let Some(incrs) = left_incrs {
+        set(axes.get(1).unchecked_ref::<Object>(), "incrs", incrs);
+    }
     callbacks.push(left_ticks);
     if let Some(right) = right_series {
         let right_ticks = tick_formatter(right.format.clone());
@@ -1022,7 +1073,8 @@ pub fn heatmap(target: &web_sys::HtmlElement, hm: &Heatmap, options: Options) ->
                     v.map_or("–".into(), |v| format::value(v, format.as_ref()))
                 ))
             })
-            .unwrap_or_else(|| "–".into());
+            // Nothing hovered: blank rather than a dash.
+            .unwrap_or_default();
         JsValue::from_str(&text)
     });
     // The legend names the cell's bucket: its category, or the date it starts.
@@ -1433,4 +1485,24 @@ fn draw_color_key(
         .ctx
         .fill_text(&format::value(lo, format), label_x, plot.top + plot.height);
     plot.ctx.restore();
+}
+
+/// Tick spacings that are whole multiples of the buckets' width (epoch ms),
+/// for buckets a day to three weeks wide. `None` for months (uneven) or
+/// finer buckets, which uPlot's own spacings suit.
+fn bucket_ticks(xs: &[f64]) -> Option<Array> {
+    const DAY: f64 = 86_400_000.0;
+    let step = xs
+        .windows(2)
+        .map(|w| w[1] - w[0])
+        .filter(|d| *d > 0.0)
+        .fold(f64::INFINITY, f64::min);
+    if !(DAY..28.0 * DAY).contains(&step) || (step / DAY).fract() != 0.0 {
+        return None;
+    }
+    let incrs = Array::new();
+    for k in [1.0, 2.0, 4.0, 8.0, 13.0, 26.0, 52.0, 104.0] {
+        incrs.push(&(step * k).into());
+    }
+    Some(incrs)
 }

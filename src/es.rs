@@ -367,7 +367,11 @@ pub fn series_as_esql(series: &Value) -> Value {
         .flatten()
         .map(|c| json!({ "name": c["id"], "type": c["type"] }))
         .collect();
-    json!({ "columns": columns, "values": series["rows"].clone() })
+    let mut esql = json!({ "columns": columns, "values": series["rows"].clone() });
+    if let Some(buckets) = series.get("buckets") {
+        esql["buckets"] = buckets.clone();
+    }
+    esql
 }
 
 fn error_reason(value: &Value) -> Option<String> {

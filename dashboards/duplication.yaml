@@ -67,7 +67,7 @@ panels:
   - id: clusters
     title: Cross-repo duplicate sets, appeared and resolved
     description: "Duplicate sets that span more than one repository, by the week of the commit that created or removed them."
-    grid: { x: 0, y: 10, w: 24, h: 10 }
+    grid: { x: 0, y: 10, w: 48, h: 9 }
     content:
       type: chart
       kind: xy
@@ -91,7 +91,7 @@ panels:
   - id: worst
     title: Repositories by duplication
     description: "Each repository's latest measurement in the time range."
-    grid: { x: 24, y: 10, w: 24, h: 10 }
+    grid: { x: 0, y: 19, w: 48, h: 8 }
     content:
       type: chart
       kind: table
@@ -106,7 +106,7 @@ panels:
               - { id: dup, op: last_value, field: duplicate_lines }
               - { id: cross, op: last_value, field: cross_repo_duplicate_lines }
           columns:
-            - { id: repo, label: Repository, op: value, field: repo }
+            - { id: repo, label: Repository, op: value, field: repo, shorten: true }
             - { id: team, label: Team, op: value, field: team }
             - { id: pct, label: Duplicated, op: value, field: pct, format: { kind: number, decimals: 1, suffix: "%" } }
             - { id: dup, label: Duplicated lines, op: value, field: dup }

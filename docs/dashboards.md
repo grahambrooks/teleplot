@@ -304,6 +304,10 @@ insight:
 - **Columns.** Aggregate in `insight.columns`. The layer's own columns are `value` columns naming result columns (`t`, the `group_by` fields and the `insight.columns` ids), plus computed columns such as formulas.
 - **`latest_by`.** For records written only when a value changes, such as mimeo's duplication records: each bucket aggregates the latest record per key at or before its end.
 - **Filters.** The dashboard's query, filter pills and controls are Elasticsearch queries and don't apply to insight layers. Filter in `insight.filters`.
+- **Ranking and folding groups.** `group_by: [{ field: language, size: 12, order_by: code }]` keeps the 12 groups with the largest `code` column, largest first; without `order_by`, `size` keeps the groups with the most records and rows come in key order. `rest: Other types` folds the groups past `size` into one, instead of leaving them out, so shares still add up.
+- **Whole axes.** With an `interval`, insight returns every bucket start in the range, and the chart's time axis spans them all: a few weeks with data keep weekly bars, not bars as wide as the gaps between them. Grouping by `hour` or `weekday` (alone or together) returns every hour or weekday, counting 0 for the empty ones.
+- **Calendars and heatmaps** take an insight layer's `value` columns as their buckets: `interval: 1d` with `{ id: day, op: value, field: t }` for a calendar, and two `group_by` fields for a heatmap.
+- **No query bar.** A dashboard whose charts are all insight layers hides the query bar and filter pills, which would filter nothing.
 - **No Elasticsearch needed.** A dashboard whose layers are all insight layers sends nothing to Elasticsearch. `teleplot.yaml` still needs an `elasticsearch` section.
 - **Inspect** shows the series request and insight's response, including the query insight ran.
 - `dashboards/duplication.yaml` is a complete example over mimeo's duplication records.
@@ -437,6 +441,24 @@ panel surfaces. Those checks cover lightness, chroma, colour-blind separation, n
 separation and contrast. Grafana's classic palette, used before, failed three of them in the
 dark theme. Past eight series, colours repeat, so fold the tail or use small multiples
 (`facet`) instead.
+
+### Durations and shortened names
+
+insight records durations in seconds. Show them in a reader's unit with a `duration` format:
+
+```yaml
+- { id: p50, label: Median, op: value, field: p50, format: { kind: duration, from: seconds, to: auto } }
+```
+
+- `from` is the unit the values are in: `seconds`, `minutes`, `hours`, `days` or `weeks`.
+- `to` is the unit shown, or `auto` for the largest unit that keeps the value at least 1:
+  `45 s`, `1.9 min`, `5.2 h`, `3.5 d`.
+- With `from: seconds`, axes tick on round durations (30 s, 5 min, 1 h, 1 d).
+- Without `from`, `duration` formats the number as before.
+
+A text column with `shorten: true` drops an `owner/` prefix that every value shares. For
+example, `acme/payments` shows as `payments`. Values with different owners are left whole, so
+an organization's names lose the organization, but a mix of organizations keeps them.
 
 ### Gauges
 

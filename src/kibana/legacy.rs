@@ -227,6 +227,7 @@ fn columns(aggs: &[Value]) -> Result<(Vec<Column>, Roles), String> {
                 format: None,
                 helper: false,
                 thresholds: Vec::new(),
+                shorten: false,
             });
         };
 

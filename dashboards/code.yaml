@@ -16,7 +16,7 @@ panels:
   # ── File and code analysis ────────────────────────────────────────────
   - id: languages
     title: Code by language
-    description: "Lines of code (not comments or blank lines) across the collected repositories, by language."
+    description: "Lines of code (not comments or blank lines) across the collected repositories: the 12 largest languages, largest first."
     grid: { x: 0, y: 0, w: 24, h: 10 }
     content:
       type: chart
@@ -25,8 +25,10 @@ panels:
         - id: languages
           data_view: { index: file_snapshot, time_field: observed_at }
           insight:
-            filters: [{ field: language, op: not_in, values: [""] }]
-            group_by: [{ field: language, size: 12 }]
+            filters:
+              - { field: language, op: not_in, values: [""] }
+              - { field: code_lines, op: range, gte: 1 }
+            group_by: [{ field: language, size: 12, order_by: code }]
             columns:
               - { id: code, op: sum, field: code_lines }
           columns:
@@ -50,7 +52,7 @@ panels:
               - { id: comment, op: sum, field: comment_lines }
               - { id: blank, op: sum, field: blank_lines }
           columns:
-            - { id: repo, label: Repository, op: value, field: repo }
+            - { id: repo, label: Repository, op: value, field: repo, shorten: true }
             - { id: code, label: Code, op: value, field: code }
             - { id: comment, label: Comments, op: value, field: comment }
             - { id: blank, label: Blank, op: value, field: blank }
@@ -70,7 +72,7 @@ panels:
             group_by: [{ field: repo }, { field: size_band }]
             columns: [{ id: n, op: count }]
           columns:
-            - { id: repo, label: Repository, op: value, field: repo }
+            - { id: repo, label: Repository, op: value, field: repo, shorten: true }
             - { id: band, label: Lines per file, op: value, field: size_band }
             - { id: n, label: Files, op: value, field: n }
           encoding: { as: xy, series: bar_percentage_stacked, x: repo, y: [n], split: band, colors: ordinal }
@@ -86,7 +88,7 @@ panels:
           data_view: { index: file_snapshot, time_field: observed_at }
           insight:
             filters: [{ field: language, op: not_in, values: [""] }]
-            group_by: [{ field: language }]
+            group_by: [{ field: language, order_by: code }]
             columns:
               - { id: files, op: count }
               - { id: code, op: sum, field: code_lines }
@@ -123,7 +125,7 @@ panels:
             group_by: [{ field: repo }, { field: contributors_band }]
             columns: [{ id: n, op: count }]
           columns:
-            - { id: repo, label: Repository, op: value, field: repo }
+            - { id: repo, label: Repository, op: value, field: repo, shorten: true }
             - { id: band, label: Contributors, op: value, field: contributors_band }
             - { id: n, label: Files, op: value, field: n }
           encoding: { as: xy, series: bar_percentage_stacked, x: repo, y: [n], split: band, colors: ordinal }
@@ -142,7 +144,7 @@ panels:
             group_by: [{ field: repo }, { field: age_band }]
             columns: [{ id: n, op: count }]
           columns:
-            - { id: repo, label: Repository, op: value, field: repo }
+            - { id: repo, label: Repository, op: value, field: repo, shorten: true }
             - { id: band, label: Last changed, op: value, field: age_band }
             - { id: n, label: Files, op: value, field: n }
           encoding: { as: xy, series: bar_percentage_stacked, x: repo, y: [n], split: band, colors: ordinal }
@@ -164,7 +166,7 @@ panels:
               - { id: share, op: median, field: primary_share }
               - { id: days, op: median, field: days_since_change }
           columns:
-            - { id: repo, label: Repository, op: value, field: repo }
+            - { id: repo, label: Repository, op: value, field: repo, shorten: true }
             - { id: team, label: Team, op: value, field: team }
             - { id: files, label: Files, op: value, field: files }
             - { id: contributors, label: Contributors per file, op: value, field: contributors, format: { kind: number, decimals: 1 } }
@@ -176,7 +178,7 @@ panels:
   - id: ai-models
     title: AI assistants and models
     description: "git-ai sessions by tool and model. Lines accepted and overridden are each session's totals: a session can span several commits, and git-ai counts accepted lines cumulatively per session."
-    grid: { x: 0, y: 38, w: 48, h: 8 }
+    grid: { x: 0, y: 38, w: 48, h: 6 }
     content:
       type: chart
       kind: table
@@ -201,7 +203,7 @@ panels:
   - id: ai-by-model
     title: AI-written lines accepted, cumulative, by model
     description: "Running total of lines accepted from AI sessions, at the end of each month."
-    grid: { x: 0, y: 46, w: 24, h: 10 }
+    grid: { x: 0, y: 44, w: 24, h: 10 }
     content:
       type: chart
       kind: xy
@@ -222,7 +224,7 @@ panels:
   - id: ai-by-repo
     title: AI attribution by repository
     description: "AI sessions and the lines accepted from them, per repository."
-    grid: { x: 24, y: 46, w: 24, h: 10 }
+    grid: { x: 24, y: 44, w: 24, h: 10 }
     content:
       type: chart
       kind: table
@@ -236,7 +238,7 @@ panels:
               - { id: sessions, op: count }
               - { id: lines, op: sum, field: accepted }
           columns:
-            - { id: repo, label: Repository, op: value, field: repo }
+            - { id: repo, label: Repository, op: value, field: repo, shorten: true }
             - { id: sessions, label: AI sessions, op: value, field: sessions }
             - { id: lines, label: AI lines accepted, op: value, field: lines }
           encoding: { as: table, columns: [repo, sessions, lines] }

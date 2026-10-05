@@ -117,6 +117,7 @@ mod tests {
             format: None,
             helper: false,
             thresholds: Vec::new(),
+            shorten: false,
         }
     }
 
@@ -174,6 +175,7 @@ mod tests {
             counts: Vec::new(),
             error: None,
             dates: Vec::new(),
+            buckets: Vec::new(),
         };
         let table = layer_table(&layer, &data);
         assert_eq!(

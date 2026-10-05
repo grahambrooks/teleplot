@@ -384,6 +384,13 @@ pub struct InsightGroupBy {
     pub field: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size: Option<u32>,
+    /// A column id: keep and order groups by that column, largest first
+    /// (otherwise by record count, rows in key order).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order_by: Option<String>,
+    /// With `size`: fold the groups past it into one with this label.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rest: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1153,6 +1160,11 @@ pub struct Column {
     /// Elite/High/Medium/Low lead time. Drawn behind charts and named on tiles.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub thresholds: Vec<Threshold>,
+    /// Text values that all start with the same `owner/` drop it, e.g.
+    /// `acme/payments` and `acme/billing` show as `payments` and `billing`.
+    /// Values with different owners are left whole.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub shorten: bool,
 }
 
 /// The unit a [`Column::per`] value is normalized to. Kibana offers second
@@ -1180,6 +1192,8 @@ impl Column {
             decimals: None,
             suffix: None,
             compact: false,
+            from: None,
+            to: None,
         });
         format.suffix = Some(format!(
             "{}/{}",
@@ -1464,6 +1478,62 @@ pub struct Format {
     pub suffix: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub compact: bool,
+    /// `duration` only: the unit the values are in, e.g. `seconds` for the
+    /// delivery schema's `_seconds` fields (as Kibana's input format).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<TimeUnit>,
+    /// `duration` only: the unit to show, or `auto` for the largest that
+    /// keeps the value at least 1 (`45 s`, `1.9 min`, `5.2 h`, `3.5 d`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<DisplayUnit>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum TimeUnit {
+    Seconds,
+    Minutes,
+    Hours,
+    Days,
+    Weeks,
+}
+
+impl TimeUnit {
+    pub fn seconds(self) -> f64 {
+        match self {
+            TimeUnit::Seconds => 1.0,
+            TimeUnit::Minutes => 60.0,
+            TimeUnit::Hours => 3_600.0,
+            TimeUnit::Days => 86_400.0,
+            TimeUnit::Weeks => 604_800.0,
+        }
+    }
+
+    pub fn suffix(self) -> &'static str {
+        match self {
+            TimeUnit::Seconds => "s",
+            TimeUnit::Minutes => "min",
+            TimeUnit::Hours => "h",
+            TimeUnit::Days => "d",
+            TimeUnit::Weeks => "w",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+#[serde(untagged)]
+pub enum DisplayUnit {
+    Unit(TimeUnit),
+    Auto(AutoUnit),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum AutoUnit {
+    Auto,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

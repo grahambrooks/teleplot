@@ -249,6 +249,12 @@ fn DashboardView(dashboard: Dashboard) -> impl IntoView {
     };
 
     let panels = dashboard.with_value(|d| d.panels.clone());
+    // The query bar and filter pills are Elasticsearch queries: on a
+    // dashboard whose charts all read insight they would filter nothing.
+    let es_filters = panels.iter().any(|p| match &p.content {
+        crate::model::PanelContent::Chart(c) => c.layers.iter().any(|l| l.insight.is_none()),
+        _ => false,
+    });
     let title = dashboard.with_value(|d| d.title.clone());
     let controls = dashboard.with_value(|d| d.controls.clone());
     let base_query = dashboard.with_value(|d| d.query.clone());
@@ -321,7 +327,7 @@ fn DashboardView(dashboard: Dashboard) -> impl IntoView {
                 <span>{print_filters}</span>
             </div>
             <div class="toolbar">
-                <QueryBar request=request.into() on_submit=set_query/>
+                {es_filters.then(|| view! { <QueryBar request=request.into() on_submit=set_query/> })}
                 {(!base_query.is_empty() || dashboard_filters > 0).then(|| {
                     let text = format!(
                         "Dashboard: {}{}",
@@ -333,7 +339,7 @@ fn DashboardView(dashboard: Dashboard) -> impl IntoView {
                 {controls.into_iter().map(|c| view! {
                     <ControlSelect control=c dashboard=id.clone() request=request.into() on_change=set_control/>
                 }).collect_view()}
-                <AdHocFilters dashboard=id.clone() request=request.into() on_change=set_filters/>
+                {es_filters.then(|| view! { <AdHocFilters dashboard=id.clone() request=request.into() on_change=set_filters/> })}
             </div>
             {move || data.get().and_then(|r| r.err()).map(|e| view! { <div class="banner error">{e}</div> })}
             <div class="grid">

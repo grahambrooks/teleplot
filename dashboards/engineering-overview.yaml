@@ -14,11 +14,120 @@ time:
   from: now-90d/d
   to: now
 panels:
+  # ── Headlines ─────────────────────────────────────────────────────────
+  - id: kpi-prs
+    title: Pull requests merged
+    description: "All merged pull requests in the range, people and automation; the line behind is each week."
+    grid: { x: 0, y: 0, w: 12, h: 6 }
+    content:
+      type: chart
+      kind: metric
+      layers:
+        - id: total
+          data_view: { index: pull_request, time_field: merged_at }
+          insight:
+            filters: [{ field: state, op: eq, value: merged }]
+            columns: [{ id: n, op: count }]
+          columns:
+            - { id: v, label: Merged, op: value, field: n }
+          encoding: { as: metric, value: v }
+        - id: weekly
+          data_view: { index: pull_request, time_field: merged_at }
+          insight:
+            interval: 1w
+            filters: [{ field: state, op: eq, value: merged }]
+            columns: [{ id: n, op: count }]
+          columns:
+            - { id: week, op: value, field: t }
+            - { id: s, op: value, field: n }
+          encoding: { as: sparkline, x: week, y: s }
+
+  - id: kpi-cycle
+    title: PR cycle time, median
+    description: "First commit to merge, for pull requests not opened by bots: the median over the range, and each week behind it."
+    grid: { x: 12, y: 0, w: 12, h: 6 }
+    content:
+      type: chart
+      kind: metric
+      layers:
+        - id: total
+          data_view: { index: pull_request, time_field: merged_at }
+          insight:
+            filters: [{ field: state, op: eq, value: merged }, { field: is_bot, op: eq, value: false }]
+            columns: [{ id: p50, op: median, field: cycle_time_seconds }]
+          columns:
+            - { id: v, label: Median, op: value, field: p50, format: { kind: duration, from: seconds, to: auto } }
+          encoding: { as: metric, value: v }
+        - id: weekly
+          data_view: { index: pull_request, time_field: merged_at }
+          insight:
+            interval: 1w
+            filters: [{ field: state, op: eq, value: merged }, { field: is_bot, op: eq, value: false }]
+            columns: [{ id: p50, op: median, field: cycle_time_seconds }]
+          columns:
+            - { id: week, op: value, field: t }
+            - { id: s, op: value, field: p50, format: { kind: duration, from: seconds, to: auto } }
+          encoding: { as: sparkline, x: week, y: s }
+
+  - id: kpi-ci
+    title: CI run time, median
+    description: "Wall-clock time of successful workflow runs: the median over the range, and each week behind it."
+    grid: { x: 24, y: 0, w: 12, h: 6 }
+    content:
+      type: chart
+      kind: metric
+      layers:
+        - id: total
+          data_view: { index: build, time_field: started_at }
+          insight:
+            filters: [{ field: result, op: eq, value: success }]
+            columns: [{ id: p50, op: median, field: duration_seconds }]
+          columns:
+            - { id: v, label: Median, op: value, field: p50, format: { kind: duration, from: seconds, to: auto } }
+          encoding: { as: metric, value: v }
+        - id: weekly
+          data_view: { index: build, time_field: started_at }
+          insight:
+            interval: 1w
+            filters: [{ field: result, op: eq, value: success }]
+            columns: [{ id: p50, op: median, field: duration_seconds }]
+          columns:
+            - { id: week, op: value, field: t }
+            - { id: s, op: value, field: p50, format: { kind: duration, from: seconds, to: auto } }
+          encoding: { as: sparkline, x: week, y: s }
+
+  - id: kpi-commits
+    title: Commits by people
+    description: "Commits not made by bots, across the collected repositories; the line behind is each week."
+    grid: { x: 36, y: 0, w: 12, h: 6 }
+    content:
+      type: chart
+      kind: metric
+      layers:
+        - id: total
+          data_view: { index: change, time_field: committed_at }
+          insight:
+            filters: [{ field: is_bot, op: eq, value: false }]
+            columns: [{ id: n, op: count }]
+          columns:
+            - { id: v, label: Commits, op: value, field: n }
+          encoding: { as: metric, value: v }
+        - id: weekly
+          data_view: { index: change, time_field: committed_at }
+          insight:
+            interval: 1w
+            filters: [{ field: is_bot, op: eq, value: false }]
+            columns: [{ id: n, op: count }]
+          columns:
+            - { id: week, op: value, field: t }
+            - { id: s, op: value, field: n }
+          encoding: { as: sparkline, x: week, y: s }
+
   # ── Flow ──────────────────────────────────────────────────────────────
   - id: prs-merged
     title: Merged pull requests per week
     description: "Pull requests merged each week, by repository."
-    grid: { x: 0, y: 0, w: 24, h: 10 }
+    grid: { x: 0, y: 6, w: 24, h: 10 }
     content:
       type: chart
       kind: xy
@@ -32,14 +141,14 @@ panels:
             columns: [{ id: n, op: count }]
           columns:
             - { id: week, label: Week, op: value, field: t }
-            - { id: repo, label: Repository, op: value, field: repo }
+            - { id: repo, label: Repository, op: value, field: repo, shorten: true }
             - { id: n, label: Merged, op: value, field: n }
           encoding: { as: xy, series: bar_stacked, x: week, y: [n], split: repo, colors: stable }
 
   - id: pr-cycle
     title: Pull request cycle time, people's PRs
-    description: "First commit to merge, for pull requests not opened by bots: the median and the 85th percentile per week."
-    grid: { x: 24, y: 0, w: 24, h: 10 }
+    description: "First commit to merge, for pull requests not opened by bots: each week's median inside its middle 50% (25th to 75th percentile). Weeks with no merged PRs are gaps."
+    grid: { x: 24, y: 6, w: 24, h: 10 }
     content:
       type: chart
       kind: xy
@@ -52,20 +161,20 @@ panels:
               - { field: state, op: eq, value: merged }
               - { field: is_bot, op: eq, value: false }
             columns:
+              - { id: p25, op: percentile, field: cycle_time_seconds, p: 25 }
               - { id: p50, op: median, field: cycle_time_seconds }
-              - { id: p85, op: percentile, field: cycle_time_seconds, p: 85 }
+              - { id: p75, op: percentile, field: cycle_time_seconds, p: 75 }
           columns:
             - { id: week, label: Week, op: value, field: t }
-            - { id: p50s, op: value, field: p50, helper: true }
-            - { id: p85s, op: value, field: p85, helper: true }
-            - { id: median, label: Median, op: formula, text: "median / 3600", expr: { call: divide, args: [p50s, 3600.0] }, format: { kind: number, decimals: 1, suffix: " h" } }
-            - { id: p85, label: 85th percentile, op: formula, text: "p85 / 3600", expr: { call: divide, args: [p85s, 3600.0] }, format: { kind: number, decimals: 1, suffix: " h" } }
-          encoding: { as: xy, series: line, x: week, y: [median, p85] }
+            - { id: low, label: 25th percentile, op: value, field: p25, format: { kind: duration, from: seconds, to: auto } }
+            - { id: mid, label: Median, op: value, field: p50, format: { kind: duration, from: seconds, to: auto } }
+            - { id: high, label: 75th percentile, op: value, field: p75, format: { kind: duration, from: seconds, to: auto } }
+          encoding: { as: band, x: week, low: low, mid: mid, high: high }
 
   - id: people-vs-bots
     title: Merged pull requests, people and automation
     description: "How much of the merged work each week was opened by bots (dependency updates, release automation)."
-    grid: { x: 0, y: 10, w: 24, h: 10 }
+    grid: { x: 0, y: 16, w: 24, h: 10 }
     content:
       type: chart
       kind: xy
@@ -85,7 +194,7 @@ panels:
 
   - id: commits
     title: Commits per week, people and automation
-    grid: { x: 24, y: 10, w: 24, h: 10 }
+    grid: { x: 24, y: 16, w: 24, h: 10 }
     content:
       type: chart
       kind: xy
@@ -106,7 +215,7 @@ panels:
   - id: build-results
     title: CI runs by result
     description: "Share of workflow runs each week by conclusion: the success rate is the green share."
-    grid: { x: 0, y: 20, w: 24, h: 10 }
+    grid: { x: 0, y: 26, w: 24, h: 10 }
     content:
       type: chart
       kind: xy
@@ -126,8 +235,8 @@ panels:
 
   - id: build-duration
     title: CI run duration, successful runs
-    description: "Wall-clock time of successful workflow runs: the median and the 85th percentile per week."
-    grid: { x: 24, y: 20, w: 24, h: 10 }
+    description: "Wall-clock time of successful workflow runs: each week's median inside its middle 50% (25th to 75th percentile)."
+    grid: { x: 24, y: 26, w: 24, h: 10 }
     content:
       type: chart
       kind: xy
@@ -138,20 +247,20 @@ panels:
             interval: 1w
             filters: [{ field: result, op: eq, value: success }]
             columns:
+              - { id: p25, op: percentile, field: duration_seconds, p: 25 }
               - { id: p50, op: median, field: duration_seconds }
-              - { id: p85, op: percentile, field: duration_seconds, p: 85 }
+              - { id: p75, op: percentile, field: duration_seconds, p: 75 }
           columns:
             - { id: week, label: Week, op: value, field: t }
-            - { id: p50s, op: value, field: p50, helper: true }
-            - { id: p85s, op: value, field: p85, helper: true }
-            - { id: median, label: Median, op: formula, text: "median / 60", expr: { call: divide, args: [p50s, 60.0] }, format: { kind: number, decimals: 1, suffix: " min" } }
-            - { id: p85, label: 85th percentile, op: formula, text: "p85 / 60", expr: { call: divide, args: [p85s, 60.0] }, format: { kind: number, decimals: 1, suffix: " min" } }
-          encoding: { as: xy, series: line, x: week, y: [median, p85] }
+            - { id: low, label: 25th percentile, op: value, field: p25, format: { kind: duration, from: seconds, to: auto } }
+            - { id: mid, label: Median, op: value, field: p50, format: { kind: duration, from: seconds, to: auto } }
+            - { id: high, label: 75th percentile, op: value, field: p75, format: { kind: duration, from: seconds, to: auto } }
+          encoding: { as: band, x: week, low: low, mid: mid, high: high }
 
   - id: releases
     title: Releases per week
     description: "Published releases (not drafts or pre-releases), by repository: insight's stand-in for deployments until a CD source is collected."
-    grid: { x: 0, y: 30, w: 24, h: 10 }
+    grid: { x: 0, y: 36, w: 24, h: 10 }
     content:
       type: chart
       kind: xy
@@ -167,7 +276,7 @@ panels:
             columns: [{ id: n, op: count }]
           columns:
             - { id: week, label: Week, op: value, field: t }
-            - { id: repo, label: Repository, op: value, field: repo }
+            - { id: repo, label: Repository, op: value, field: repo, shorten: true }
             - { id: n, label: Releases, op: value, field: n }
           encoding: { as: xy, series: bar_stacked, x: week, y: [n], split: repo, colors: stable }
 
@@ -175,7 +284,7 @@ panels:
   - id: security
     title: Security alerts raised, by severity
     description: "Dependabot and code-scanning alerts by the week they were raised."
-    grid: { x: 24, y: 30, w: 24, h: 10 }
+    grid: { x: 24, y: 36, w: 24, h: 10 }
     content:
       type: chart
       kind: xy
@@ -195,7 +304,7 @@ panels:
   - id: open-alerts
     title: Open security alerts by repository
     description: "Alerts raised in the time range that are still open."
-    grid: { x: 0, y: 40, w: 24, h: 10 }
+    grid: { x: 0, y: 46, w: 24, h: 10 }
     content:
       type: chart
       kind: table
@@ -207,7 +316,7 @@ panels:
             group_by: [{ field: repo }, { field: severity }]
             columns: [{ id: n, op: count }]
           columns:
-            - { id: repo, label: Repository, op: value, field: repo }
+            - { id: repo, label: Repository, op: value, field: repo, shorten: true }
             - { id: severity, label: Severity, op: value, field: severity }
             - { id: n, label: Open alerts, op: value, field: n }
           encoding: { as: table, columns: [repo, severity, n] }
@@ -216,7 +325,7 @@ panels:
   - id: ai-lines
     title: AI-written lines accepted, cumulative
     description: "Running total of lines accepted from git-ai sessions, by repository. A session can span commits and git-ai counts its accepted lines cumulatively, so this totals each session once. Widen the time range to see earlier AI-heavy work."
-    grid: { x: 24, y: 40, w: 24, h: 10 }
+    grid: { x: 24, y: 46, w: 24, h: 10 }
     content:
       type: chart
       kind: xy
@@ -231,7 +340,7 @@ panels:
               - { id: lines, op: sum, field: accepted }
           columns:
             - { id: week, label: Week, op: value, field: t }
-            - { id: repo, label: Repository, op: value, field: repo }
+            - { id: repo, label: Repository, op: value, field: repo, shorten: true }
             - { id: lines, label: AI lines accepted (total), op: value, field: lines }
           encoding: { as: xy, series: area_stacked, x: week, y: [lines], split: repo, colors: stable }
 
@@ -239,7 +348,7 @@ panels:
   - id: duplication
     title: Duplication by team
     description: "Duplicated lines as a share of significant lines, from mimeo. The Duplication dashboard has the detail."
-    grid: { x: 0, y: 50, w: 24, h: 10 }
+    grid: { x: 0, y: 56, w: 24, h: 10 }
     content:
       type: chart
       kind: xy
@@ -264,7 +373,7 @@ panels:
   - id: code-size
     title: Code size by repository
     description: "Each repository's latest analysis."
-    grid: { x: 24, y: 50, w: 24, h: 10 }
+    grid: { x: 24, y: 56, w: 24, h: 10 }
     content:
       type: chart
       kind: table
@@ -280,7 +389,7 @@ panels:
               - { id: langs, op: last_value, field: language_count }
               - { id: primary, op: last_value, field: primary_language }
           columns:
-            - { id: repo, label: Repository, op: value, field: repo }
+            - { id: repo, label: Repository, op: value, field: repo, shorten: true }
             - { id: team, label: Team, op: value, field: team }
             - { id: lines, label: Lines, op: value, field: lines }
             - { id: files, label: Files, op: value, field: files }
@@ -292,7 +401,7 @@ panels:
   - id: collection
     title: Collection runs
     description: "Each organization's latest collection cycle from insight-collect: a partial or failed outcome means some repositories weren't collected."
-    grid: { x: 0, y: 60, w: 48, h: 7 }
+    grid: { x: 0, y: 66, w: 48, h: 5 }
     content:
       type: chart
       kind: table

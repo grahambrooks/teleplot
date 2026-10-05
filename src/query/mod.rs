@@ -312,7 +312,10 @@ impl Plan {
                 })
                 .collect();
             let layer = match evaluate_layer(plan, built, &group_responses) {
-                Ok(layer) => layer,
+                Ok(mut layer) => {
+                    shorten_columns(&plan.layer, &mut layer);
+                    layer
+                }
                 Err(e) => LayerData {
                     layer: plan.layer.id.clone(),
                     error: Some(e),
@@ -1424,7 +1427,43 @@ fn evaluate_layer(
         counts: main_rows.iter().map(|r| r.count).collect(),
         error: None,
         dates: Vec::new(),
+        buckets: Vec::new(),
     })
+}
+
+/// Columns marked `shorten` drop an `owner/` prefix that every text value
+/// shares.
+fn shorten_columns(layer: &Layer, data: &mut LayerData) {
+    for column in layer.columns.iter().filter(|c| c.shorten) {
+        if let Some(series) = data.columns.iter_mut().find(|s| s.id == column.id) {
+            shorten_values(&mut series.values);
+        }
+    }
+}
+
+fn shorten_values(values: &mut [Cell]) {
+    let owner = |c: &Cell| match c {
+        Cell::Text(t) => t.split_once('/').map(|(o, _)| o.to_string()),
+        _ => None,
+    };
+    let mut owners = values
+        .iter()
+        .filter(|c| !matches!(c, Cell::Null))
+        .map(owner);
+    let Some(Some(first)) = owners.next() else {
+        return;
+    };
+    if !owners.all(|o| o.as_deref() == Some(first.as_str())) {
+        return;
+    }
+    let prefix = format!("{first}/");
+    for cell in values.iter_mut() {
+        if let Cell::Text(t) = cell
+            && let Some(rest) = t.strip_prefix(&prefix)
+        {
+            *t = rest.to_string();
+        }
+    }
 }
 
 /// One cell of a document row, from the `fields` API's array of values. A
@@ -1496,6 +1535,7 @@ fn evaluate_documents(
         counts: Vec::new(),
         error: None,
         dates: Vec::new(),
+        buckets: Vec::new(),
     })
 }
 
@@ -1554,10 +1594,20 @@ fn evaluate_esql(
             values: columns.remove(&c.id).unwrap_or_else(|| vec![Cell::Null; n]),
         })
         .collect();
+    // insight's bucket starts (RFC 3339), for a time axis without holes.
+    let buckets = response["buckets"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|b| b.as_str())
+        .filter_map(|b| b.parse::<jiff::Timestamp>().ok())
+        .map(|t| t.as_millisecond() as f64)
+        .collect();
     Ok(LayerData {
         layer: plan.layer.id.clone(),
         rows: n,
         columns: series,
+        buckets,
         counts: Vec::new(),
         error: None,
         dates,
@@ -1723,6 +1773,25 @@ fn duration(ms: i64) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn shortened_values_drop_a_shared_owner_only() {
+        let text = |v: &[&str]| {
+            v.iter()
+                .map(|t| Cell::Text(t.to_string()))
+                .collect::<Vec<_>>()
+        };
+        let mut one_owner = text(&["acme/payments", "acme/billing"]);
+        one_owner.push(Cell::Null);
+        super::shorten_values(&mut one_owner);
+        assert_eq!(one_owner[..2], text(&["payments", "billing"]));
+        let mut two_owners = text(&["acme/payments", "globex/billing"]);
+        super::shorten_values(&mut two_owners);
+        assert_eq!(two_owners, text(&["acme/payments", "globex/billing"]));
+        let mut no_owner = text(&["payments", "acme/billing"]);
+        super::shorten_values(&mut no_owner);
+        assert_eq!(no_owner, text(&["payments", "acme/billing"]));
+    }
+
     use super::*;
     use jiff::ToSpan;
 
@@ -1991,6 +2060,7 @@ mod tests {
             format: None,
             helper: false,
             thresholds: Vec::new(),
+            shorten: false,
         };
         let chart = |x: Operation| Chart {
             kind: ChartKind::Xy,
@@ -2098,6 +2168,7 @@ mod tests {
             format: None,
             helper: false,
             thresholds: Vec::new(),
+            shorten: false,
         }
     }
 
@@ -2237,6 +2308,8 @@ mod tests {
                     group_by: vec![InsightGroupBy {
                         field: "team".into(),
                         size: None,
+                        order_by: None,
+                        rest: None,
                     }],
                     columns: vec![InsightColumn {
                         id: "dup".into(),

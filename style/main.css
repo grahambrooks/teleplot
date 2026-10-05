@@ -562,3 +562,7 @@ html.printing .panel { break-inside: avoid; }
 .facet .timechart { flex: 1; min-height: 0; }
 .facet .u-legend { font-size: 11px; line-height: 1.2; }
 .facet .u-legend .u-label { display: none; }
+
+/* The x entry of a chart legend names the hovered bucket; idle, it is empty
+   and would show a bare "Time:". */
+.u-legend .u-series:first-child:has(.u-value:empty) { display: none; }

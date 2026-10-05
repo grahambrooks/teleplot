@@ -343,6 +343,15 @@ pub fn xy(chart: &Chart, data: &PanelData, min_samples: Option<u32>) -> Xy {
     let x = match x_kind {
         Some('t') | Some('n') => {
             let mut keys: Vec<f64> = points.iter().filter_map(|p| p.x.number()).collect();
+            // Empty buckets too, so bars keep the interval's width and the
+            // axis spans the range when only a few buckets have data.
+            if x_kind == Some('t') {
+                for (layer, d) in chart.layers.iter().zip(&data.layers) {
+                    if matches!(&layer.encoding, Encoding::Xy { x: Some(_), .. }) {
+                        keys.extend(&d.buckets);
+                    }
+                }
+            }
             keys.sort_by(f64::total_cmp);
             keys.dedup();
             if x_kind == Some('t') {
@@ -1537,6 +1546,7 @@ mod tests {
             format: None,
             helper: false,
             thresholds: Vec::new(),
+            shorten: false,
         }
     }
 
@@ -1610,6 +1620,7 @@ mod tests {
                     .collect(),
                 error: None,
                 dates: Vec::new(),
+                buckets: Vec::new(),
             }],
             warnings: vec![],
             annotations: vec![],
@@ -1752,6 +1763,8 @@ mod tests {
             decimals: None,
             suffix: Some(" h".into()),
             compact: false,
+            from: None,
+            to: None,
         });
         let label = |k| log_range_label(k, &bounds, hours.as_ref()).unwrap();
         assert_eq!(label(2.0), "< 5 h");
