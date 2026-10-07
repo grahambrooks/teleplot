@@ -66,14 +66,6 @@ jobs:
         options: >-
           --health-cmd "curl -sf http://localhost:9200/_cluster/health?wait_for_status=yellow"
           --health-interval 5s --health-retries 60
-      kibana9:
-        image: docker.elastic.co/kibana/kibana:9.5.3
-        env:
-          ELASTICSEARCH_HOSTS: http://es9:9200
-        ports: ["5601:5601"]
-        options: >-
-          --health-cmd "curl -sf http://localhost:5601/api/status | grep -q '\"level\":\"available\"'"
-          --health-interval 5s --health-retries 120
     steps:
       - uses: actions/checkout@v5
 
@@ -88,9 +80,22 @@ jobs:
 
       - name: Install Kibana Logs sample data
         run: |
+          docker run --detach --rm --network host --name teleplot-kibana9 \
+            --env ELASTICSEARCH_HOSTS=http://localhost:9209 \
+            docker.elastic.co/kibana/kibana:9.5.3
+          for _ in {1..120}; do
+            if curl -fsS http://localhost:5601/api/status | grep -q '"level":"available"'; then
+              break
+            fi
+            sleep 5
+          done
           curl -sf -X POST http://localhost:5601/api/sample_data/logs \
             -H 'kbn-xsrf: true' \
             -H 'x-elastic-internal-origin: kibana' >/dev/null
+
+      - name: Stop Kibana
+        if: always()
+        run: docker stop teleplot-kibana9 || true
 
       - name: Kibana parity tests
         env:
