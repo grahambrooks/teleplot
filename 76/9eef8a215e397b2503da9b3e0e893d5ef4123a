@@ -1,0 +1,21 @@
+AGENTS.md
+  s_3e4de78dde6f5b::t_bcde58b55bd925 1-70
+CLAUDE.md
+  s_3e4de78dde6f5b::t_bcde58b55bd925 1,3-5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "769eef8a215e397b2503da9b3e0e893d5ef4123a",
+  "prompts": {},
+  "sessions": {
+    "s_3e4de78dde6f5b": {
+      "agent_id": {
+        "tool": "github-copilot-cli",
+        "id": "03f28273-c3ef-424d-9945-c7ab32a3ecdd",
+        "model": "unknown"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
