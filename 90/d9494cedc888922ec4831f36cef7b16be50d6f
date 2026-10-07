@@ -1,0 +1,19 @@
+.github/workflows/ci.yml
+  s_3e4de78dde6f5b::t_abdd4f73e0ecc3 89
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "90d9494cedc888922ec4831f36cef7b16be50d6f",
+  "prompts": {},
+  "sessions": {
+    "s_3e4de78dde6f5b": {
+      "agent_id": {
+        "tool": "github-copilot-cli",
+        "id": "03f28273-c3ef-424d-9945-c7ab32a3ecdd",
+        "model": "unknown"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
