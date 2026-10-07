@@ -86,7 +86,7 @@ jobs:
             --env ELASTICSEARCH_HOSTS=http://host.docker.internal:9209 \
             docker.elastic.co/kibana/kibana:9.5.3
           ready=0
-          for _ in {1..120}; do
+          for _ in {1..36}; do
             if curl -fsS http://localhost:5601/api/status |
               jq -e '.status.overall.level == "available"' >/dev/null; then
               ready=1
