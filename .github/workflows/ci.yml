@@ -87,18 +87,19 @@ jobs:
             docker.elastic.co/kibana/kibana:9.5.3
           ready=0
           for _ in {1..36}; do
-            if curl -fsS http://localhost:5601/api/status |
+            if curl --connect-timeout 1 --max-time 3 -fsS http://localhost:5601/api/status |
               jq -e '.status.overall.level == "available"' >/dev/null; then
               ready=1
               break
             fi
-            sleep 5
+            sleep 2
           done
           if [ "$ready" -ne 1 ]; then
             docker logs teleplot-kibana9
             exit 1
           fi
-          curl -sf -X POST http://localhost:5601/api/sample_data/logs \
+          curl --connect-timeout 5 --max-time 120 -sf -X POST \
+            http://localhost:5601/api/sample_data/logs \
             -H 'kbn-xsrf: true' \
             -H 'x-elastic-internal-origin: kibana' >/dev/null
 
