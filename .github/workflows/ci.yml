@@ -78,34 +78,24 @@ jobs:
           cargo run -q --example seed -- --es http://localhost:9208 --end 2026-10-01
           cargo run -q --example seed -- --es http://localhost:9209 --end 2026-10-01
 
-      - name: Install Kibana Logs sample data
+      - name: Seed the ES|QL Logs fixture
         run: |
-          docker run --detach --rm --name teleplot-kibana9 \
-            --add-host host.docker.internal:host-gateway \
-            --publish 5601:5601 \
-            --env ELASTICSEARCH_HOSTS=http://host.docker.internal:9209 \
-            docker.elastic.co/kibana/kibana:9.5.3
-          ready=0
-          for _ in {1..36}; do
-            if curl --connect-timeout 1 --max-time 3 -fsS http://localhost:5601/api/status |
-              jq -e '.status.overall.level == "available"' >/dev/null; then
-              ready=1
-              break
-            fi
-            sleep 2
-          done
-          if [ "$ready" -ne 1 ]; then
-            docker logs teleplot-kibana9
-            exit 1
-          fi
-          curl --connect-timeout 5 --max-time 120 -sf -X POST \
-            http://localhost:5601/api/sample_data/logs \
-            -H 'kbn-xsrf: true' \
-            -H 'x-elastic-internal-origin: kibana' >/dev/null
-
-      - name: Stop Kibana
-        if: always()
-        run: docker stop teleplot-kibana9 || true
+          es=http://localhost:9209
+          now=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
+          curl -fsS -X PUT "$es/kibana_sample_data_logs" \
+            -H 'content-type: application/json' \
+            -d '{"mappings":{"properties":{"@timestamp":{"type":"date"},"timestamp":{"type":"date"},"bytes":{"type":"long"},"clientip":{"type":"keyword"},"tags":{"type":"keyword"},"response":{"type":"text","fields":{"keyword":{"type":"keyword"}}},"url":{"type":"text","fields":{"keyword":{"type":"keyword"}}},"extension":{"type":"text","fields":{"keyword":{"type":"keyword"}}}}}}' >/dev/null
+          curl -fsS -X POST "$es/kibana_sample_data_logs/_bulk" \
+            -H 'content-type: application/x-ndjson' --data-binary @- <<EOF | jq -e '.errors == false' >/dev/null
+          {"index":{}}
+          {"@timestamp":"$now","timestamp":"$now","bytes":1024,"clientip":"203.0.113.1","tags":["error","security"],"response":"200","url":"/index.html","extension":"html"}
+          {"index":{}}
+          {"@timestamp":"$now","timestamp":"$now","bytes":2048,"clientip":"203.0.113.2","tags":["error"],"response":"404","url":"/missing.html","extension":"html"}
+          {"index":{}}
+          {"@timestamp":"$now","timestamp":"$now","bytes":8192,"clientip":"203.0.113.1","tags":["security"],"response":"500","url":"/api","extension":"json"}
+          EOF
+          curl -fsS -X POST "$es/kibana_sample_data_logs/_refresh" >/dev/null
+          test "$(curl -fsS "$es/kibana_sample_data_logs/_count" | jq -r .count)" = 3
 
       - name: Kibana parity tests
         env:
