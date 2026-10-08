@@ -2,7 +2,7 @@
 name = "teleplot"
 version = "0.0.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.99.0"
 license = "Apache-2.0"
 description = "Fast, Grafana-styled dashboards over Elasticsearch that render Kibana exports — one binary"
 repository = "https://github.com/grahambrooks/teleplot"
