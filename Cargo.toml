@@ -44,7 +44,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = tr
 
 # client only
 console_error_panic_hook = { version = "0.1", optional = true }
-gloo-net = { version = "0.6", default-features = false, features = ["http", "json"], optional = true }
+gloo-net = { version = "0.7", default-features = false, features = ["http", "json"], optional = true }
 js-sys = { version = "0.3", optional = true }
 wasm-bindgen = { version = "0.2", optional = true }
 web-sys = { version = "0.3", features = ["Blob", "BlobPropertyBag", "CanvasRenderingContext2d", "DomTokenList", "HtmlAnchorElement", "HtmlCanvasElement", "NodeList", "TextMetrics", "Url", "CssStyleDeclaration", "Document", "Element", "HtmlElement", "ResizeObserver", "Window"], optional = true }
