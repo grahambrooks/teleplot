@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 640" width="1200" height="640" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-labelledby="t d">
+  <title id="t">How Teleplot works</title>
+  <desc id="d">Kibana exports, Teleplot YAML and agents over MCP feed one teleplot binary, which reads Elasticsearch 8.x and 9.x and serves dashboards to a browser, PNG and PDF export, and a CLI.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#8e9bb0"/>
+    </marker>
+    <linearGradient id="core" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1f2a3d"/>
+      <stop offset="1" stop-color="#181b22"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="640" rx="16" fill="#111217"/>
+
+  <text x="40" y="58" fill="#e6e9ef" font-size="28" font-weight="600">Teleplot</text>
+  <text x="160" y="58" fill="#8e9bb0" font-size="18">Kibana simplicity, Grafana styling, one binary. View-only, read-only, localhost.</text>
+
+  <!-- Inputs -->
+  <text x="40" y="118" fill="#8e9bb0" font-size="13" font-weight="600" letter-spacing="1.5">DASHBOARDS IN</text>
+  <g font-size="15">
+    <rect x="40" y="134" width="270" height="72" rx="10" fill="#181b1f" stroke="#2c3240"/>
+    <text x="60" y="164" fill="#e6e9ef" font-weight="600">Kibana exports</text>
+    <text x="60" y="187" fill="#8e9bb0" font-size="13">.ndjson from Saved Objects, 8.x and 9.x</text>
+
+    <rect x="40" y="222" width="270" height="72" rx="10" fill="#181b1f" stroke="#2c3240"/>
+    <text x="60" y="252" fill="#e6e9ef" font-weight="600">Teleplot YAML</text>
+    <text x="60" y="275" fill="#8e9bb0" font-size="13">hand-written, linted, in git</text>
+
+    <rect x="40" y="310" width="270" height="72" rx="10" fill="#181b1f" stroke="#2c3240"/>
+    <text x="60" y="340" fill="#e6e9ef" font-weight="600">Agents over MCP</text>
+    <text x="60" y="363" fill="#8e9bb0" font-size="13">discover fields, preview, save safely</text>
+  </g>
+  <text x="40" y="410" fill="#8e9bb0" font-size="13">Files reload on change. No restart.</text>
+
+  <path d="M318 170 C 360 170, 360 250, 400 250" fill="none" stroke="#8e9bb0" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M318 258 L 400 258" fill="none" stroke="#8e9bb0" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M318 346 C 360 346, 360 266, 400 266" fill="none" stroke="#8e9bb0" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Core -->
+  <rect x="408" y="104" width="384" height="320" rx="14" fill="url(#core)" stroke="#5794f2" stroke-width="2"/>
+  <text x="432" y="144" fill="#e6e9ef" font-size="22" font-weight="700">teleplot</text>
+  <text x="532" y="144" fill="#8e9bb0" font-size="14">single Rust binary, UI embedded</text>
+  <g font-size="14">
+    <rect x="432" y="164" width="336" height="50" rx="8" fill="#111217" stroke="#2c3240"/>
+    <text x="448" y="186" fill="#e6e9ef" font-weight="600">Kibana → dashboard model</text>
+    <text x="448" y="204" fill="#8e9bb0" font-size="12">panels it can't draw become labelled placeholders</text>
+
+    <rect x="432" y="222" width="336" height="50" rx="8" fill="#111217" stroke="#2c3240"/>
+    <text x="448" y="244" fill="#e6e9ef" font-weight="600">KQL → Query DSL, ES|QL panels</text>
+    <text x="448" y="262" fill="#8e9bb0" font-size="12">ported rule for rule from Kibana's grammar</text>
+
+    <rect x="432" y="280" width="336" height="50" rx="8" fill="#111217" stroke="#2c3240"/>
+    <text x="448" y="302" fill="#e6e9ef" font-weight="600">One _msearch per dashboard</text>
+    <text x="448" y="320" fill="#8e9bb0" font-size="12">Kibana's interval and pipeline semantics, cached</text>
+
+    <rect x="432" y="338" width="336" height="50" rx="8" fill="#111217" stroke="#2c3240"/>
+    <text x="448" y="360" fill="#e6e9ef" font-weight="600">Leptos UI + uPlot charts</text>
+    <text x="448" y="378" fill="#8e9bb0" font-size="12">WASM client served from the binary itself</text>
+  </g>
+
+  <!-- Elasticsearch -->
+  <path d="M800 264 L 900 264" fill="none" stroke="#8e9bb0" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="812" y="252" fill="#8e9bb0" font-size="12">reads only</text>
+  <g>
+    <path d="M910 170 v170 a 120 26 0 0 0 240 0 v-170" fill="#181b1f" stroke="#f2cc0c" stroke-width="2"/>
+    <ellipse cx="1030" cy="170" rx="120" ry="26" fill="#22252b" stroke="#f2cc0c" stroke-width="2"/>
+    <text x="1030" y="258" fill="#e6e9ef" font-size="18" font-weight="600" text-anchor="middle">Elasticsearch</text>
+    <text x="1030" y="282" fill="#8e9bb0" font-size="14" text-anchor="middle">8.x and 9.x</text>
+    <text x="1030" y="306" fill="#8e9bb0" font-size="13" text-anchor="middle">API key, basic auth, Cloud ID</text>
+  </g>
+
+  <!-- Outputs -->
+  <path d="M600 432 L 600 470" fill="none" stroke="#8e9bb0" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M600 450 L 200 450 L 200 476" fill="none" stroke="#8e9bb0" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M600 450 L 1000 450 L 1000 476" fill="none" stroke="#8e9bb0" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <g font-size="15">
+    <rect x="40" y="484" width="320" height="104" rx="10" fill="#181b1f" stroke="#73bf69"/>
+    <text x="60" y="514" fill="#e6e9ef" font-weight="600">Dashboards in the browser</text>
+    <text x="60" y="538" fill="#8e9bb0" font-size="13">127.0.0.1:3000, dark and light themes</text>
+    <text x="60" y="560" fill="#8e9bb0" font-size="13">KQL filter bar, Inspect, CSV per panel</text>
+
+    <rect x="440" y="484" width="320" height="104" rx="10" fill="#181b1f" stroke="#73bf69"/>
+    <text x="460" y="514" fill="#e6e9ef" font-weight="600">Export</text>
+    <text x="460" y="538" fill="#8e9bb0" font-size="13">PNG per panel</text>
+    <text x="460" y="560" fill="#8e9bb0" font-size="13">PDF through the print stylesheet</text>
+
+    <rect x="840" y="484" width="320" height="104" rx="10" fill="#181b1f" stroke="#73bf69"/>
+    <text x="860" y="514" fill="#e6e9ef" font-weight="600">CLI for CI and scripts</text>
+    <text x="860" y="538" fill="#8e9bb0" font-size="13" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">check · lint · convert · query</text>
+    <text x="860" y="560" fill="#8e9bb0" font-size="13" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">schema · mcp</text>
+  </g>
+
+  <text x="40" y="620" fill="#5c6577" font-size="12">Built for software-delivery analytics: DORA, cycle time, throughput, investment. Teams and repos, never individuals.</text>
+</svg>

@@ -4,6 +4,19 @@ Fast, view-only dashboards over Elasticsearch. Teleplot renders Kibana dashboard
 exports (`.ndjson`) and its own YAML dashboards, ships as a single binary, and
 only ever reads from Elasticsearch. It targets ES/Kibana 8.x and 9.x.
 
+![The Delivery Overview dashboard: DORA metrics with performance bands, lead time percentiles, PR cycle time scatter and heatmap, and investment allocation](docs/images/delivery-overview.png)
+
+## How it works
+
+![Kibana exports, Teleplot YAML and agents over MCP feed one teleplot binary, which reads Elasticsearch 8.x and 9.x and serves dashboards to a browser, PNG and PDF export, and a CLI](docs/images/how-it-works.svg)
+
+Bring the Kibana dashboards you already have. This is a Kibana export of a
+DORA dashboard, rendered by Teleplot unchanged:
+
+![A Kibana DORA dashboard export rendered by Teleplot](docs/images/kibana-export.png)
+
+The screenshots show the synthetic data from `cargo run --example seed`.
+
 ## Install
 
 Download the archive for your platform from the
