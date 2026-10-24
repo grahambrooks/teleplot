@@ -1,0 +1,40 @@
+LICENSE
+  s_6938b2c20843a6::t_9e2cb08d3f5842 1-176
+.github/workflows/release.yml
+  s_6938b2c20843a6::t_c3df44fe9a66a1 1-2,12-88,114-115,117-133,138-139,153-160,163-257
+  s_6938b2c20843a6::t_1c70059a3af196 3-11
+  s_6938b2c20843a6::t_bbd532ff2e2d1e 143-144,147-149
+  s_6938b2c20843a6::t_b3767c140757f5 140,161-162
+  s_6938b2c20843a6::t_3f64cabd5bf7bd 89-113,116,134-137,141-142,145-146,150-152
+rust-toolchain.toml
+  s_6938b2c20843a6::t_021a39b492d4b9 1-6
+README.md
+  s_6938b2c20843a6::t_218762f7fafc11 33-34
+  s_6938b2c20843a6::t_2e3d0f8ce35d2d 7-28
+scripts/release.py
+  s_6938b2c20843a6::t_c3df44fe9a66a1 1-279
+deny.toml
+  s_6938b2c20843a6::t_30bae6652cea65 28-30
+AGENTS.md
+  s_6938b2c20843a6::t_68c5cf55d2aa2c 44
+scripts/smoke.sh
+  s_6938b2c20843a6::t_1372831cbe7d8b 11-12,14
+.release.env
+  s_6938b2c20843a6::t_c3df44fe9a66a1 1-10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "39eb1ec7de79542b7da9931723b8c1942a1c20e8",
+  "prompts": {},
+  "sessions": {
+    "s_6938b2c20843a6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "20a3cd71-70f9-478e-ace8-a1617f1229cd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
