@@ -1,0 +1,21 @@
+docs/images/how-it-works.svg
+  s_6938b2c20843a6::t_1c2f666e373c14 1-96
+README.md
+  s_6938b2c20843a6::t_b83c5dbf0497fa 7-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d4f346fc2cb797abc15805ccb4b1484cac941f9c",
+  "prompts": {},
+  "sessions": {
+    "s_6938b2c20843a6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "20a3cd71-70f9-478e-ace8-a1617f1229cd",
+        "model": "unknown"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
