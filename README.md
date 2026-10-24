@@ -4,15 +4,34 @@ Fast, view-only dashboards over Elasticsearch. Teleplot renders Kibana dashboard
 exports (`.ndjson`) and its own YAML dashboards, ships as a single binary, and
 only ever reads from Elasticsearch. It targets ES/Kibana 8.x and 9.x.
 
+## Install
+
+Download the archive for your platform from the
+[latest release](https://github.com/grahambrooks/teleplot/releases/latest)
+(macOS arm64/x64, Linux arm64/x64, Windows x64), check it against
+`SHA256SUMS`, and unpack it. The one binary holds the UI, so you can run it from
+any directory:
+
+```sh
+teleplot serve --es http://localhost:9200 --dashboards path/to/exports
+```
+
+Then open <http://127.0.0.1:3000>. For auth and other settings, see
+[Pointing it at your own cluster](#pointing-it-at-your-own-cluster-and-dashboards).
+
+With Homebrew (macOS and Linux):
+
+```sh
+brew tap grahambrooks/teleplot https://github.com/grahambrooks/teleplot
+brew install grahambrooks/teleplot/teleplot
+```
+
 ## Running it after cloning
 
 ### 1. Install the toolchain
 
-- Rust 1.88 or newer (stable), with the WebAssembly target:
-
-  ```sh
-  rustup target add wasm32-unknown-unknown
-  ```
+- [rustup](https://rustup.rs). `rust-toolchain.toml` pins the compiler
+  (1.99.0) and the WebAssembly target, and rustup installs both on first build.
 
 - [cargo-leptos](https://github.com/leptos-rs/cargo-leptos), which builds the
   server and the browser client together:

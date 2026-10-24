@@ -1,0 +1,6 @@
+# One compiler for laptops, CI and every release runner. Keep in step with
+# `rust-version` in Cargo.toml.
+[toolchain]
+channel = "1.99.0"
+targets = ["wasm32-unknown-unknown"]
+components = ["rustfmt", "clippy"]

@@ -25,6 +25,9 @@ ignore = [
     # Revisit when upgrading leptos (0.9 is in beta).
     { id = "RUSTSEC-2024-0436", reason = "paste: transitive via leptos macros" },
     { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2: transitive via leptos_macro" },
+    # Unmaintained (no known vulnerability). The YAML parser under serde_yaml_ng;
+    # replacing it changes lint messages and converted YAML, so it is its own change.
+    { id = "RUSTSEC-2024-0449", reason = "unsafe-libyaml: via serde_yaml_ng; migrate to serde-saphyr" },
 ]
 
 [licenses]

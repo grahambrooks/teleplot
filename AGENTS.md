@@ -41,6 +41,7 @@ Ingestion/ETL · writing to ES (except the dev-only fixture seeder) · UI editin
 * Performance: `docs/performance.md` has the numbers and how to reproduce them (`seed --scale 185 --prefix perf-`, then `cargo run --release --example bench`)
 * `make fixtures` — rebuild Kibana fixtures against dockerised ES/Kibana 8.19 and 9.5 (see `fixtures/README.md`). Fixtures are Kibana's own exports; review the screenshots before committing
 * Hooks: `prek install --hook-type pre-commit --hook-type pre-push`
+* Release: push a CalVer tag (`vYYYY.M.N`). `.github/workflows/release.yml` is release-kit v2 with one deviation (the client is built once and embedded per target), so don't re-sync it with `stamp.sh`. `rust-toolchain.toml` pins the compiler; bump it with `rust-version`
 
 CLI:
 

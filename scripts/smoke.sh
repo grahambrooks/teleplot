@@ -8,9 +8,10 @@ port=${SMOKE_PORT:-3917}
 dir=$(mktemp -d)
 trap '{ kill "$pid"; wait "$pid"; } 2>/dev/null || true; rm -rf "$dir"' EXIT
 
-cp "$bin" "$dir/teleplot"
+name=$(basename "$bin")
+cp "$bin" "$dir/$name"
 cd "$dir"
-./teleplot serve --addr "127.0.0.1:$port" >server.log 2>&1 &
+"./$name" serve --addr "127.0.0.1:$port" >server.log 2>&1 &
 pid=$!
 
 for _ in $(seq 1 50); do
