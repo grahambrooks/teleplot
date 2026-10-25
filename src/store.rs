@@ -65,7 +65,7 @@ pub fn save(
     let path = agents_dir.join(format!("{id}.yaml"));
     let yaml = format!(
         "# Written by an agent through Teleplot's MCP endpoint. Edit freely; agents\n# must re-read it (and its hash) before changing it again.\n{}",
-        serde_yaml_ng::to_string(dashboard).map_err(|e| e.to_string())?
+        crate::yaml::to_string(dashboard).map_err(|e| e.to_string())?
     );
     std::fs::create_dir_all(agents_dir).map_err(|e| format!("{}: {e}", agents_dir.display()))?;
 
@@ -135,7 +135,7 @@ mod tests {
     }
 
     fn dashboard(id: &str, title: &str) -> Dashboard {
-        serde_yaml_ng::from_str(&format!("id: {id}\ntitle: {title}\npanels: []\n")).unwrap()
+        crate::yaml::from_str(&format!("id: {id}\ntitle: {title}\npanels: []\n")).unwrap()
     }
 
     #[test]

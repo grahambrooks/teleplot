@@ -5,7 +5,7 @@ expression: yaml(&read(path))
 ---
 id: edge-legacy-indexpattern
 title: Lens with pre-8.6 indexpattern datasource
-description: 'Edge case: Lens with pre-8.6 indexpattern datasource'
+description: "Edge case: Lens with pre-8.6 indexpattern datasource"
 time:
   from: now-90d/d
   to: now
@@ -22,7 +22,7 @@ panels:
     kind: metric
     query:
       language: kql
-      text: 'is_rework : false'
+      text: "is_rework : false"
     layers:
     - id: layer-lead-time
       data_view:
@@ -36,14 +36,14 @@ panels:
         format:
           kind: number
           decimals: 1
-          suffix: ' h'
+          suffix: " h"
       encoding:
         as: metric
         value: lt-median
 ---
 id: edge-broken-references
 title: Broken and missing references
-description: 'Edge case: Broken and missing references'
+description: "Edge case: Broken and missing references"
 time:
   from: now-90d/d
   to: now
@@ -60,7 +60,7 @@ panels:
     kind: metric
     query:
       language: kql
-      text: 'is_rework : false'
+      text: "is_rework : false"
     layers:
     - id: layer-lead-time
       data_view:
@@ -74,7 +74,7 @@ panels:
         format:
           kind: number
           decimals: 1
-          suffix: ' h'
+          suffix: " h"
       encoding:
         as: metric
         value: lt-median
@@ -103,7 +103,7 @@ panels:
 ---
 id: edge-unsupported-panels
 title: Unsupported panel types
-description: 'Edge case: Unsupported panel types'
+description: "Edge case: Unsupported panel types"
 time:
   from: now-90d/d
   to: now
@@ -120,7 +120,7 @@ panels:
     kind: metric
     query:
       language: kql
-      text: 'is_rework : false'
+      text: "is_rework : false"
     layers:
     - id: layer-lead-time
       data_view:
@@ -134,7 +134,7 @@ panels:
         format:
           kind: number
           decimals: 1
-          suffix: ' h'
+          suffix: " h"
       encoding:
         as: metric
         value: lt-median
@@ -164,7 +164,7 @@ panels:
 ---
 id: edge-panel-time-range
 title: Per-panel custom time range
-description: 'Edge case: Per-panel custom time range'
+description: "Edge case: Per-panel custom time range"
 time:
   from: now-90d/d
   to: now
@@ -184,7 +184,7 @@ panels:
     kind: metric
     query:
       language: kql
-      text: 'is_rework : false'
+      text: "is_rework : false"
     layers:
     - id: layer-lead-time
       data_view:
@@ -198,14 +198,14 @@ panels:
         format:
           kind: number
           decimals: 1
-          suffix: ' h'
+          suffix: " h"
       encoding:
         as: metric
         value: lt-median
 ---
 id: edge-lucene-and-filters
 title: Lucene query with assorted filter pills
-description: 'Edge case: Lucene query with assorted filter pills'
+description: "Edge case: Lucene query with assorted filter pills"
 time:
   from: now-90d/d
   to: now
@@ -252,7 +252,7 @@ panels:
     kind: metric
     query:
       language: kql
-      text: 'is_rework : false'
+      text: "is_rework : false"
     layers:
     - id: layer-lead-time
       data_view:
@@ -266,7 +266,7 @@ panels:
         format:
           kind: number
           decimals: 1
-          suffix: ' h'
+          suffix: " h"
       encoding:
         as: metric
         value: lt-median

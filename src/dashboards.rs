@@ -3,8 +3,6 @@
 
 use std::path::Path;
 
-use serde::Deserialize;
-
 use crate::model::Dashboard;
 
 /// Every dashboard in a file.
@@ -16,9 +14,7 @@ pub fn load_file(path: &Path) -> Result<Vec<Dashboard>, String> {
         .unwrap_or_default();
     let dashboards = match ext {
         "ndjson" | "json" => crate::kibana::read(&text),
-        "yaml" | "yml" => serde_yaml_ng::Deserializer::from_str(&text)
-            .map(|doc| Dashboard::deserialize(doc).map_err(|e| e.to_string()))
-            .collect(),
+        "yaml" | "yml" => crate::yaml::from_multiple(&text).map_err(|e| e.to_string()),
         other => Err(format!("unknown dashboard file type {other:?}")),
     };
     dashboards.map_err(|e| format!("{}: {e}", path.display()))

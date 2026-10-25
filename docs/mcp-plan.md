@@ -63,7 +63,7 @@ than 100 tools.
 | `list_indices` | read-only | Indexes and data streams, with document counts and time fields | `es` client |
 | `describe_index` | read-only | Fields and their types; which fields are aggregatable and which are dates; top 10 values of keyword fields; one sample document | `field_caps`, `query::terms_search` |
 | `list_dashboards` | read-only | Id, title, panel count, source (YAML, Kibana export, or agent-written) and file | `Catalog` |
-| `get_dashboard` | read-only | A summary by default (panels: title, type, metrics, index); `format: yaml` for the full file; a content `hash` for safe overwrites | `Catalog`, `serde_yaml_ng` |
+| `get_dashboard` | read-only | A summary by default (panels: title, type, metrics, index); `format: yaml` for the full file; a content `hash` for safe overwrites | `Catalog`, `crate::yaml` |
 | `validate_dashboard` | read-only, idempotent | Parses YAML or JSON into the model, then runs semantic checks against the live field caps. Returns every problem with its path (`panels[3].content.layers[0].columns[2]`) and a suggested fix | **new `src/lint`**, shared with `teleplot lint` (Part 2) |
 | `preview_panel` | read-only | Runs one panel spec, or a whole dashboard, through the engine over a time range. Returns at most 50 rows per layer, column summaries (min/max/last, n), warnings, and a URL that opens it in Teleplot | `Engine::dashboard_data` |
 | `save_dashboard` | idempotent; destructive when overwriting | Validates again, refuses on errors, writes `dashboards/<id>.yaml` atomically (temporary file + rename), and keeps the previous version. Returns the URL and the new hash | new `src/store` |

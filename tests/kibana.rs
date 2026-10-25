@@ -51,7 +51,7 @@ fn placeholder_reasons(d: &Dashboard) -> Vec<PlaceholderReason> {
 fn yaml(dashboards: &[Dashboard]) -> String {
     dashboards
         .iter()
-        .map(|d| format!("---\n{}", serde_yaml_ng::to_string(d).unwrap()))
+        .map(|d| format!("---\n{}", teleplot::yaml::to_string(d).unwrap()))
         .collect()
 }
 
@@ -110,8 +110,8 @@ fn conversion_does_not_depend_on_the_kibana_version() {
 fn native_yaml_round_trips() {
     for path in EXPORTS.iter().chain(&["edge-cases/edge-cases.ndjson"]) {
         for d in read(path) {
-            let text = serde_yaml_ng::to_string(&d).unwrap();
-            let back: Dashboard = serde_yaml_ng::from_str(&text)
+            let text = teleplot::yaml::to_string(&d).unwrap();
+            let back: Dashboard = teleplot::yaml::from_str(&text)
                 .unwrap_or_else(|e| panic!("{path} {}: {e}\n{text}", d.id));
             assert_eq!(back, d, "{path} {}", d.id);
         }

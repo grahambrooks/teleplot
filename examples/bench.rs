@@ -102,7 +102,7 @@ async fn main() {
         // For timing in a browser: `teleplot serve --dashboards <dir of path>`.
         d.id = "perf".into();
         d.title = format!("{} ({prefix} indexes)", d.title);
-        std::fs::write(&path, serde_yaml_ng::to_string(&d).unwrap()).unwrap();
+        std::fs::write(&path, teleplot::yaml::to_string(&d).unwrap()).unwrap();
         println!("wrote {path}");
         return;
     }

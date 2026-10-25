@@ -324,17 +324,14 @@ async fn lint(files: &[PathBuf], online: Option<&Connection>) -> Result<ExitCode
         let is_yaml = file.extension().is_some_and(|e| e == "yaml" || e == "yml");
         // YAML is parsed from raw values so problems carry exact paths.
         let parsed: Vec<Result<Dashboard, lint::Problem>> = if is_yaml {
-            serde_yaml_ng::Deserializer::from_str(&text)
-                .map(|doc| {
-                    let value: serde_json::Value =
-                        serde::Deserialize::deserialize(doc).map_err(|e| lint::Problem {
-                            path: String::new(),
-                            severity: lint::Severity::Error,
-                            message: e.to_string(),
-                        })?;
-                    lint::parse(value)
-                })
-                .collect()
+            match teleplot::yaml::from_multiple::<serde_json::Value>(&text) {
+                Ok(docs) => docs.into_iter().map(lint::parse).collect(),
+                Err(e) => vec![Err(lint::Problem {
+                    path: String::new(),
+                    severity: lint::Severity::Error,
+                    message: e.to_string(),
+                })],
+            }
         } else {
             teleplot::kibana::read(&text)
                 .map_err(|e| format!("{}: {e}", file.display()))?
@@ -417,7 +414,7 @@ async fn mcp_stdio(
 }
 
 fn to_yaml(d: &Dashboard) -> Result<String, String> {
-    serde_yaml_ng::to_string(d).map_err(|e| format!("{}: {e}", d.title))
+    teleplot::yaml::to_string(d).map_err(|e| format!("{}: {e}", d.title))
 }
 
 /// `[Delivery] PR flow` → `delivery-pr-flow`.

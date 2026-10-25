@@ -60,6 +60,7 @@ Code map:
 * `src/mcp.rs` — the MCP server (rmcp 3.5): seven `teleplot_*` tools and two resources. Agents save only into `dashboards/agents/`, only on localhost, and must quote the hash to overwrite (`src/store.rs`). Plan: `docs/mcp-plan.md`
 * `src/lint/` — dashboard checks shared by `teleplot lint` and MCP validate/save
 * `src/engine.rs` — runs a whole dashboard in one `_msearch`. Caches field caps and responses
+* `src/yaml.rs` — all YAML reads and writes (serde-saphyr). Use it, not `serde_saphyr` directly: it makes YAML 1.2 booleans strict, so `n` and `y` stay strings
 * `src/es.rs` — small REST client (reqwest/rustls). Not the alpha `elasticsearch` crate
 * `tests/kibana.rs` — conversion tests over `fixtures/`, plus YAML snapshots in `tests/snapshots/`. Review snapshot diffs with `cargo insta review`
 * `tests/query.rs` — golden request snapshots

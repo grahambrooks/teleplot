@@ -62,7 +62,7 @@ fn every_cookbook_panel_lints_cleanly() {
     let fields = field_caps();
     for block in blocks {
         let panel: Value =
-            serde_yaml_ng::from_str(&block).unwrap_or_else(|e| panic!("not YAML: {e}\n{block}"));
+            teleplot::yaml::from_str(&block).unwrap_or_else(|e| panic!("not YAML: {e}\n{block}"));
         let id = panel["id"].as_str().unwrap_or("?").to_string();
         let dashboard = json!({ "id": "cookbook", "title": "Cookbook", "panels": [panel] });
         let parsed = lint::parse(dashboard).unwrap_or_else(|p| panic!("{id}: {p:?}"));

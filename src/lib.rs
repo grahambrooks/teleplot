@@ -36,6 +36,8 @@ pub mod report;
 pub mod store;
 #[cfg(feature = "ssr")]
 pub mod time;
+#[cfg(feature = "ssr")]
+pub mod yaml;
 
 #[cfg(feature = "ssr")]
 pub mod server;

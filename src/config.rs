@@ -92,7 +92,7 @@ impl Config {
 
     pub fn parse(text: &str, env: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
         let text = interpolate(text, env)?;
-        let mut config: Config = serde_yaml_ng::from_str(&text).map_err(|e| e.to_string())?;
+        let mut config: Config = crate::yaml::from_str(&text).map_err(|e| e.to_string())?;
         if config.elasticsearch.url.is_none() && config.elasticsearch.cloud_id.is_none() {
             return Err("elasticsearch needs a url or a cloud_id".into());
         }

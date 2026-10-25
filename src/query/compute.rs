@@ -308,7 +308,7 @@ mod tests {
 
     #[test]
     fn per_unit_divides_by_bucket_length_and_scales_computed_columns_after() {
-        let layer: Layer = serde_yaml_ng::from_str(
+        let layer: Layer = crate::yaml::from_str(
             r#"
 id: l
 data_view: { index: i }

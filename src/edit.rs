@@ -7,8 +7,6 @@
 //! every other line, comments included, stays byte for byte. The result is
 //! parsed again and must equal the intended dashboard, or the edit is refused.
 
-use serde::Deserialize;
-
 use crate::model::{Dashboard, Panel};
 
 /// An edited file.
@@ -165,12 +163,7 @@ fn key_changes(
     old: &Panel,
     new: &Panel,
 ) -> Result<Vec<(usize, usize, Vec<String>)>, String> {
-    let as_map = |p: &Panel| match serde_yaml_ng::to_value(p) {
-        Ok(serde_yaml_ng::Value::Mapping(m)) => Ok(m),
-        Ok(_) => Err("a panel serialised to something other than a mapping".to_string()),
-        Err(e) => Err(e.to_string()),
-    };
-    let (old_map, new_map) = (as_map(old)?, as_map(new)?);
+    let (old_map, new_map) = (field_texts(old)?, field_texts(new)?);
 
     // Where each field's lines are: from its key to the next field's key.
     let pad = " ".repeat(indent + 2);
@@ -199,29 +192,29 @@ fn key_changes(
         }
         Some((start, end))
     };
-    let field_lines = |key: &serde_yaml_ng::Value, value: &serde_yaml_ng::Value| {
-        let mut one = serde_yaml_ng::Mapping::new();
-        one.insert(key.clone(), value.clone());
-        serde_yaml_ng::to_string(&one).map(|yaml| {
-            yaml.lines()
-                .map(|l| {
-                    if l.is_empty() {
-                        String::new()
-                    } else {
-                        format!("{pad}{l}")
-                    }
-                })
-                .collect::<Vec<_>>()
-        })
+    let field_lines = |text: &[String]| -> Vec<String> {
+        text.iter()
+            .map(|l| {
+                if l.is_empty() {
+                    String::new()
+                } else {
+                    format!("{pad}{l}")
+                }
+            })
+            .collect()
     };
 
+    let field = |map: &[(String, Vec<String>)], key: &str| {
+        map.iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, text)| text.clone())
+    };
     let mut changes = Vec::new();
-    for (key, value) in &new_map {
-        let name = key.as_str().unwrap_or_default();
-        if old_map.get(key) == Some(value) {
+    for (name, text) in &new_map {
+        if field(&old_map, name).as_ref() == Some(text) {
             continue;
         }
-        let new_lines = field_lines(key, value).map_err(|e| e.to_string())?;
+        let new_lines = field_lines(text);
         match field_span(name) {
             // `id` opens the list item; it can't differ (it's how the panel was found).
             Some((start, _)) if start == span.start => {
@@ -238,15 +231,34 @@ fn key_changes(
             }
         }
     }
-    for key in old_map.keys() {
-        if !new_map.contains_key(key)
-            && let Some((start, end)) = field_span(key.as_str().unwrap_or_default())
+    for (name, _) in &old_map {
+        if field(&new_map, name).is_none()
+            && let Some((start, end)) = field_span(name)
         {
             changes.push((start, end, Vec::new()));
         }
     }
     changes.sort_by_key(|(start, end, _)| (*start, *end));
     Ok(changes)
+}
+
+/// A panel's top-level fields in serialised order, each as its YAML lines
+/// (key line first). The serialiser is deterministic, so equal text means an
+/// equal value.
+fn field_texts(panel: &Panel) -> Result<Vec<(String, Vec<String>)>, String> {
+    let yaml = crate::yaml::to_string(panel).map_err(|e| e.to_string())?;
+    let mut fields: Vec<(String, Vec<String>)> = Vec::new();
+    for line in yaml.lines() {
+        // A new field starts at column 0; indented and blank lines continue one.
+        match (line.split_once(':'), fields.last_mut()) {
+            (Some((key, _)), _) if !line.starts_with([' ', '-']) && !line.is_empty() => {
+                fields.push((key.to_string(), vec![line.to_string()]));
+            }
+            (_, Some((_, text))) => text.push(line.to_string()),
+            (_, None) => return Err(format!("unexpected panel YAML: {line}")),
+        }
+    }
+    Ok(fields)
 }
 
 /// Whether a line defines a YAML anchor (`&name`) outside a quoted string.
@@ -276,7 +288,7 @@ fn defines_anchor(line: &str) -> bool {
 
 /// The panel as YAML list-item lines at `indent`.
 fn panel_lines(panel: &Panel, indent: usize) -> Result<Vec<String>, String> {
-    let yaml = serde_yaml_ng::to_string(panel).map_err(|e| e.to_string())?;
+    let yaml = crate::yaml::to_string(panel).map_err(|e| e.to_string())?;
     let pad = " ".repeat(indent);
     Ok(yaml
         .lines()
@@ -295,7 +307,7 @@ fn panel_lines(panel: &Panel, indent: usize) -> Result<Vec<String>, String> {
 
 /// Parse a single-document YAML dashboard.
 pub fn parse(text: &str) -> Result<Dashboard, String> {
-    Dashboard::deserialize(serde_yaml_ng::Deserializer::from_str(text)).map_err(|e| e.to_string())
+    crate::yaml::from_str(text).map_err(|e| e.to_string())
 }
 
 /// Apply `panel` to the dashboard in `text` and check the result: the file
@@ -351,7 +363,7 @@ panels:
 ";
 
     fn markdown(id: &str, text: &str) -> Panel {
-        serde_yaml_ng::from_str(&format!(
+        crate::yaml::from_str(&format!(
             "id: {id}\ntitle: {id}\ngrid: {{ x: 0, y: 8, w: 48, h: 4 }}\ncontent:\n  type: markdown\n  text: {text}\n"
         ))
         .unwrap()
