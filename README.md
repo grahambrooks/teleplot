@@ -166,6 +166,9 @@ with the dashboard format.
 
 ## Development
 
+Contributions are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers scope,
+setup and what a pull request needs.
+
 - `make pre-commit`: formatting, clippy (server and WASM client) and tests. CI
   runs the same checks
 - `make integration`: Kibana-parity tests. Needs both Elasticsearch
