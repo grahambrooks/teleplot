@@ -1,0 +1,21 @@
+CONTRIBUTING.md
+  s_6938b2c20843a6::t_92f81765405d60 1-121
+README.md
+  s_6938b2c20843a6::t_a1a1563e05a606 169-171
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e251e904257d1315d316bf86c044c03b8093d136",
+  "prompts": {},
+  "sessions": {
+    "s_6938b2c20843a6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "20a3cd71-70f9-478e-ace8-a1617f1229cd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
