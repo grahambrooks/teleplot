@@ -2,6 +2,8 @@
 
 CLIENT := --lib --target wasm32-unknown-unknown --no-default-features --features hydrate
 SERVER := --all-targets --no-default-features --features ssr
+# CI runs `make pre-commit LOCKED=--locked` so a stale Cargo.lock fails the build.
+LOCKED ?=
 
 # Same checks CI runs. Commit only after this prints the final line.
 pre-commit: fmt lint test
@@ -11,11 +13,11 @@ fmt:
 	cargo fmt --check
 
 lint:
-	cargo clippy $(SERVER) -- -D warnings
-	cargo clippy $(CLIENT) -- -D warnings
+	cargo clippy $(SERVER) $(LOCKED) -- -D warnings
+	cargo clippy $(CLIENT) $(LOCKED) -- -D warnings
 
 test:
-	cargo test --no-default-features --features ssr
+	cargo test --no-default-features --features ssr $(LOCKED)
 
 dev:
 	cargo leptos watch
