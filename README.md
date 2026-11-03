@@ -131,7 +131,7 @@ target/debug/teleplot serve --es http://localhost:9208 --dashboards path/to/expo
 ## Building the single binary
 
 ```sh
-make release
+make build-release
 target/release/teleplot serve --config teleplot.yaml
 ```
 
@@ -169,8 +169,8 @@ with the dashboard format.
 Contributions are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers scope,
 setup and what a pull request needs.
 
-- `make pre-commit`: formatting, clippy (server and WASM client) and tests. CI
-  runs the same checks
+- `make check`: formatting, clippy (server and WASM client) and tests. CI
+  runs the same checks; `make hooks` runs it before every push
 - `make integration`: Kibana-parity tests. Needs both Elasticsearch
   containers (`--profile v8 --profile v9`) up and seeded
 - `make fixtures`: rebuilds the Kibana fixtures. See `fixtures/README.md`

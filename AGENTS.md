@@ -35,13 +35,13 @@ Ingestion/ETL · writing to ES (except the dev-only fixture seeder) · UI editin
 * `make dev` — `cargo leptos watch` with live reload on http://127.0.0.1:3000
 * Don't serve the UI with plain `cargo run` in debug: cargo-leptos builds the debug client with `--cfg erase_components`, plain cargo builds the server without it, and hydration panics (blank page). Use `make dev`, or `cargo leptos build` then `target/debug/teleplot serve`
 * `teleplot.yaml` (gitignored, per machine) points at ES; `make dev` reads it from the repo root. Local ES: `docker compose -f fixtures/docker-compose.yml up -d es8` then `cargo run --example seed`
-* `make pre-commit` — fmt, clippy (server and WASM client), tests. Run before every commit; CI runs the same
+* `make check` — fmt, clippy (server and WASM client), tests. Run before every push (the pre-push hook does); CI runs the same via its `make pre-commit` alias
 * `make smoke` — release build, then checks that the binary serves the whole UI from an empty directory
 * `make deny` — cargo-deny supply-chain checks
 * Performance: `docs/performance.md` has the numbers and how to reproduce them (`seed --scale 185 --prefix perf-`, then `cargo run --release --example bench`)
 * `make fixtures` — rebuild Kibana fixtures against dockerised ES/Kibana 8.19 and 9.5 (see `fixtures/README.md`). Fixtures are Kibana's own exports; review the screenshots before committing
-* Hooks: `prek install --hook-type pre-commit --hook-type pre-push`
-* Release: push a CalVer tag (`vYYYY.M.N`). `.github/workflows/release.yml` is release-kit v2 with one deviation (the client is built once and embedded per target), so don't re-sync it with `stamp.sh`. `rust-toolchain.toml` pins the compiler; bump it with `rust-version`
+* Hooks: `make hooks` (prek: fmt on commit, `make check` on push)
+* Release: `make release` tags origin/main with the next CalVer (`vYYYY.M.D`) and pushes only the tag (release.mk, from release-kit); `make release-dry` previews it. `.github/workflows/release.yml` is release-kit v2 with one deviation (the client is built once and embedded per target), so don't re-sync it with `stamp.sh`. `rust-toolchain.toml` pins the compiler; bump it with `rust-version`
 
 CLI:
 
@@ -68,5 +68,5 @@ Code map:
 
 Build gotchas, learned in M0:
 
-* The server embeds `target/site` with rust-embed. In a single `cargo leptos build` the client and server compile concurrently, so the server can embed a missing bundle. `make release` therefore builds `--frontend-only` and then `--server-only`, and `build.rs` re-embeds whenever `target/site` changes
+* The server embeds `target/site` with rust-embed. In a single `cargo leptos build` the client and server compile concurrently, so the server can embed a missing bundle. `make build-release` therefore builds `--frontend-only` and then `--server-only`, and `build.rs` re-embeds whenever `target/site` changes
 * Leptos takes the client asset names from `LEPTOS_OUTPUT_NAME` at compile time; without it, it falls back to wasm-pack's `_bg` suffix. `.cargo/config.toml` sets it, so plain `cargo` builds and tests match cargo-leptos

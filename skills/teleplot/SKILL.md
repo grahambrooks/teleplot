@@ -22,7 +22,7 @@ Teleplot source, build the release binary (it embeds the UI and runs from any
 directory):
 
 ```sh
-make release            # in the Teleplot repo; needs Rust and cargo-leptos
+make build-release      # in the Teleplot repo; needs Rust and cargo-leptos
 cp target/release/teleplot ~/.local/bin/   # or anywhere on PATH
 ```
 

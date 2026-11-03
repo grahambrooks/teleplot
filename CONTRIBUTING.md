@@ -62,14 +62,14 @@ plain `cargo` can't hydrate the client, and you get a blank page.
 Install the git hooks, which run the same checks as CI:
 
 ```sh
-prek install --hook-type pre-commit --hook-type pre-push
+make hooks
 ```
 
 ## Checks
 
 | Command | What it checks | When |
 |---|---|---|
-| `make pre-commit` | rustfmt, clippy (server and WASM client, warnings are errors), tests | before every commit |
+| `make check` | rustfmt, clippy (server and WASM client, warnings are errors), tests | before every push (the pre-push hook runs it) |
 | `make integration` | Kibana-parity tests against ES 8.19 and 9.5 | changes to queries, KQL, or Kibana conversion |
 | `make smoke` | the release binary serves the whole UI from an empty directory | changes to the build or embedded assets |
 | `make deny` | advisories, licences and sources of dependencies | dependency changes |

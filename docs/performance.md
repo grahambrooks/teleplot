@@ -55,5 +55,5 @@ cargo run --release --example bench -- --es http://localhost:9208 --runs 7
 
 # In a browser: write the dashboard, serve it, open /d/perf
 cargo run --release --example bench -- --write /tmp/perf/perf.yaml
-make release && target/release/teleplot serve --es http://localhost:9208 --dashboards /tmp/perf
+make build-release && target/release/teleplot serve --es http://localhost:9208 --dashboards /tmp/perf
 ```

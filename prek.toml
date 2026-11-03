@@ -1,5 +1,8 @@
-# Git hooks via `prek`. Install once with: prek install --hook-type pre-commit --hook-type pre-push
+# Git hooks via prek (https://prek.j178.dev). Install once: make hooks
+# Fast checks on every commit; the full gate (`make check`, the same as CI) before push.
 #:schema https://www.schemastore.org/prek.json
+
+default_install_hook_types = ["pre-commit", "pre-push"]
 
 [[repos]]
 repo = "https://github.com/pre-commit/pre-commit-hooks"
@@ -10,7 +13,7 @@ hooks = [
   { id = "end-of-file-fixer", exclude = "^(fixtures/kibana|public/vendor)/" },
   { id = "check-yaml" },
   { id = "check-toml" },
-  { id = "check-added-large-files" }
+  { id = "check-added-large-files" },
 ]
 
 [[repos]]
@@ -27,14 +30,13 @@ hooks = [
     name = "Detect hardcoded secrets",
     entry = "gitleaks git --pre-commit --redact --staged --verbose",
     language = "golang",
-    pass_filenames = false
-  }
+    pass_filenames = false,
+  },
 ]
 
 [[repos]]
 repo = "local"
 hooks = [
-  # Fast check on every commit; the full gate runs before push.
-  { id = "cargo-fmt", name = "cargo fmt --check", entry = "cargo fmt --check", language = "system", pass_filenames = false, types = ["rust"] },
-  { id = "make-pre-commit", name = "make pre-commit", entry = "make pre-commit", language = "system", pass_filenames = false, stages = ["pre-push"] }
+  { id = "cargo-fmt", name = "cargo fmt --check", entry = "cargo fmt --all --check", language = "system", pass_filenames = false, types = ["rust"] },
+  { id = "make-check", name = "make check", entry = "make check", language = "system", pass_filenames = false, stages = ["pre-push"] },
 ]
