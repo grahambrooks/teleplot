@@ -1,0 +1,33 @@
+AGENTS.md
+  s_3af201839d09d6::t_33e6fcf47453cb 38,43-44,71
+CONTRIBUTING.md
+  s_3af201839d09d6::t_a9871a8fde6e84 65,72
+Makefile
+  s_3af201839d09d6::t_3204f0b1d2f853 1-7,11-20,22,24-25,27-30,34,37-40,45,50,53,57,62,64-65
+README.md
+  s_3af201839d09d6::t_3b740f8092697e 134,172-173
+docs/performance.md
+  s_3af201839d09d6::t_d4c6740cb48a6b 58
+prek.toml
+  s_3af201839d09d6::t_9fd3a02c225343 1-2,5-6,16,33-34,40-41
+release.mk
+  s_3af201839d09d6::t_330eeabbfb1fc3 1-48
+skills/teleplot/SKILL.md
+  s_3af201839d09d6::t_db9af7c06e0928 25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7c5db2846207a05d9f1981f21b6cd32ea74de3ef",
+  "prompts": {},
+  "sessions": {
+    "s_3af201839d09d6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ca62a504-f3e7-484c-9e2d-47cfc6cd0491",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
