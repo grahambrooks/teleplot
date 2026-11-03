@@ -1,0 +1,25 @@
+.github/workflows/ci.yml
+  s_3af201839d09d6::t_6dec472e78eb3e 7-15,34-36,45,47-48,55-80,108,114-115,139
+Cargo.toml
+  s_3af201839d09d6::t_95eebb523a1d1a 5
+Makefile
+  s_3af201839d09d6::t_77e3050ce63a0c 5-6,16-17,20
+rust-toolchain.toml
+  s_3af201839d09d6::t_713340384d0c49 1-2,4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7e44baf18d3e4af96c20a1694c1c2490ab058655",
+  "prompts": {},
+  "sessions": {
+    "s_3af201839d09d6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ca62a504-f3e7-484c-9e2d-47cfc6cd0491",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
