@@ -36,7 +36,7 @@ rmcp = { version = "3.5", default-features = false, features = ["server", "macro
 rust-embed = { version = "8", optional = true }
 schemars = { version = "1", optional = true }
 serde_path_to_error = { version = "0.1", optional = true }
-sha2 = { version = "0.10", optional = true }
+sha2 = { version = "0.11", optional = true }
 serde-saphyr = { version = "2", default-features = false, features = ["serialize", "deserialize"], optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"], optional = true }
 tracing = { version = "0.1", optional = true }
