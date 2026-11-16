@@ -126,7 +126,11 @@ fn convert(export: &Export, vis: Vis, refs: &[Reference]) -> Result<PanelContent
             progress_direction: Default::default(),
             badge: None,
         },
-        ChartKind::Gauge | ChartKind::Treemap | ChartKind::Waffle | ChartKind::Calendar => {
+        ChartKind::Gauge
+        | ChartKind::Treemap
+        | ChartKind::Waffle
+        | ChartKind::Calendar
+        | ChartKind::Timeline => {
             return Err(unparseable(kind_name, "not a legacy chart kind"));
         }
         ChartKind::Heatmap => {

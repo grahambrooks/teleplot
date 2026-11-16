@@ -36,7 +36,7 @@ else a library visualization's own description. Descriptions don't appear in pri
 
 Panel `content` is one of:
 
-- `type: chart`, which has a `kind` (`xy`, `metric`, `pie`, `donut`, `treemap`, `waffle`, `table`, `heatmap`, `gauge` or `calendar`), an optional `query` and `filters`, `layers`, and `annotations` of its own. Charts converted from Kibana can also carry `warnings`, naming parts of the original that Teleplot does not draw (a Lens annotation group linked from the library, for example). The panel shows them.
+- `type: chart`, which has a `kind` (`xy`, `metric`, `pie`, `donut`, `treemap`, `waffle`, `table`, `heatmap`, `gauge`, `calendar` or `timeline`), an optional `query` and `filters`, `layers`, and `annotations` of its own. Charts converted from Kibana can also carry `warnings`, naming parts of the original that Teleplot does not draw (a Lens annotation group linked from the library, for example). The panel shows them.
 - `type: markdown` with `text`.
 
 ## Layers and columns
@@ -74,6 +74,7 @@ The `encoding` (`as:`) says how columns are drawn:
 | `band` | `x`, `low`, `mid`, `high`: a line inside a shaded band, e.g. median within p25–p75 |
 | `scatter` | `x`, `y`, `split`, `trend`, `log_scale`, `percentiles`: needs a document layer |
 | `heatmap` | `x`, `y`, `value`: cells coloured by `value` (for `kind: heatmap`) |
+| `timeline` | `trace`, `span`, `parent`, `start`, `end`, `label`, `color`: spans as nested bars (for `kind: timeline`) |
 | `reference_lines` | `lines`: lines at fixed values across the chart's other layers (below) |
 
 ### Formulas
@@ -312,6 +313,29 @@ insight:
 - **Inspect** shows the series request and insight's response, including the query insight ran.
 - Complete examples are the software-analytics package's dashboards (its `dashboards/` directory), e.g. `duplication.yaml` over mimeo's duplication records.
 
+### insight records
+
+With `select` instead of `columns`, an insight layer asks for records, one
+row per record, rather than a series. habit's series API supports this; it
+is an extension of the contract, which insight itself doesn't have.
+
+```yaml
+- id: spans
+  data_view: { index: span, time_field: observed_at }
+  insight:
+    filters: [{ field: trace_id, op: exists }]
+    select: [trace_id, span_id, parent_span_id, observed_at, end_at, label, span_type]
+    complete: trace_id   # whole traces only: never split one across the limit
+    limit: 5000          # rows; newest first
+  columns:
+    - { id: trace, op: value, field: trace_id }
+    ...
+```
+
+- Rows come newest first, so `limit` keeps the most recent.
+- `complete` takes rows in whole groups of a field.
+- `select` can't be combined with `columns`, `group_by`, `interval` or `latest_by`.
+
 ### Small samples and drill-down
 
 With `min_samples` set:
@@ -480,6 +504,41 @@ encoding:
 The bands use the same stops as a table's colour by value (`percent`,
 `extend_below`, `extend_above`, `to`). Lens gauges (`lnsGauge`, every shape)
 convert with their palette.
+
+### Timelines
+
+`kind: timeline` draws the spans of a trace as nested bars on a time axis, as
+an OpenTelemetry trace view does. It needs one row per span: an insight
+`select` layer, documents, or ES|QL.
+
+```yaml
+content:
+  type: chart
+  kind: timeline
+  layers:
+    - id: spans
+      data_view: { index: span, time_field: observed_at }
+      insight: { select: [trace_id, span_id, parent_span_id, observed_at, end_at, label, span_type], complete: trace_id, limit: 5000 }
+      columns:
+        - { id: trace, op: value, field: trace_id }
+        - { id: span, op: value, field: span_id }
+        - { id: parent, op: value, field: parent_span_id }
+        - { id: start, op: value, field: observed_at }
+        - { id: end, op: value, field: end_at }
+        - { id: label, op: value, field: label }
+        - { id: type, op: value, field: span_type }
+      encoding: { as: timeline, trace: trace, span: span, parent: parent, start: start, end: end, label: label, color: type }
+```
+
+- **Trace picker.** A picker lists the traces in the range, newest first.
+- **Nesting.** A span is drawn under the span whose `span` equals its
+  `parent`. Spans whose parent is missing are drawn at the top level.
+- **Bars.** Each bar shows its duration; hover for the span's own time and
+  its start offset.
+- **Own time.** Below the bars, each `color` value's own time: its spans'
+  durations less the time their children cover. For Claude Code that splits
+  an interaction into time in the model, waiting for permission, and running
+  tools.
 
 ### Treemaps, waffles and calendars
 

@@ -12,6 +12,7 @@ pub mod series;
 mod shapes;
 mod shell;
 mod theme;
+mod timeline;
 #[cfg(feature = "hydrate")]
 mod uplot;
 

@@ -391,6 +391,32 @@ fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Probl
                 ));
             }
         }
+        if let Some(series) = &layer.insight {
+            let records = !series.select.is_empty();
+            if records
+                && (!series.columns.is_empty()
+                    || !series.group_by.is_empty()
+                    || series.interval.is_some()
+                    || series.latest_by.is_some())
+            {
+                problems.push(Problem::error(
+                    format!("{at}.insight"),
+                    "`select` asks for records: it can't be combined with columns, group_by, interval or latest_by",
+                ));
+            }
+            if !records && series.columns.is_empty() {
+                problems.push(Problem::error(
+                    format!("{at}.insight.columns"),
+                    "an insight layer needs `columns` (a series) or `select` (records)",
+                ));
+            }
+            if !records && (series.limit.is_some() || series.complete.is_some()) {
+                problems.push(Problem::error(
+                    format!("{at}.insight"),
+                    "`limit` and `complete` apply to records: add `select`",
+                ));
+            }
+        }
         if layer.insight.is_some() {
             if layer.esql.is_some() || layer.documents.is_some() {
                 problems.push(Problem::error(
@@ -435,6 +461,7 @@ fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Probl
                 | (Encoding::Calendar { .. }, ChartKind::Calendar)
                 | (Encoding::Table { .. }, ChartKind::Table)
                 | (Encoding::Heatmap { .. }, ChartKind::Heatmap)
+                | (Encoding::Timeline { .. }, ChartKind::Timeline)
                 | (
                     Encoding::Sparkline { .. },
                     ChartKind::Metric | ChartKind::Table
@@ -451,6 +478,17 @@ fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Probl
             problems.push(Problem::error(
                 format!("{at}.encoding"),
                 format!("encoding does not suit a {:?} chart", chart.kind),
+            ));
+        }
+        // One bar per span row: records from insight, documents or ES|QL.
+        if matches!(layer.encoding, Encoding::Timeline { .. })
+            && layer.documents.is_none()
+            && layer.esql.is_none()
+            && !layer.insight.as_ref().is_some_and(|i| !i.select.is_empty())
+        {
+            problems.push(Problem::error(
+                format!("{at}.encoding"),
+                "timelines draw one bar per span: they need records (`insight.select`), documents or an ES|QL query",
             ));
         }
         // One point per row: documents, or the rows an insight or ES|QL

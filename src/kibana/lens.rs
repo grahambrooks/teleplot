@@ -366,6 +366,7 @@ fn encodings(kind: ChartKind, vis: &Value) -> Result<Encodings, String> {
             },
         )],
         ChartKind::Calendar => return Err("calendars are not a Lens chart".into()),
+        ChartKind::Timeline => return Err("timelines are not a Lens chart".into()),
         ChartKind::Pie | ChartKind::Donut | ChartKind::Treemap | ChartKind::Waffle => {
             let layer = vis["layers"].get(0).ok_or("pie without layers")?;
             let mut values = ids(&layer["metrics"]);

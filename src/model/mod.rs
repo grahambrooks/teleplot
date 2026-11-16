@@ -309,6 +309,9 @@ pub enum ChartKind {
     Waffle,
     /// One square per day, in weeks (GitHub-style); a `calendar` encoding.
     Calendar,
+    /// The spans of a trace as nested bars on a time axis; a `timeline`
+    /// encoding over one row per span.
+    Timeline,
 }
 
 /// One query against one data view, and how its columns are drawn.
@@ -339,7 +342,12 @@ pub struct Layer {
 /// A request to insight's series API (`POST /api/series`, software-analytics
 /// delivery schema §7), less the record type and time range, which come
 /// from the layer's data view and the dashboard.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+///
+/// With `select` instead of `columns`, it asks for records rather than a
+/// series (a habit extension of the contract): one row per record, newest
+/// first, with the named fields. `limit` caps the rows and `complete` keeps
+/// whole groups of a field together, e.g. every span of a trace.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct InsightSeries {
@@ -351,11 +359,21 @@ pub struct InsightSeries {
     pub filters: Vec<InsightFilter>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub group_by: Vec<InsightGroupBy>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub columns: Vec<InsightColumn>,
     /// Aggregate the latest record per value of this field at or before each
     /// bucket's end, carrying values into buckets where nothing changed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latest_by: Option<String>,
+    /// Records instead of a series: the fields to return, one row per record.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub select: Vec<String>,
+    /// With `select`: at most this many rows (the server's default otherwise).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    /// With `select`: never split a group of this field across the limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub complete: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -545,6 +563,21 @@ pub enum Encoding {
     /// Lines at fixed values across an XY chart, e.g. a target or a
     /// percentile. Each value is one of this layer's unbucketed columns.
     ReferenceLines { lines: Vec<ReferenceLine> },
+    /// Spans as nested bars on a time axis (an OpenTelemetry trace view),
+    /// one row per span. Rows are grouped into traces by `trace`, and a
+    /// span is drawn under the span whose `span` equals its `parent`.
+    /// `start` and `end` are dates. `color` colours bars by a value (e.g.
+    /// the span type) and totals each value's own time, excluding children.
+    Timeline {
+        trace: String,
+        span: String,
+        parent: String,
+        start: String,
+        end: String,
+        label: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        color: Option<String>,
+    },
 }
 
 /// How lines are drawn and gaps filled on an `xy` layer, its legend, and
@@ -1112,6 +1145,18 @@ impl Encoding {
                 ids.push(x);
                 ids.extend(y.as_deref());
                 ids.push(value);
+            }
+            Encoding::Timeline {
+                trace,
+                span,
+                parent,
+                start,
+                end,
+                label,
+                color,
+            } => {
+                ids.extend([trace, span, parent, start, end, label].map(String::as_str));
+                ids.extend(color.as_deref());
             }
         }
         ids

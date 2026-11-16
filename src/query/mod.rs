@@ -763,8 +763,19 @@ fn build_insight(
     let mut body = json!({
         "record_type": layer.data_view.index,
         "time": time,
-        "columns": series.columns,
     });
+    if !series.columns.is_empty() {
+        body["columns"] = json!(series.columns);
+    }
+    if !series.select.is_empty() {
+        body["select"] = json!(series.select);
+    }
+    if let Some(limit) = series.limit {
+        body["limit"] = json!(limit);
+    }
+    if let Some(field) = &series.complete {
+        body["complete"] = json!(field);
+    }
     if !series.filters.is_empty() {
         body["filters"] = json!(series.filters);
     }
@@ -2331,11 +2342,35 @@ mod tests {
                         p: None,
                     }],
                     latest_by: Some("repo".into()),
+                    ..Default::default()
                 }),
             }],
             annotations: vec![],
             warnings: vec![],
         }
+    }
+
+    #[test]
+    fn insight_records_layers_send_select_not_columns() {
+        let mut chart = insight_chart(vec![
+            value("trace", "trace_id"),
+            value("start", "observed_at"),
+        ]);
+        chart.layers[0].insight = Some(crate::model::InsightSeries {
+            select: vec!["trace_id".into(), "observed_at".into()],
+            limit: Some(5000),
+            complete: Some("trace_id".into()),
+            ..Default::default()
+        });
+        with_context(&[], &[], |ctx| {
+            let searches = plan(&chart, ctx).searches();
+            let b = &searches[0].body;
+            assert_eq!(b["select"][1], "observed_at");
+            assert_eq!(b["limit"], 5000);
+            assert_eq!(b["complete"], "trace_id");
+            assert!(b.get("columns").is_none() && b.get("group_by").is_none());
+            assert!(b["time"].get("interval").is_none());
+        });
     }
 
     #[test]

@@ -262,6 +262,11 @@ fn ChartBody(chart: Chart, data: Signal<Option<PanelData>>, ctx: PanelContext) -
                 let dark = ctx.dark.get_untracked();
                 view! { <super::shapes::CalendarChart chart=c data=d time_zone dark/> }.into_any()
             }
+            (ChartKind::Timeline, _) => {
+                let time_zone = ctx.time_zone.get_untracked();
+                let dark = ctx.dark.get_untracked();
+                view! { <super::timeline::TimelineChart chart=c data=d time_zone dark/> }.into_any()
+            }
             (ChartKind::Heatmap, _) => {
                 let drawing = Drawing::Heatmap(series::heatmap(&c, &d));
                 view! { <CanvasChart drawing ctx=ctx.clone()/> }.into_any()

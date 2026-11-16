@@ -348,3 +348,58 @@ fn esql_layers_have_value_columns_and_no_control_variables() {
         "{p:?}"
     );
 }
+
+fn timeline(insight: serde_json::Value) -> Vec<Problem> {
+    let d = parse(json!({
+        "id": "t", "title": "T",
+        "panels": [{ "id": "p", "title": "P", "grid": { "x": 0, "y": 0, "w": 48, "h": 10 },
+            "content": { "type": "chart", "kind": "timeline", "layers": [{
+                "id": "spans",
+                "data_view": { "index": "span", "time_field": "observed_at" },
+                "insight": insight,
+                "columns": [
+                    { "id": "trace", "op": "value", "field": "trace_id" },
+                    { "id": "span", "op": "value", "field": "span_id" },
+                    { "id": "parent", "op": "value", "field": "parent_span_id" },
+                    { "id": "start", "op": "value", "field": "observed_at" },
+                    { "id": "end", "op": "value", "field": "end_at" },
+                    { "id": "label", "op": "value", "field": "label" }
+                ],
+                "encoding": { "as": "timeline", "trace": "trace", "span": "span", "parent": "parent",
+                              "start": "start", "end": "end", "label": "label" }
+            }]}
+        }]
+    }))
+    .unwrap_or_else(|p| panic!("{p:?}"));
+    check(&d, None)
+}
+
+#[test]
+fn timelines_need_records() {
+    let ok = timeline(
+        json!({ "select": ["trace_id", "span_id"], "complete": "trace_id", "limit": 100 }),
+    );
+    assert!(!has_errors(&ok), "{ok:?}");
+    let series = timeline(json!({ "columns": [{ "id": "n", "op": "count" }] }));
+    assert!(
+        series
+            .iter()
+            .any(|p| p.message.contains("one bar per span")),
+        "{series:?}"
+    );
+    let mixed =
+        timeline(json!({ "select": ["trace_id"], "columns": [{ "id": "n", "op": "count" }] }));
+    assert!(
+        mixed
+            .iter()
+            .any(|p| p.message.contains("can't be combined")),
+        "{mixed:?}"
+    );
+    let neither = timeline(json!({ "limit": 5 }));
+    assert!(
+        neither
+            .iter()
+            .any(|p| p.message.contains("`columns` (a series) or `select`")),
+        "{neither:?}"
+    );
+}
