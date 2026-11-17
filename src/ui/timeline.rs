@@ -9,7 +9,6 @@ use std::collections::{BTreeSet, HashMap};
 
 use leptos::prelude::*;
 
-use super::panels::date;
 use super::theme::categorical;
 use crate::model::{Cell, Chart, Encoding, LayerData, PanelData};
 
@@ -199,6 +198,36 @@ pub fn time_by_color(trace: &Trace) -> Vec<(String, f64)> {
     out
 }
 
+/// Epoch ms → `2026-11-16 14:05:09` in the dashboard's time zone.
+#[cfg(feature = "hydrate")]
+pub fn date_time(ms: f64, tz: &str) -> String {
+    let date = js_sys::Date::new(&ms.into());
+    let options = js_sys::Object::new();
+    for (k, v) in [
+        ("timeZone", tz),
+        ("year", "numeric"),
+        ("month", "2-digit"),
+        ("day", "2-digit"),
+        ("hour", "2-digit"),
+        ("minute", "2-digit"),
+        ("second", "2-digit"),
+        ("hourCycle", "h23"),
+    ] {
+        let _ = js_sys::Reflect::set(&options, &k.into(), &v.into());
+    }
+    let text: String = date.to_locale_string("en-CA", &options).into();
+    text.replace(',', "")
+}
+
+/// Epoch ms → `2026-11-16 14:05:09` in the dashboard's time zone.
+#[cfg(not(feature = "hydrate"))]
+pub fn date_time(ms: f64, tz: &str) -> String {
+    let zone = jiff::tz::TimeZone::get(tz).unwrap_or(jiff::tz::TimeZone::UTC);
+    jiff::Timestamp::from_millisecond(ms as i64)
+        .map(|t| t.to_zoned(zone).strftime("%Y-%m-%d %H:%M:%S").to_string())
+        .unwrap_or_default()
+}
+
 /// Milliseconds for reading: `850 ms`, `1.25 s`, `2.4 min`.
 pub fn duration(ms: f64) -> String {
     match ms.abs() {
@@ -255,25 +284,54 @@ pub fn TimelineChart(
         .enumerate()
         .map(|(i, v)| (v, palette[i % palette.len()]))
         .collect();
-    let options: Vec<_> = all
-        .iter()
-        .enumerate()
-        .map(|(i, t)| {
-            let text = format!(
-                "{} · {} · {}",
-                date(t.start, &time_zone),
-                t.name(),
-                duration(t.end - t.start)
-            );
-            view! { <option value=i.to_string()>{text}</option> }
-        })
-        .collect();
     let count = all.len();
     let all = StoredValue::new(all);
     let colors = StoredValue::new(colors);
-    let selected = RwSignal::new(0usize);
+    // The selection is a trace id, so re-sorting the list keeps it.
+    let selected = RwSignal::new(all.with_value(|a| a[0].id.clone()));
+    let slowest = RwSignal::new(false);
+    let list = {
+        let time_zone = time_zone.clone();
+        move || {
+            let mut rows: Vec<(String, f64, String, f64, usize)> = all.with_value(|a| {
+                a.iter()
+                    .map(|t| {
+                        (
+                            t.id.clone(),
+                            t.start,
+                            t.name().to_string(),
+                            t.end - t.start,
+                            t.spans.len(),
+                        )
+                    })
+                    .collect()
+            });
+            if slowest.get() {
+                rows.sort_by(|a, b| b.3.total_cmp(&a.3));
+            }
+            let current = selected.get();
+            rows.into_iter()
+                .map(|(id, start, name, length, spans)| {
+                    let class = if id == current {
+                        "timeline-trace selected"
+                    } else {
+                        "timeline-trace"
+                    };
+                    view! {
+                        <button class=class on:click=move |_| selected.set(id.clone())>
+                            <span class="timeline-trace-when">{date_time(start, &time_zone)}</span>
+                            <span class="timeline-trace-name">{name}</span>
+                            <span class="timeline-trace-length">{duration(length)}</span>
+                            <span class="muted">{format!("{spans} spans")}</span>
+                        </button>
+                    }
+                })
+                .collect_view()
+        }
+    };
     let body = move || {
-        let trace = all.with_value(|a| a[selected.get().min(a.len() - 1)].clone());
+        let id = selected.get();
+        let trace = all.with_value(|a| a.iter().find(|t| t.id == id).unwrap_or(&a[0]).clone());
         let colors = colors.get_value();
         let total = (trace.end - trace.start).max(1.0);
         let scale = (WIDTH - LABELS - 10.0) / total;
@@ -347,11 +405,13 @@ pub fn TimelineChart(
     view! {
         <div class="timeline">
             <div class="timeline-head">
-                <select class="timeline-picker" on:change=move |ev| selected.set(event_target_value(&ev).parse().unwrap_or(0))>
-                    {options}
-                </select>
-                <span class="muted small">{format!("{count} traces, newest first")}</span>
+                <span class="muted small">{format!("{count} {} in range: pick one", if count == 1 { "trace" } else { "traces" })}</span>
+                <span class="timeline-sort">
+                    <button class=move || if slowest.get() { "" } else { "selected" } on:click=move |_| slowest.set(false)>"Newest"</button>
+                    <button class=move || if slowest.get() { "selected" } else { "" } on:click=move |_| slowest.set(true)>"Slowest"</button>
+                </span>
             </div>
+            <div class="timeline-traces">{list}</div>
             {body}
         </div>
     }
@@ -440,6 +500,11 @@ mod tests {
             span("a", "y", Some("x"), 0.0, 1.0, "c"),
         ])[0];
         assert_eq!(t.spans.len(), 2);
+    }
+
+    #[test]
+    fn trace_times_show_the_time_of_day() {
+        assert_eq!(date_time(1_794_805_910_744.0, "UTC"), "2026-11-16 05:11:50");
     }
 
     #[test]
