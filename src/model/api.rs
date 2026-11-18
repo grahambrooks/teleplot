@@ -47,6 +47,10 @@ pub struct DataRequest {
     /// Ad-hoc filter pills the viewer added.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<AdHocFilter>,
+    /// The viewer's IANA time zone, e.g. `America/New_York`: dates are
+    /// bucketed and shown in it unless teleplot.yaml pins `time_zone`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_zone: Option<String>,
 }
 
 /// A filter pill the viewer added: `field` is one of `values` (or, with

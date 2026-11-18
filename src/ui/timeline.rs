@@ -198,7 +198,7 @@ pub fn time_by_color(trace: &Trace) -> Vec<(String, f64)> {
     out
 }
 
-/// Epoch ms → `2026-11-16 14:05:09` in the dashboard's time zone.
+/// Epoch ms → `2026-11-16 14:05:09 EST` in the dashboard's time zone.
 #[cfg(feature = "hydrate")]
 pub fn date_time(ms: f64, tz: &str) -> String {
     let date = js_sys::Date::new(&ms.into());
@@ -212,6 +212,7 @@ pub fn date_time(ms: f64, tz: &str) -> String {
         ("minute", "2-digit"),
         ("second", "2-digit"),
         ("hourCycle", "h23"),
+        ("timeZoneName", "short"),
     ] {
         let _ = js_sys::Reflect::set(&options, &k.into(), &v.into());
     }
@@ -219,12 +220,16 @@ pub fn date_time(ms: f64, tz: &str) -> String {
     text.replace(',', "")
 }
 
-/// Epoch ms → `2026-11-16 14:05:09` in the dashboard's time zone.
+/// Epoch ms → `2026-11-16 14:05:09 EST` in the dashboard's time zone.
 #[cfg(not(feature = "hydrate"))]
 pub fn date_time(ms: f64, tz: &str) -> String {
     let zone = jiff::tz::TimeZone::get(tz).unwrap_or(jiff::tz::TimeZone::UTC);
     jiff::Timestamp::from_millisecond(ms as i64)
-        .map(|t| t.to_zoned(zone).strftime("%Y-%m-%d %H:%M:%S").to_string())
+        .map(|t| {
+            t.to_zoned(zone)
+                .strftime("%Y-%m-%d %H:%M:%S %Z")
+                .to_string()
+        })
         .unwrap_or_default()
 }
 
@@ -504,7 +509,14 @@ mod tests {
 
     #[test]
     fn trace_times_show_the_time_of_day() {
-        assert_eq!(date_time(1_794_805_910_744.0, "UTC"), "2026-11-16 05:11:50");
+        assert_eq!(
+            date_time(1_794_805_910_744.0, "UTC"),
+            "2026-11-16 05:11:50 UTC"
+        );
+        assert_eq!(
+            date_time(1_794_805_910_744.0, "America/New_York"),
+            "2026-11-16 00:11:50 EST"
+        );
     }
 
     #[test]

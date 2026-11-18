@@ -15,6 +15,22 @@ pub fn iso(ms: f64) -> String {
     }
 }
 
+/// The browser's IANA time zone, e.g. `America/New_York`; `None` on the server.
+pub fn browser_time_zone() -> Option<String> {
+    #[cfg(feature = "hydrate")]
+    {
+        let format =
+            js_sys::Intl::DateTimeFormat::new(&js_sys::Array::new(), &js_sys::Object::new());
+        js_sys::Reflect::get(&format.resolved_options(), &"timeZone".into())
+            .ok()?
+            .as_string()
+    }
+    #[cfg(not(feature = "hydrate"))]
+    {
+        None
+    }
+}
+
 /// Epoch ms → `2026-04-01 00:00` (UTC).
 pub fn minutes(ms: f64) -> String {
     let iso = iso(ms);

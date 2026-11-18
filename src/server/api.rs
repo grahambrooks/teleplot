@@ -83,6 +83,7 @@ fn engine_request(d: &Dashboard, body: DataRequest) -> Request {
             .filter(|f| !f.values.is_empty() && !crate::compare::about_people(&f.field))
             .map(|f| f.to_filter())
             .collect(),
+        time_zone: body.time_zone,
     }
 }
 
@@ -108,7 +109,7 @@ pub async fn data(
         Ok(panels) => Json(DataResponse {
             from_ms: range.from_ms,
             to_ms: range.to_ms,
-            time_zone: engine.time_zone_name().to_string(),
+            time_zone: engine.zone(&request).1,
             panels,
         })
         .into_response(),

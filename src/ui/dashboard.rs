@@ -122,6 +122,8 @@ fn request_from(params: &ParamsMap, dashboard: &Dashboard) -> DataRequest {
             .get("f")
             .and_then(|f| serde_json::from_str(&f).ok())
             .unwrap_or_default(),
+        // Dates in the viewer's own time zone (unless teleplot.yaml pins one).
+        time_zone: super::clock::browser_time_zone(),
     }
 }
 
@@ -307,11 +309,30 @@ fn DashboardView(dashboard: Dashboard) -> impl IntoView {
         })
     };
 
+    // The tab names the dashboard. Set in the browser: a page-level <Title>
+    // registers after the server has streamed <head>, and would drop it.
+    #[cfg(feature = "hydrate")]
+    {
+        let tab_title = format!("{title} · Teleplot");
+        Effect::new(move |_| {
+            if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
+                doc.set_title(&tab_title);
+            }
+        });
+        on_cleanup(|| {
+            if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
+                doc.set_title("Teleplot");
+            }
+        });
+    }
     view! {
         <div class="dashboard">
             <div class="toolbar">
                 <h1 class="dashboard-title">{title}</h1>
                 <span class="spacer"></span>
+                <span class="muted small zone-label" title="Dates and day or week buckets use this time zone: yours, unless teleplot.yaml sets time_zone">
+                    {move || format!("Times in {}", time_zone.get())}
+                </span>
                 <TimePicker request=request.into() on_change=set_time/>
                 <button class="btn" title="Refresh" on:click=move |_| refresh.update(|n| *n += 1)>"↻"</button>
                 <button class="btn" title="Print, or save as PDF from the print dialog" on:click=move |_| {

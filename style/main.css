@@ -563,7 +563,7 @@ html.printing .panel { break-inside: avoid; }
 .timeline-sort button { background: none; color: var(--text-muted); border: 1px solid var(--border); padding: 2px 8px; font-size: 11px; cursor: pointer; }
 .timeline-sort button.selected { color: var(--text); border-color: var(--border-strong); background: var(--border); }
 .timeline-traces { flex: none; max-height: 132px; overflow: auto; border: 1px solid var(--border); border-radius: 2px; }
-.timeline-trace { display: grid; grid-template-columns: 150px 1fr 80px 70px; gap: 8px; width: 100%; text-align: left; background: none; color: var(--text); border: 0; border-bottom: 1px solid var(--border); padding: 3px 8px; font-size: 12px; cursor: pointer; }
+.timeline-trace { display: grid; grid-template-columns: 185px 1fr 80px 70px; gap: 8px; width: 100%; text-align: left; background: none; color: var(--text); border: 0; border-bottom: 1px solid var(--border); padding: 3px 8px; font-size: 12px; cursor: pointer; }
 .timeline-trace:hover { background: var(--border); }
 .timeline-trace.selected { background: var(--border-strong); box-shadow: inset 3px 0 0 var(--accent); }
 .timeline-trace-length { text-align: right; font-variant-numeric: tabular-nums; }

@@ -28,6 +28,8 @@ pub struct Engine {
     client: Client,
     time_zone: TimeZone,
     time_zone_name: String,
+    /// `time_zone` was set in teleplot.yaml: it wins over the viewer's.
+    pinned: bool,
     settings: Settings,
     field_caps: Cache<String, Arc<Vec<Field>>>,
     responses: Cache<String, Arc<Value>>,
@@ -52,6 +54,9 @@ pub struct Request {
     /// The viewer's ad-hoc filter pills; each applies only to indexes that
     /// have its field.
     pub filters: Vec<crate::model::Filter>,
+    /// The viewer's IANA time zone (from the browser), for date math and
+    /// calendar buckets, unless teleplot.yaml pins one.
+    pub time_zone: Option<String>,
 }
 
 impl Engine {
@@ -62,12 +67,14 @@ impl Engine {
             .clone()
             .or_else(|| time_zone.iana_name().map(String::from))
             .unwrap_or_else(|| "UTC".into());
-        Ok(Self::with_client(
+        let mut engine = Self::with_client(
             Client::new(&config.elasticsearch)?
                 .with_insight(config.insight.as_ref().map(|i| i.url.as_str())),
             time_zone,
             time_zone_name,
-        ))
+        );
+        engine.pinned = config.time_zone.is_some();
+        Ok(engine)
     }
 
     pub fn with_client(client: Client, time_zone: TimeZone, time_zone_name: String) -> Self {
@@ -75,6 +82,7 @@ impl Engine {
             client,
             time_zone,
             time_zone_name,
+            pinned: false,
             settings: Settings::default(),
             field_caps: Cache::builder()
                 .time_to_live(Duration::from_secs(300))
@@ -185,7 +193,7 @@ impl Engine {
             return Err(format!("panel {panel} is not a chart"));
         };
         let range = match &p.time {
-            Some(t) => time::resolve(&t.from, &t.to, now, &self.time_zone)?,
+            Some(t) => time::resolve(&t.from, &t.to, now, &self.zone(request).0)?,
             None => self.range(dashboard, request, now)?,
         };
         let indexes: Vec<String> = chart
@@ -198,9 +206,10 @@ impl Engine {
             .chain(request.query.clone())
             .collect();
         let stats = HashMap::new();
+        let zone_name = self.zone(request).1;
         let ctx = Context {
             range,
-            time_zone: &self.time_zone_name,
+            time_zone: &zone_name,
             queries: &queries,
             filters: &dashboard.filters,
             selections: &request.selections,
@@ -253,7 +262,7 @@ impl Engine {
         let mut ranges = Vec::new();
         for (panel, _) in &charts {
             ranges.push(match &panel.time {
-                Some(t) => time::resolve(&t.from, &t.to, now, &self.time_zone)?,
+                Some(t) => time::resolve(&t.from, &t.to, now, &self.zone(request).0)?,
                 None => dashboard_range,
             });
         }
@@ -262,9 +271,10 @@ impl Engine {
         let queries: Vec<Query> = std::iter::once(dashboard.query.clone())
             .chain(request.query.clone())
             .collect();
+        let zone_name = self.zone(request).1;
         let context = |range, stats| Context {
             range,
-            time_zone: &self.time_zone_name,
+            time_zone: &zone_name,
             queries: &queries,
             filters: &dashboard.filters,
             selections: &request.selections,
@@ -336,8 +346,16 @@ impl Engine {
         out
     }
 
-    pub fn time_zone_name(&self) -> &str {
-        &self.time_zone_name
+    /// The time zone for a request: teleplot.yaml's when it sets one, else
+    /// the viewer's (when it is a known zone), else the server's.
+    pub fn zone(&self, request: &Request) -> (TimeZone, String) {
+        if !self.pinned
+            && let Some(name) = &request.time_zone
+            && let Ok(tz) = TimeZone::get(name)
+        {
+            return (tz, name.clone());
+        }
+        (self.time_zone.clone(), self.time_zone_name.clone())
     }
 
     /// The resolved time range for a request, epoch milliseconds.
@@ -356,7 +374,7 @@ impl Engine {
             .as_ref()
             .or(dashboard.time.as_ref())
             .unwrap_or(&default_time);
-        time::resolve(&time.from, &time.to, now, &self.time_zone)
+        time::resolve(&time.from, &time.to, now, &self.zone(request).0)
     }
 
     /// The most common values of a control's field, under the dashboard's
@@ -513,9 +531,10 @@ impl Engine {
             .chain(request.query.clone())
             .collect();
         let stats = HashMap::new();
+        let zone_name = self.zone(request).1;
         let ctx = Context {
             range,
-            time_zone: &self.time_zone_name,
+            time_zone: &zone_name,
             queries: &queries,
             filters: &dashboard.filters,
             selections,
@@ -626,4 +645,32 @@ fn data_views(dashboard: &Dashboard) -> Vec<DataView> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod zone_tests {
+    use super::*;
+
+    fn engine(config: &str) -> Engine {
+        Engine::new(&Config::parse(config, |_| None).unwrap()).unwrap()
+    }
+
+    fn viewer(tz: &str) -> Request {
+        Request {
+            time_zone: Some(tz.into()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn the_viewers_zone_is_used_unless_the_config_pins_one() {
+        let free = engine("elasticsearch:\n  url: http://localhost:9200\n");
+        assert_eq!(free.zone(&viewer("America/New_York")).1, "America/New_York");
+        // An unknown zone falls back to the server's, never fails the request.
+        assert_ne!(free.zone(&viewer("Mars/Olympus")).1, "Mars/Olympus");
+        let pinned =
+            engine("elasticsearch:\n  url: http://localhost:9200\ntime_zone: Europe/London\n");
+        assert_eq!(pinned.zone(&viewer("America/New_York")).1, "Europe/London");
+        assert_eq!(pinned.zone(&Request::default()).1, "Europe/London");
+    }
 }

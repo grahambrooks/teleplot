@@ -110,7 +110,7 @@ elasticsearch:
   api_key: ${ES_API_KEY}              # or username / password
   ca_file: /etc/ssl/corp-ca.pem       # optional extra trusted CA
 dashboards: ./dashboards              # Kibana .ndjson exports and Teleplot .yaml
-time_zone: Europe/London              # for calendar buckets and date math
+time_zone: Europe/London              # pin one zone for dates, buckets and date math; default: each viewer's own
 ```
 
 `${NAME}` is replaced by that environment variable, so secrets stay out of the
