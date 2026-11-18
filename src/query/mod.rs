@@ -760,6 +760,9 @@ fn build_insight(
     if let Some(interval) = &series.interval {
         time["interval"] = json!(interval);
     }
+    // The viewer's zone, so day, week and month buckets are local ones
+    // (habit honours it; insight ignores the extra field).
+    time["time_zone"] = json!(ctx.time_zone);
     let mut body = json!({
         "record_type": layer.data_view.index,
         "time": time,
@@ -2384,6 +2387,10 @@ mod tests {
             assert_eq!(s.body["record_type"], "duplication_repo");
             assert_eq!(s.body["time"]["field"], "changed_at");
             assert_eq!(s.body["time"]["interval"], "1w");
+            assert!(
+                s.body["time"]["time_zone"].is_string(),
+                "buckets in the viewer's zone"
+            );
             assert!(s.body["time"]["from"].as_str().unwrap().ends_with('Z'));
             assert_eq!(s.body["latest_by"], "repo");
             assert_eq!(s.body["group_by"][0]["field"], "team");

@@ -274,15 +274,10 @@ fn DashboardView(dashboard: Dashboard) -> impl IntoView {
         });
         match data.get().and_then(|r| r.ok()) {
             Some(r) => {
-                let zone = if r.time_zone == "UTC" {
-                    String::new()
-                } else {
-                    format!(", buckets in {}", r.time_zone)
-                };
                 let range = format!(
-                    "{} to {}{zone}",
-                    iso_minutes(r.from_ms),
-                    iso_minutes(r.to_ms)
+                    "{} to {}",
+                    local_minutes(r.from_ms, &r.time_zone),
+                    local_minutes(r.to_ms, &r.time_zone)
                 );
                 // Quick ranges ("Last 90 days") say what they mean; custom ones are the range.
                 if QUICK_RANGES.iter().any(|(l, _, _)| *l == label) {
@@ -419,13 +414,16 @@ fn time_label(from: &str, to: &str) -> String {
         .unwrap_or_else(|| format!("{} → {}", short(from), short(to)))
 }
 
-fn iso_minutes(ms: i64) -> String {
-    format!("{} UTC", super::clock::minutes(ms as f64))
+/// A moment for the print header, in the zone the data is in.
+fn local_minutes(ms: i64, tz: &str) -> String {
+    super::clock::local(ms as f64, tz, false)
 }
 
-/// ISO timestamps shown as dates and times; date math as typed.
+/// ISO timestamps shown as local dates and times; date math as typed.
 fn short(s: &str) -> String {
-    super::clock::parse_iso(s).map_or_else(|| s.to_string(), super::clock::minutes)
+    let tz = super::clock::browser_time_zone().unwrap_or_else(|| "UTC".into());
+    super::clock::parse_iso(s)
+        .map_or_else(|| s.to_string(), |ms| super::clock::local(ms, &tz, false))
 }
 
 #[component]

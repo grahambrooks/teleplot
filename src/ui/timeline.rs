@@ -199,38 +199,8 @@ pub fn time_by_color(trace: &Trace) -> Vec<(String, f64)> {
 }
 
 /// Epoch ms → `2026-11-16 14:05:09 EST` in the dashboard's time zone.
-#[cfg(feature = "hydrate")]
 pub fn date_time(ms: f64, tz: &str) -> String {
-    let date = js_sys::Date::new(&ms.into());
-    let options = js_sys::Object::new();
-    for (k, v) in [
-        ("timeZone", tz),
-        ("year", "numeric"),
-        ("month", "2-digit"),
-        ("day", "2-digit"),
-        ("hour", "2-digit"),
-        ("minute", "2-digit"),
-        ("second", "2-digit"),
-        ("hourCycle", "h23"),
-        ("timeZoneName", "short"),
-    ] {
-        let _ = js_sys::Reflect::set(&options, &k.into(), &v.into());
-    }
-    let text: String = date.to_locale_string("en-CA", &options).into();
-    text.replace(',', "")
-}
-
-/// Epoch ms → `2026-11-16 14:05:09 EST` in the dashboard's time zone.
-#[cfg(not(feature = "hydrate"))]
-pub fn date_time(ms: f64, tz: &str) -> String {
-    let zone = jiff::tz::TimeZone::get(tz).unwrap_or(jiff::tz::TimeZone::UTC);
-    jiff::Timestamp::from_millisecond(ms as i64)
-        .map(|t| {
-            t.to_zoned(zone)
-                .strftime("%Y-%m-%d %H:%M:%S %Z")
-                .to_string()
-        })
-        .unwrap_or_default()
+    super::clock::local(ms, tz, true)
 }
 
 /// Milliseconds for reading: `850 ms`, `1.25 s`, `2.4 min`.
