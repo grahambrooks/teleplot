@@ -1,0 +1,92 @@
+# Shared metrics: defined once here, used by name from any dashboard in this
+# directory with `{ id: <column id>, op: metric, name: <metric> }`. A column
+# may set its own label, format, thresholds and time_shift; its filter
+# narrows the metric's. See docs/dashboards.md, "Shared metrics".
+#
+# These follow DORA's definitions over the dataset `cargo run --example seed`
+# writes. Benchmark bands are an editable overlay, not a DORA standard (see
+# the comment at the top of delivery-overview.yaml).
+metrics:
+  deployments:
+    label: Deployments
+    description: Planned production deployments, leaving out rework (unplanned fixes for a problem in production).
+    op: count
+    filter: { language: kql, text: "is_rework : false" }
+
+  failed_deployments:
+    label: Failed deployments
+    description: Planned deployments that failed in production.
+    op: metric
+    name: deployments
+    filter: { language: kql, text: "result : failure" }
+
+  deployment_frequency:
+    label: Deployments per week
+    description: Planned production deployments per week, over the selected range.
+    op: formula
+    text: "count(kql='is_rework : false') / (time_range() / 604800000)"
+    expr: { call: divide, args: [deployments, { call: divide, args: [range, 604800000.0] }] }
+    inputs:
+      deployments: { op: metric, name: deployments }
+      range: { op: time_range }
+    format: { kind: number, decimals: 1 }
+
+  change_fail_rate:
+    label: Change fail rate
+    description: "Share of planned deployments that failed in production. DORA bands: elite under 5%, high under 10%, medium under 15%."
+    op: formula
+    text: "count(kql='result : failure') / count()"
+    expr: { call: divide, args: [failed, all] }
+    inputs:
+      failed: { op: metric, name: failed_deployments }
+      all: { op: metric, name: deployments }
+    format: { kind: percent, decimals: 1 }
+    thresholds:
+      - { label: Elite, to: 0.05, color: "#73BF69" }
+      - { label: High, from: 0.05, to: 0.10, color: "#5794F2" }
+      - { label: Medium, from: 0.10, to: 0.15, color: "#FF9830" }
+      - { label: Low, from: 0.15, color: "#F2495C" }
+
+  change_lead_time:
+    label: Median lead time
+    description: "Median hours from commit to running in production, over planned deployments. DORA bands: elite under a day, high under a week, medium under a month."
+    op: median
+    field: change_lead_time_hours
+    filter: { language: kql, text: "is_rework : false" }
+    format: { kind: number, decimals: 1, suffix: " h" }
+    thresholds:
+      - { label: Elite, to: 24, color: "#73BF69" }
+      - { label: High, from: 24, to: 168, color: "#5794F2" }
+      - { label: Medium, from: 168, to: 720, color: "#FF9830" }
+      - { label: Low, from: 720, color: "#F2495C" }
+
+  recovery_time:
+    label: Median recovery, hours
+    description: "Median hours to recover from incidents a deployment caused (DORA's failed deployment recovery time). DORA bands: elite under an hour, high under a day, medium under a week."
+    op: median
+    field: recovery_hours
+    filter: { language: kql, text: "caused_by_deployment_id : *" }
+    format: { kind: number, decimals: 1, suffix: " h" }
+    thresholds:
+      - { label: Elite, to: 1, color: "#73BF69" }
+      - { label: High, from: 1, to: 24, color: "#5794F2" }
+      - { label: Medium, from: 24, to: 168, color: "#FF9830" }
+      - { label: Low, from: 168, color: "#F2495C" }
+
+  rework_rate:
+    label: Unplanned deployments
+    description: Share of deployments that were unplanned, made to fix a problem in production.
+    op: formula
+    text: "count(kql='is_rework : true') / count()"
+    expr: { call: divide, args: [unplanned, all] }
+    inputs:
+      unplanned: { op: count, filter: { language: kql, text: "is_rework : true" } }
+      all: { op: count }
+    format: { kind: percent, decimals: 1 }
+
+  cycle_time:
+    label: Median cycle time
+    description: Median hours from a PR's first commit to its deployment to production.
+    op: median
+    field: cycle_time_hours
+    format: { kind: number, decimals: 1, suffix: " h" }

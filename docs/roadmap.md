@@ -1,11 +1,11 @@
 # Roadmap: the remaining work, in order
 
-Status: current as of 2026-10-03. This is the one place that orders the work.
+Status: current as of 2026-11-19. This is the one place that orders the work.
 The research and rationale stay in the source plans:
 
 - [`mvp-plan.md`](mvp-plan.md): M0–M5 and M6 parts 1–2 (export, performance) are done.
-- [`mcp-plan.md`](mcp-plan.md): Part 1 (MCP endpoint) and gaps 1–6 (lint/schema, inspector and CSV, annotations, ES|QL panels, chained and ad-hoc variables, BubbleUp) are done.
-- [`charting-plan.md`](charting-plan.md): Wave A (A1–A9), B1–B3 (the distribution charts), B6 (calendar) and B8 (small multiples) are done.
+- [`mcp-plan.md`](mcp-plan.md): Part 1 (MCP endpoint), Part 1b (insight data, editing hand-written dashboards), and gaps 1–6 and 10 (lint/schema, inspector and CSV, annotations, ES|QL panels, chained and ad-hoc variables, BubbleUp, metric library) are done.
+- [`charting-plan.md`](charting-plan.md): Wave A (A1–A9) and Wave B (B1–B9) are done.
 
 Items carry their source IDs (`mcp gap 2`, `charting A1`). A phase starts once
 the one before it is done. Items inside a phase can go in parallel. Every item
@@ -96,20 +96,46 @@ also follows the [verification rules](#verification-rules) below.
   - **Performance.** The reference dashboard is now 20 panels over 1,011,958 documents. The benchmark (7 runs) gives medians of 103 ms cold, 58 ms warm and 8 ms cached, still far inside the 2 s budget in `performance.md`. Its recorded 12-panel figures (71/49/4 ms) are left as they were measured.
   - **Reference dashboard.** Adds a deployments-per-day calendar, a change-fail-rate gauge against the DORA bands, a waffle of deployment results, weekly cycle time as small multiples by team (with average and last), and an investment treemap.
 
-## Phase 8: comparing teams
+## Outside the phases (October–November 2026)
+
+- **Release (MVP M6 part 3), done.** The toolchain is pinned, release-kit's CalVer workflow builds macOS, Linux and Windows archives, and the in-repo Homebrew formula installs it. First release `v2026.11.3`.
+- **insight data and trace timelines.** insight series and records layers (mcp-plan Part 1b), `kind: timeline` for OpenTelemetry traces with a trace picker, and times in the viewer's time zone.
+
+## Phase 8: comparing teams (done 2026-11-19)
 
 - **`charting B4`: box plot** per team or repo, together with **`charting B9`: PR beeswarm** (grouped by team or repo, never by author).
 - **`charting B5`: state timeline** for incidents, environments and pipelines.
+- **`charting B7`: cycle-time phase breakdown**, a recipe.
+- *Result:*
+  - **Box plots and beeswarms.** `kind: box_plot` takes a `box` layer (terms › percentiles: q1, median, q3, optional whiskers and a count), a `swarm` layer (one dot per document, optionally coloured), reference lines, or all three on one value axis, linear or log. Rows follow the terms order. A box over fewer than `min_samples` documents is dashed, and each box shows its count. The dodge is done in Rust (`src/ui/rows.rs`) and unit tested: dots never overlap while the row has room, and a crowded row stays inside its band.
+  - **Never by person.** Lint refuses a `group`, `color` or `row` whose field is about a person, using the same name list as Compare.
+  - **State timelines.** `kind: state_timeline` draws one bar per document from start to end, coloured by state (status colours by name), one row per team or service. Overlapping bars in a row get their own lanes. Documents without an end (an open incident) are still fetched and run to now, faded. Dashboard annotations are drawn, and a drag zooms the dashboard. Compare is off for it, since its rows aren't a measure to select.
+  - **Rendering.** Both are uPlot canvases (`uplot::rows`), with a category axis like the heatmap's, so PNG export and print work. Checked in headless Chrome in light and dark themes, with PNG export, and no console errors.
+  - **Reference dashboard.** `delivery-overview.yaml` gained PR cycle time by team (box plot with a beeswarm coloured by AI assistance, and the all-teams p85), incidents by team as a state timeline, and where PR cycle time goes by team (B7: average coding, pickup, review and deploy hours, stacked).
+  - **Fixes found on the way.** Document layers required every drawn field to exist, which would have dropped open incidents and root spans without a parent: encodings now name their optional columns (`states` end and text, `swarm` colour, `timeline` parent and colour). Terms ordered by a column with its own filter sent `o>_count`, which Elasticsearch rejects; they now order by the filter aggregation itself. The golden test had asserted the broken path; the end-to-end test against Elasticsearch now runs the reference dashboard's team table, which orders this way (passing on 8.19 locally; CI runs 9.5 too).
+
+## Phase 9: a metric library (`mcp gap 10`, done 2026-11-19)
+
+- **What.** Define a metric once and use it by name from any panel, so "change fail rate" is computed the same way on every dashboard.
+- *Result:*
+  - **Format.** Shared metrics live in `metrics.yaml` in the dashboards directory (`agents/` uses its parent's); a dashboard can add its own under `metrics:`, which win, with a lint warning. A column uses one with `op: metric, name: …`. A metric is a metric operation, a formula over named `inputs`, or another metric narrowed by a filter. The column's label, format, thresholds, `per` and `time_shift` win; its filter narrows the metric's; a formula's inputs inherit the column's filter and shift.
+  - **Expanded at load.** `dashboards::load_file` expands references into plain columns (`<column>__<input>` helpers for formulas), so the query engine and client are unchanged. Files keep the reference, and MCP `get_dashboard format=full` returns the file as written, so panels an agent edits keep it. A reference that can't be expanded makes its panel a `BrokenReference` placeholder that names the known metrics.
+  - **Tools.** `teleplot lint metrics.yaml` checks definitions; dashboard lint reports unknown names and cycles at the column; `teleplot schema --metrics`; MCP `teleplot_list_metrics` (nine tools now), and validate, preview and save expand against the shared library.
+  - **Reference dashboard.** `dashboards/metrics.yaml` defines deployments, failed deployments, deployment frequency, change fail rate, lead time, recovery time, rework rate and cycle time. `delivery-overview.yaml` uses them: change fail rate had been written out three times and lead time four. Every panel's numbers over a fixed 90-day range are identical before and after (`teleplot query` against seeded ES 8.19).
 
 ## Ongoing
 
-- **`charting B7`** (cycle-time phase breakdown) and the other recipes go into `dashboards/delivery-overview.yaml` as each chart lands.
 - Every new YAML feature is documented in [`dashboards.md`](dashboards.md) and appears in `teleplot schema`.
+- New recipes go into `dashboards/delivery-overview.yaml` and the agent skill's cookbook as each chart lands.
 
-## Not scheduled
+## For future consideration
 
-- **Release (MVP M6 part 3).** Pin the toolchain, write a CalVer release workflow, add an in-repo Homebrew formula, and verify `brew install` on this machine. The done-when is in mvp-plan's milestone table. It is recorded here so it isn't lost, but no phase includes it.
-- **Waiting on a decision about sharing and auth: `mcp gaps 7–10`**: digests and alerts, joins across queries, static snapshots, a metric library. Gap 7 conflicts with today's view-only, localhost scope.
+Recommended on 2026-11-19 and not scheduled. None of these needs auth, alerting or UI editing.
+
+1. **Static snapshot (`mcp gap 9`).** `teleplot snapshot <dashboard> --from … --to … -o q3.html`: one self-contained HTML file with the panel data embedded and the queries removed, drawn by the same client. It lets the leaders the dashboards are for open, hover and inspect them without a running Teleplot, and keeps today's view-only, localhost, read-only scope. The client already draws from `PanelData`, so it is mostly serialising the `_msearch` results as the data source. The most useful next step.
+2. **Weekly digest (`mcp gap 7`, after the snapshot).** A snapshot plus a webhook. mcp-plan already says to start with a digest, not alerting. It conflicts with the localhost scope, so it needs that decision first.
+3. **Parity driven by real exports.** Run `teleplot check` over a corpus of real Kibana exports and add `--summary`, which tallies placeholder reasons across them, so the next conversion work follows what blocks the most panels rather than the fixtures.
+4. **Still waiting on a decision about sharing and auth:** `mcp gap 8` (joins across queries; ES|QL `LOOKUP JOIN` may cover most of it).
 
 ## Out of scope
 
@@ -124,6 +150,7 @@ Unchanged:
 - **Phase 2:** annotations reuse A1's draw hook.
 - **Phases 3–5:** the distribution charts come before BubbleUp, because B2 and the scatter are where its selection starts. ES|QL stays ahead of BubbleUp, as mcp-plan ordered.
 - **Phases 6–8:** follow charting-plan's own order, except that the remaining parity and polish (Phase 7) now comes before comparing teams (Phase 8), reordered 2026-10-03.
+- **Phase 9:** the metric library is the cheapest of the remaining gaps that doesn't wait on the sharing decision, and it makes numbers consistent across dashboards before they are shared more widely.
 
 ## Verification rules
 

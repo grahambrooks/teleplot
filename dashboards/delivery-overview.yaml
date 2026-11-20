@@ -57,22 +57,11 @@ panels:
       layers:
         - id: deploys
           data_view: { index: delivery-deployments, time_field: deployed_at }
+          # Shared metrics (dashboards/metrics.yaml): defined once, so every
+          # panel and dashboard counts deployments the same way.
           columns:
-            - { id: n, op: count, helper: true }
-            - { id: range, op: time_range, helper: true }
-            - id: per-week
-              label: Deployments per week
-              op: formula
-              text: "count() / (time_range() / 604800000)"
-              expr: { call: divide, args: [n, { call: divide, args: [range, 604800000.0] }] }
-              format: { kind: number, decimals: 1 }
-            - { id: n-prev, op: count, time_shift: previous, helper: true }
-            - id: per-week-prev
-              label: Previous period
-              op: formula
-              text: "count(shift=previous) / (time_range() / 604800000)"
-              expr: { call: divide, args: [n-prev, { call: divide, args: [range, 604800000.0] }] }
-              format: { kind: number, decimals: 1 }
+            - { id: per-week, op: metric, name: deployment_frequency }
+            - { id: per-week-prev, label: Previous period, op: metric, name: deployment_frequency, time_shift: previous }
             - { id: target, label: Target per week, op: static_value, value: 50 }
           # A bar towards the target of 50 a week.
           encoding: { as: metric, value: per-week, secondary: per-week-prev, max: target, progress: true }
@@ -96,29 +85,15 @@ panels:
         - id: lead
           data_view: { index: delivery-deployments, time_field: deployed_at }
           columns:
-            - id: median
-              label: Median, hours
-              op: median
-              field: change_lead_time_hours
-              format: { kind: number, decimals: 1, suffix: " h" }
-              thresholds: &lead-time-bands
-                - { label: Elite, to: 24, color: "#73BF69" }
-                - { label: High, from: 24, to: 168, color: "#5794F2" }
-                - { label: Medium, from: 168, to: 720, color: "#FF9830" }
-                - { label: Low, from: 720, color: "#F2495C" }
-            - id: median-prev
-              label: Change on previous period
-              op: median
-              field: change_lead_time_hours
-              time_shift: previous
-              format: { kind: number, decimals: 1, suffix: " h" }
+            - { id: median, label: "Median, hours", op: metric, name: change_lead_time }
+            - { id: median-prev, label: Change on previous period, op: metric, name: change_lead_time, time_shift: previous }
           # A trend badge: lower lead time is better, so a fall is green.
           encoding: { as: metric, value: median, secondary: median-prev, badge: { better: down } }
         - id: weekly
           data_view: { index: delivery-deployments, time_field: deployed_at }
           columns:
             - { id: week, op: date_histogram, field: deployed_at, interval: 1w }
-            - { id: median, op: median, field: change_lead_time_hours }
+            - { id: median, op: metric, name: change_lead_time }
           encoding: { as: sparkline, x: week, y: median }
 
   - id: change-fail-rate
@@ -133,27 +108,8 @@ panels:
         - id: cfr
           data_view: { index: delivery-deployments, time_field: deployed_at }
           columns:
-            - { id: failed, op: count, filter: { language: kql, text: "result : failure" }, helper: true }
-            - { id: all, op: count, helper: true }
-            - id: rate
-              label: Failed deployments
-              op: formula
-              text: "count(kql='result : failure') / count()"
-              expr: { call: divide, args: [failed, all] }
-              format: { kind: percent, decimals: 1 }
-              thresholds:
-                - { label: Elite, to: 0.05, color: "#73BF69" }
-                - { label: High, from: 0.05, to: 0.10, color: "#5794F2" }
-                - { label: Medium, from: 0.10, to: 0.15, color: "#FF9830" }
-                - { label: Low, from: 0.15, color: "#F2495C" }
-            - { id: failed-prev, op: count, filter: { language: kql, text: "result : failure" }, time_shift: previous, helper: true }
-            - { id: all-prev, op: count, time_shift: previous, helper: true }
-            - id: rate-prev
-              label: Previous period
-              op: formula
-              text: "previous period"
-              expr: { call: divide, args: [failed-prev, all-prev] }
-              format: { kind: percent, decimals: 1 }
+            - { id: rate, label: Failed deployments, op: metric, name: change_fail_rate }
+            - { id: rate-prev, label: Previous period, op: metric, name: change_fail_rate, time_shift: previous }
           encoding: { as: metric, value: rate, secondary: rate-prev }
 
   - id: recovery
@@ -168,22 +124,8 @@ panels:
         - id: recovery
           data_view: { index: delivery-incidents, time_field: created_at }
           columns:
-            - id: median
-              label: Median, hours
-              op: median
-              field: recovery_hours
-              format: { kind: number, decimals: 1, suffix: " h" }
-              thresholds:
-                - { label: Elite, to: 1, color: "#73BF69" }
-                - { label: High, from: 1, to: 24, color: "#5794F2" }
-                - { label: Medium, from: 24, to: 168, color: "#FF9830" }
-                - { label: Low, from: 168, color: "#F2495C" }
-            - id: median-prev
-              label: Previous period
-              op: median
-              field: recovery_hours
-              time_shift: previous
-              format: { kind: number, decimals: 1, suffix: " h" }
+            - { id: median, label: "Median, hours", op: metric, name: recovery_time }
+            - { id: median-prev, label: Previous period, op: metric, name: recovery_time, time_shift: previous }
           encoding: { as: metric, value: median, secondary: median-prev }
 
   - id: rework
@@ -197,22 +139,8 @@ panels:
         - id: rework
           data_view: { index: delivery-deployments, time_field: deployed_at }
           columns:
-            - { id: unplanned, op: count, filter: { language: kql, text: "is_rework : true" }, helper: true }
-            - { id: all, op: count, helper: true }
-            - id: rate
-              label: Unplanned deployments
-              op: formula
-              text: "count(kql='is_rework : true') / count()"
-              expr: { call: divide, args: [unplanned, all] }
-              format: { kind: percent, decimals: 1 }
-            - { id: unplanned-prev, op: count, filter: { language: kql, text: "is_rework : true" }, time_shift: previous, helper: true }
-            - { id: all-prev, op: count, time_shift: previous, helper: true }
-            - id: rate-prev
-              label: Previous period
-              op: formula
-              text: "previous period"
-              expr: { call: divide, args: [unplanned-prev, all-prev] }
-              format: { kind: percent, decimals: 1 }
+            - { id: rate, op: metric, name: rework_rate }
+            - { id: rate-prev, label: Previous period, op: metric, name: rework_rate, time_shift: previous }
           encoding: { as: metric, value: rate, secondary: rate-prev }
 
   # ---------------------------------------------------------------- distributions
@@ -229,12 +157,7 @@ panels:
           columns:
             - { id: week, op: date_histogram, field: deployed_at, interval: 1w, include_empty: true }
             - { id: p25, label: 25th percentile, op: percentile, field: change_lead_time_hours, percent: 25.0, format: { kind: number, decimals: 1, suffix: " h" } }
-            - id: p50
-              label: Median
-              op: median
-              field: change_lead_time_hours
-              format: { kind: number, decimals: 1, suffix: " h" }
-              thresholds: *lead-time-bands
+            - { id: p50, label: Median, op: metric, name: change_lead_time }
             - { id: p75, label: 75th percentile, op: percentile, field: change_lead_time_hours, percent: 75.0, format: { kind: number, decimals: 1, suffix: " h" } }
           encoding: { as: band, x: week, low: p25, mid: p50, high: p75 }
 
@@ -370,27 +293,10 @@ panels:
           data_view: { index: delivery-deployments, time_field: deployed_at }
           columns:
             - { id: team, label: Team, op: terms, fields: [team], size: 25, order: { by: column, column: n } }
-            - { id: n, label: Deployments, op: count }
-            - { id: range, op: time_range, helper: true }
-            - id: per-week
-              label: Per week
-              op: formula
-              text: "count() / (time_range() / 604800000)"
-              expr: { call: divide, args: [n, { call: divide, args: [range, 604800000.0] }] }
-              format: { kind: number, decimals: 1 }
-            - id: lead
-              label: Median lead time
-              op: median
-              field: change_lead_time_hours
-              format: { kind: number, decimals: 1, suffix: " h" }
-              thresholds: *lead-time-bands
-            - { id: failed, op: count, filter: { language: kql, text: "result : failure" }, helper: true }
-            - id: cfr
-              label: Change fail rate
-              op: formula
-              text: "count(kql='result : failure') / count()"
-              expr: { call: divide, args: [failed, n] }
-              format: { kind: percent, decimals: 1 }
+            - { id: n, op: metric, name: deployments }
+            - { id: per-week, label: Per week, op: metric, name: deployment_frequency }
+            - { id: lead, op: metric, name: change_lead_time }
+            - { id: cfr, op: metric, name: change_fail_rate }
           encoding:
             as: table
             columns: [team, n, per-week, lead, cfr]
@@ -482,14 +388,7 @@ panels:
         - id: cfr
           data_view: { index: delivery-deployments, time_field: deployed_at }
           columns:
-            - { id: failed, op: count, filter: { language: kql, text: "result : failure" }, helper: true }
-            - { id: all, op: count, helper: true }
-            - id: rate
-              label: Failed deployments
-              op: formula
-              text: "count(kql='result : failure') / count()"
-              expr: { call: divide, args: [failed, all] }
-              format: { kind: percent, decimals: 1 }
+            - { id: rate, label: Failed deployments, op: metric, name: change_fail_rate }
             - { id: max, op: static_value, value: 0.3 }
             - { id: goal, op: static_value, value: 0.05 }
           encoding:
@@ -534,7 +433,7 @@ panels:
           columns:
             - { id: team, op: terms, fields: [team], size: 8 }
             - { id: week, op: date_histogram, field: merged_at, interval: 1w }
-            - { id: median, label: Median cycle time, op: median, field: cycle_time_hours, format: { kind: number, decimals: 1, suffix: " h" } }
+            - { id: median, op: metric, name: cycle_time }
           encoding:
             as: xy
             series: line
@@ -560,3 +459,106 @@ panels:
             - { id: team, op: terms, fields: [team], size: 8 }
             - { id: points, label: Story points, op: sum, field: story_points }
           encoding: { as: pie, groups: [type, team], values: [points] }
+
+  # Where the time goes: each team's average hours in each phase of a PR.
+  # Averages, not medians, so the phases add up to the whole bar.
+  - id: cycle-phases
+    title: Where PR cycle time goes, by team
+    description: "Average hours a merged PR spent in each phase, per team: coding, waiting for a first review (pickup), review, and deploying. Averages, not medians, so the phases add up to the whole bar."
+    grid: { x: 24, y: 96, w: 24, h: 12 }
+    content:
+      type: chart
+      kind: xy
+      query: { language: kql, text: "cycle_time_hours : *" }
+      layers:
+        - id: phases
+          data_view: { index: delivery-prs, time_field: merged_at }
+          columns:
+            - { id: team, label: Team, op: terms, fields: [team], size: 8, order: { by: column, column: total } }
+            - { id: total, op: average, field: cycle_time_hours, helper: true }
+            - { id: coding, label: Coding, op: average, field: coding_hours, format: { kind: number, decimals: 1, suffix: " h" } }
+            - { id: pickup, label: Pickup, op: average, field: pickup_hours, format: { kind: number, decimals: 1, suffix: " h" } }
+            - { id: review, label: Review, op: average, field: review_hours, format: { kind: number, decimals: 1, suffix: " h" } }
+            - { id: deploy, label: Deploy, op: average, field: deploy_hours, format: { kind: number, decimals: 1, suffix: " h" } }
+          encoding: { as: xy, series: bar_horizontal_stacked, x: team, y: [coding, pickup, review, deploy] }
+
+  # ---------------------------------------------------------------- comparing teams
+  # Each team's distribution side by side: every PR as a dot (a beeswarm),
+  # over a box of its middle half with whiskers to p5 and p95. A box over a
+  # handful of PRs looks as solid as one over hundreds; the dots and the
+  # count show which is which. Grouped by team, never by person.
+  - id: cycle-by-team
+    title: PR cycle time by team, every PR and the middle half
+    description: "Each dot is a merged PR; the box is the team's middle half (25th to 75th percentile), the thick line its median, and the whiskers p5 and p95. Boxes over fewer than 5 PRs are dashed. The dashed line is p85 across all teams. Log scale."
+    grid: { x: 0, y: 108, w: 48, h: 16 }
+    content:
+      type: chart
+      kind: box_plot
+      query: { language: kql, text: "cycle_time_hours : *" }
+      layers:
+        - id: boxes
+          data_view: { index: delivery-prs, time_field: merged_at }
+          columns:
+            - { id: team, label: Team, op: terms, fields: [team], size: 8, order: { by: column, column: p50 } }
+            - { id: p5, label: 5th percentile, op: percentile, field: cycle_time_hours, percent: 5.0 }
+            - { id: p25, label: 25th percentile, op: percentile, field: cycle_time_hours, percent: 25.0 }
+            - { id: p50, op: metric, name: cycle_time }
+            - { id: p75, label: 75th percentile, op: percentile, field: cycle_time_hours, percent: 75.0 }
+            - { id: p95, label: 95th percentile, op: percentile, field: cycle_time_hours, percent: 95.0 }
+            - { id: n, label: Merged PRs, op: count }
+          encoding: { as: box, group: team, low: p5, q1: p25, median: p50, q3: p75, high: p95, count: n, log_scale: true }
+        - id: prs
+          data_view: { index: delivery-prs, time_field: merged_at }
+          documents: { limit: 3000, sort: merged_at }
+          columns:
+            - { id: team, label: Team, op: value, field: team }
+            - { id: hours, label: Cycle time, op: value, field: cycle_time_hours, format: { kind: number, decimals: 1, suffix: " h" } }
+            - { id: ai, label: AI-assisted, op: value, field: ai_assisted }
+          encoding:
+            as: swarm
+            group: team
+            value: hours
+            color: ai
+            log_scale: true
+            series_styles:
+              "true": { label: AI-assisted }
+              "false": { label: Other PRs, color: neutral }
+        - id: sle
+          data_view: { index: delivery-prs, time_field: merged_at }
+          columns:
+            - { id: p85, label: p85 (all teams), op: percentile, field: cycle_time_hours, percent: 85.0, format: { kind: number, decimals: 1, suffix: " h" } }
+          encoding:
+            as: reference_lines
+            lines:
+              - { column: p85, axis: bottom, style: dashed, color: "#FF9830" }
+
+  # Incidents as a state timeline: when each team had one open, and how
+  # bad. Overlapping incidents get their own lane, so none hides another.
+  - id: incident-timeline
+    title: Incidents by team, opened to resolved
+    description: "Each bar is an incident, from when it was opened to when it was resolved, coloured by severity. Incidents still open run to now, faded. Incidents at the same time stack in the team's row."
+    grid: { x: 0, y: 124, w: 48, h: 12 }
+    content:
+      type: chart
+      kind: state_timeline
+      layers:
+        - id: incidents
+          data_view: { index: delivery-incidents, time_field: created_at }
+          documents: { limit: 500, sort: created_at }
+          columns:
+            - { id: team, label: Team, op: value, field: team }
+            - { id: opened, label: Opened, op: value, field: created_at }
+            - { id: resolved, label: Resolved, op: value, field: resolved_at }
+            - { id: severity, label: Severity, op: value, field: severity }
+            - { id: repo, label: Repo, op: value, field: repo }
+          encoding:
+            as: states
+            row: team
+            start: opened
+            end: resolved
+            state: severity
+            text: repo
+            series_styles:
+              sev1: { color: critical }
+              sev2: { color: serious }
+              sev3: { color: warning }

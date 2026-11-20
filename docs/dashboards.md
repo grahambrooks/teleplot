@@ -36,7 +36,7 @@ else a library visualization's own description. Descriptions don't appear in pri
 
 Panel `content` is one of:
 
-- `type: chart`, which has a `kind` (`xy`, `metric`, `pie`, `donut`, `treemap`, `waffle`, `table`, `heatmap`, `gauge`, `calendar` or `timeline`), an optional `query` and `filters`, `layers`, and `annotations` of its own. Charts converted from Kibana can also carry `warnings`, naming parts of the original that Teleplot does not draw (a Lens annotation group linked from the library, for example). The panel shows them.
+- `type: chart`, which has a `kind` (`xy`, `metric`, `pie`, `donut`, `treemap`, `waffle`, `table`, `heatmap`, `gauge`, `calendar`, `timeline`, `box_plot` or `state_timeline`), an optional `query` and `filters`, `layers`, and `annotations` of its own. Charts converted from Kibana can also carry `warnings`, naming parts of the original that Teleplot does not draw (a Lens annotation group linked from the library, for example). The panel shows them.
 - `type: markdown` with `text`.
 
 ## Layers and columns
@@ -46,7 +46,8 @@ A layer queries one data view. Its columns are either:
 - **Buckets:** `date_histogram`, `terms`, `filters`, `histogram`, `ranges`, `log_histogram`;
 - **Per row** (document and ES|QL layers): `value`;
 - **Metrics:** `count`, `sum`, `average`, `min`, `max`, `median`, `percentile`, `unique_count`, `last_value`, `standard_deviation`, `static_value`, `time_range`;
-- **Computed from other columns:** `formula`, `moving_average`, `cumulative_sum`, `differences`, `counter_rate`, `overall`, `rolling_median`.
+- **Computed from other columns:** `formula`, `moving_average`, `cumulative_sum`, `differences`, `counter_rate`, `overall`, `rolling_median`;
+- **Shared:** `metric`, a metric defined once by name (see [Shared metrics](#shared-metrics)).
 
 Buckets nest in the order listed. Any column can also have:
 
@@ -75,6 +76,9 @@ The `encoding` (`as:`) says how columns are drawn:
 | `scatter` | `x`, `y`, `split`, `trend`, `log_scale`, `percentiles`: needs a document layer |
 | `heatmap` | `x`, `y`, `value`: cells coloured by `value` (for `kind: heatmap`) |
 | `timeline` | `trace`, `span`, `parent`, `start`, `end`, `label`, `color`: spans as nested bars (for `kind: timeline`) |
+| `box` | `group` (a terms column), `q1`, `median`, `q3`, `low`, `high`, `count`, `log_scale`: one box per group (for `kind: box_plot`) |
+| `swarm` | `group`, `value`, `color`, `log_scale`, `series_styles`: one dot per document, dodged (for `kind: box_plot`) |
+| `states` | `row`, `start`, `end`, `state`, `text`, `series_styles`: one bar per document (for `kind: state_timeline`) |
 | `reference_lines` | `lines`: lines at fixed values across the chart's other layers (below) |
 
 ### Formulas
@@ -97,6 +101,65 @@ A formula combines other columns of its layer:
 - functions: `abs`, `pow`, `sqrt`, `round`, `floor`, `ceil`, `log`, `exp`, `mod`, `clamp`, `pick_min`, `pick_max`, `defaults`
 
 Division by zero leaves the cell empty.
+
+### Shared metrics
+
+Define a metric once and use it by name, so "change fail rate" is computed
+the same way on every panel and every dashboard. Shared metrics live in
+`metrics.yaml` in the dashboards directory (dashboards in `agents/` use it
+too):
+
+```yaml
+# dashboards/metrics.yaml
+metrics:
+  deployments:
+    label: Deployments
+    description: Planned production deployments, leaving out rework.
+    op: count
+    filter: { language: kql, text: "is_rework : false" }
+  change_fail_rate:
+    label: Change fail rate
+    description: Share of planned deployments that failed in production.
+    op: formula
+    text: "count(kql='result : failure') / count()"
+    expr: { call: divide, args: [failed, all] }
+    inputs:
+      failed: { op: metric, name: deployments, filter: { language: kql, text: "result : failure" } }
+      all: { op: metric, name: deployments }
+    format: { kind: percent, decimals: 1 }
+    thresholds:
+      - { label: Elite, to: 0.05 }
+      - { label: Low, from: 0.05 }
+```
+
+A column then uses one with `op: metric`:
+
+```yaml
+columns:
+  - { id: rate, op: metric, name: change_fail_rate }
+  - { id: rate-prev, label: Previous period, op: metric, name: change_fail_rate, time_shift: previous }
+```
+
+- **What a metric is.** A column without an id: a metric operation (`count`,
+  `median`, `percentile`, …), a `formula` over named `inputs`, or another
+  metric by name, perhaps with a filter (`failed_deployments` above could be
+  its own metric). Buckets can't be metrics.
+- **Overrides.** The column's own `label`, `format`, `thresholds`, `per` and
+  `time_shift` win over the metric's. Its `filter` narrows the metric's: both
+  apply. A formula's inputs inherit the column's filter and time shift, so
+  `time_shift: previous` shifts the whole calculation.
+- **A dashboard's own.** A dashboard can define metrics under `metrics:`.
+  One with the same name as a shared metric is used instead, and lint warns,
+  since its numbers may then differ from other dashboards'.
+- **How it runs.** References are expanded when the dashboard is loaded: a
+  formula becomes its formula column plus a helper column per input, with
+  ids `<column>__<input>`. The file keeps the reference, and so do panels an
+  agent edits through MCP. A reference that can't be expanded makes that
+  panel a placeholder that says why; the rest of the dashboard still works.
+- **Checking.** `teleplot lint metrics.yaml` checks the definitions;
+  `teleplot lint` on a dashboard reports an unknown name at the column that
+  uses it, with the names that exist. `teleplot schema --metrics` prints the
+  library's JSON Schema. Agents list the metrics with `teleplot_list_metrics`.
 
 ### Comparing with the previous period
 
@@ -539,6 +602,91 @@ content:
   durations less the time their children cover. For Claude Code that splits
   an interaction into time in the model, waiting for permission, and running
   tools.
+
+### Box plots and beeswarms
+
+`kind: box_plot` compares distributions side by side, one row per team or
+repo, on one value axis. It takes a `box` layer, a `swarm` layer, or both,
+and `reference_lines` drawn across the value axis.
+
+```yaml
+content:
+  type: chart
+  kind: box_plot
+  query: { language: kql, text: "cycle_time_hours : *" }
+  layers:
+    - id: boxes
+      data_view: { index: delivery-prs, time_field: merged_at }
+      columns:
+        - { id: team, label: Team, op: terms, fields: [team], size: 8, order: { by: column, column: p50 } }
+        - { id: p5, op: percentile, field: cycle_time_hours, percent: 5 }
+        - { id: p25, op: percentile, field: cycle_time_hours, percent: 25 }
+        - { id: p50, op: median, field: cycle_time_hours, format: { kind: number, suffix: " h" } }
+        - { id: p75, op: percentile, field: cycle_time_hours, percent: 75 }
+        - { id: p95, op: percentile, field: cycle_time_hours, percent: 95 }
+        - { id: n, op: count }
+      encoding: { as: box, group: team, low: p5, q1: p25, median: p50, q3: p75, high: p95, count: n, log_scale: true }
+    - id: prs
+      data_view: { index: delivery-prs, time_field: merged_at }
+      documents: { limit: 3000, sort: merged_at }
+      columns:
+        - { id: team, op: value, field: team }
+        - { id: hours, op: value, field: cycle_time_hours }
+        - { id: ai, op: value, field: ai_assisted }
+      encoding: { as: swarm, group: team, value: hours, color: ai, log_scale: true }
+```
+
+- **Boxes.** `q1` to `q3`, a thick line at the `median`, and whiskers to
+  `low` and `high` when given. Rows follow the terms order. With `count`,
+  each box says how many documents it covers, and a box over fewer than the
+  dashboard's `min_samples` is dashed.
+- **Beeswarm.** One dot per document in its group's row, moved up or down
+  just enough that none overlap; a crowded row stays inside its band. It is
+  honest at small numbers, where a box of eight PRs looks more precise than
+  it is, and it shows two humps where a box can't. `color` colours dots by a
+  value, with `series_styles` for labels and colours.
+- **Never by person.** Lint refuses a `group`, `color` or `row` about a
+  person (author, assignee, reviewer, …): group by team, repo or service.
+- **PNG.** Box plots and state timelines are drawn on a canvas, so the
+  panel's PNG button saves them.
+
+### State timelines
+
+`kind: state_timeline` shows what state each team, service or environment
+was in over time: one bar per document from `start` to `end`, coloured by
+`state`, in the row of its `row` value.
+
+```yaml
+content:
+  type: chart
+  kind: state_timeline
+  layers:
+    - id: incidents
+      data_view: { index: delivery-incidents, time_field: created_at }
+      documents: { limit: 500, sort: created_at }
+      columns:
+        - { id: team, op: value, field: team }
+        - { id: opened, op: value, field: created_at }
+        - { id: resolved, op: value, field: resolved_at }
+        - { id: severity, op: value, field: severity }
+      encoding:
+        as: states
+        row: team
+        start: opened
+        end: resolved
+        state: severity
+        series_styles: { sev1: { color: critical }, sev2: { color: serious }, sev3: { color: warning } }
+```
+
+- **Still open.** A document without an `end` (an incident not yet
+  resolved) is still fetched, and its bar runs to now, faded. `text` is
+  optional too.
+- **Overlaps.** Bars at the same time in one row stack in lanes, so two
+  incidents at once both show.
+- **States** are listed by name in the legend, with colours from
+  `series_styles` (status names such as `critical` work) or the palette.
+- **Time axis.** Dashboard annotations are drawn, the cursor names the bar
+  under it, and a drag zooms the dashboard to that range.
 
 ### Treemaps, waffles and calendars
 

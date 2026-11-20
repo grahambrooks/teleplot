@@ -70,6 +70,7 @@ fn dashboard(export: &Export, object: &objects::SavedObject) -> Dashboard {
         chain_controls: str_field(&a["controlGroupInput"], "chainingSystem") != Some("NONE"),
         min_samples: None,
         annotations: Vec::new(),
+        metrics: Default::default(),
         panels,
     }
 }

@@ -130,7 +130,9 @@ fn convert(export: &Export, vis: Vis, refs: &[Reference]) -> Result<PanelContent
         | ChartKind::Treemap
         | ChartKind::Waffle
         | ChartKind::Calendar
-        | ChartKind::Timeline => {
+        | ChartKind::Timeline
+        | ChartKind::BoxPlot
+        | ChartKind::StateTimeline => {
             return Err(unparseable(kind_name, "not a legacy chart kind"));
         }
         ChartKind::Heatmap => {

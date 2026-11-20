@@ -68,7 +68,11 @@ enum Command {
         connection: Connection,
     },
     /// Print the JSON Schema of Teleplot's YAML dashboard format (for editors).
-    Schema,
+    Schema {
+        /// The schema of the shared metric library (`metrics.yaml`) instead.
+        #[arg(long)]
+        metrics: bool,
+    },
     /// Serve the MCP endpoint over stdio, for agents that launch Teleplot
     /// themselves (`teleplot serve` also serves it at /mcp).
     Mcp {
@@ -155,11 +159,16 @@ async fn main() -> ExitCode {
             online,
             connection,
         } => lint(&files, online.then_some(&connection)).await,
-        Command::Schema => {
+        Command::Schema { metrics } => {
+            let schema = if metrics {
+                serde_json::to_value(schemars::schema_for!(teleplot::metrics::Library))
+                    .unwrap_or_default()
+            } else {
+                teleplot::mcp::dashboard_schema_json()
+            };
             println!(
                 "{}",
-                serde_json::to_string_pretty(&teleplot::mcp::dashboard_schema_json())
-                    .unwrap_or_default()
+                serde_json::to_string_pretty(&schema).unwrap_or_default()
             );
             Ok(ExitCode::SUCCESS)
         }
@@ -319,8 +328,48 @@ async fn lint(files: &[PathBuf], online: Option<&Connection>) -> Result<ExitCode
         .map(|c| c.config().and_then(|c| Engine::new(&c)))
         .transpose()?;
     let mut errors = 0;
+    let print = |file: &Path, name: &str, problems: &[lint::Problem]| {
+        for p in problems {
+            let level = if p.severity == lint::Severity::Error {
+                "error"
+            } else {
+                "warning"
+            };
+            println!(
+                "{}: {name}: {level}: {}: {}",
+                file.display(),
+                if p.path.is_empty() {
+                    "(dashboard)"
+                } else {
+                    &p.path
+                },
+                p.message
+            );
+        }
+        problems
+            .iter()
+            .filter(|p| p.severity == lint::Severity::Error)
+            .count()
+    };
     for file in files {
         let text = std::fs::read_to_string(file).map_err(|e| format!("{}: {e}", file.display()))?;
+        if teleplot::metrics::is_library(file) {
+            let problems = match teleplot::yaml::from_str::<serde_json::Value>(&text) {
+                Err(e) => vec![lint::Problem {
+                    path: String::new(),
+                    severity: lint::Severity::Error,
+                    message: e.to_string(),
+                }],
+                Ok(value) => match lint::parse_library(value) {
+                    Ok(library) => teleplot::metrics::check_library(&library),
+                    Err(p) => vec![p],
+                },
+            };
+            errors += print(file, "metrics", &problems);
+            continue;
+        }
+        let library = teleplot::metrics::load(&teleplot::metrics::library_dir(file));
+        let library = library.as_ref().map_err(String::as_str);
         let is_yaml = file.extension().is_some_and(|e| e == "yaml" || e == "yml");
         // YAML is parsed from raw values so problems carry exact paths.
         let parsed: Vec<Result<Dashboard, lint::Problem>> = if is_yaml {
@@ -343,7 +392,7 @@ async fn lint(files: &[PathBuf], online: Option<&Connection>) -> Result<ExitCode
             let (name, problems) = match result {
                 Err(p) => ("(unparsed)".to_string(), vec![p]),
                 Ok(d) => {
-                    let problems = match &engine {
+                    let fields = match &engine {
                         Some(engine) => {
                             let indexes: Vec<String> = d
                                 .panels
@@ -357,34 +406,15 @@ async fn lint(files: &[PathBuf], online: Option<&Connection>) -> Result<ExitCode
                                 .flatten()
                                 .chain(d.controls.iter().map(|c| c.data_view.index.clone()))
                                 .collect();
-                            lint::check(&d, Some(&engine.fields_for(&indexes).await))
+                            Some(engine.fields_for(&indexes).await)
                         }
-                        None => lint::check(&d, None),
+                        None => None,
                     };
+                    let (_, problems) = lint::check_with_metrics(&d, library, fields.as_ref());
                     (d.id.clone(), problems)
                 }
             };
-            for p in &problems {
-                let level = if p.severity == lint::Severity::Error {
-                    "error"
-                } else {
-                    "warning"
-                };
-                println!(
-                    "{}: {name}: {level}: {}: {}",
-                    file.display(),
-                    if p.path.is_empty() {
-                        "(dashboard)"
-                    } else {
-                        &p.path
-                    },
-                    p.message
-                );
-            }
-            errors += problems
-                .iter()
-                .filter(|p| p.severity == lint::Severity::Error)
-                .count();
+            errors += print(file, &name, &problems);
         }
     }
     if errors > 0 {

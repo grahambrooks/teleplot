@@ -8,6 +8,7 @@ mod export;
 pub mod format;
 mod inspector;
 mod panels;
+pub mod rows;
 pub mod series;
 mod shapes;
 mod shell;

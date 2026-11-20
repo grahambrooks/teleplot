@@ -8,6 +8,7 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 
 use super::format;
+use super::rows::Rows;
 use super::series::{Heatmap, RefLine, Style, XAxis, Xy, XySeries, stacked};
 use super::theme;
 use super::theme::threshold_color;
@@ -1505,4 +1506,491 @@ fn bucket_ticks(xs: &[f64]) -> Option<Array> {
         incrs.push(&(step * k).into());
     }
     Some(incrs)
+}
+
+/// Draws a rows chart into `target`: one row per team, repo or service
+/// down the left, values (box plots, beeswarms) or time (state timelines)
+/// across. Boxes, dots and bars are drawn by a hook, so PNG export keeps
+/// them; the legend names what the colours mean and, under the cursor, the
+/// row's box or state.
+pub fn rows(target: &web_sys::HtmlElement, r: &Rows, options: Options) -> Chart {
+    let colors = theme::chart_colors();
+    let mut callbacks = Vec::new();
+    let n = r.rows.len().max(1);
+    let (lo, hi) = r.range;
+    let data = Array::of2(
+        &js_sys::Float64Array::from([lo, hi].as_slice()),
+        &Array::of2(&JsValue::NULL, &JsValue::NULL),
+    );
+    let shared = Rc::new(r.clone());
+    let tz = options.time_zone.to_string();
+
+    // The row under the cursor (top to bottom), and the value at it.
+    fn cursor_at(u: &JsValue, n: usize) -> (Option<usize>, Option<f64>) {
+        let cursor = Reflect::get(u, &"cursor".into()).unwrap_or(JsValue::NULL);
+        let (left, top) = (number(&cursor, "left"), number(&cursor, "top"));
+        if left < 0.0 || top < 0.0 {
+            return (None, None);
+        }
+        let Ok(pos_to_val) =
+            Reflect::get(u, &"posToVal".into()).and_then(|f| f.dyn_into::<Function>())
+        else {
+            return (None, None);
+        };
+        let at = |px: f64, scale: &str| {
+            pos_to_val
+                .call2(u, &px.into(), &scale.into())
+                .ok()
+                .and_then(|v| v.as_f64())
+                .filter(|v| v.is_finite())
+        };
+        let row = at(top, "y")
+            .filter(|v| *v >= 0.0 && *v < n as f64)
+            .map(|v| n - 1 - v.floor() as usize);
+        (row, at(left, "x"))
+    }
+
+    let read = {
+        let r = shared.clone();
+        let tz = tz.clone();
+        move |v: f64| {
+            if r.time {
+                super::clock::local(v, &tz, false)
+            } else {
+                format::value(v, r.format.as_ref())
+            }
+        }
+    };
+    let x_read = read.clone();
+    let x_value = Callback::new(move |u: JsValue, _v: JsValue, _s: JsValue, _i: JsValue| {
+        let (_, x) = cursor_at(&u, n);
+        JsValue::from_str(&x.map(&x_read).unwrap_or_default())
+    });
+    let x_series = obj(&[
+        (
+            "label",
+            (if shared.time {
+                "Time".to_string()
+            } else {
+                shared.label.clone()
+            })
+            .into(),
+        ),
+        ("value", function(&x_value).into()),
+    ]);
+    callbacks.push(x_value);
+
+    let described = shared.clone();
+    let value = Callback::new(move |u: JsValue, _v: JsValue, _s: JsValue, _i: JsValue| {
+        let r = &described;
+        let (Some(row), x) = cursor_at(&u, n) else {
+            return JsValue::from_str("");
+        };
+        let Some(name) = r.rows.get(row) else {
+            return JsValue::from_str("");
+        };
+        let mut text = name.clone();
+        if let Some(b) = r.boxes.iter().find(|b| b.row == row) {
+            text.push_str(&format!(
+                ": median {} (middle half {}–{})",
+                read(b.median),
+                read(b.q1),
+                read(b.q3)
+            ));
+            if let Some(c) = b.count {
+                text.push_str(&format!(", {} documents", format::plain(c)));
+            }
+        } else if !r.dots.is_empty() {
+            let dots = r.dots.iter().filter(|d| d.row == row).count();
+            text.push_str(&format!(": {dots} shown"));
+        }
+        if let Some(x) = x {
+            let hit = r
+                .bars
+                .iter()
+                .find(|b| b.row == row && b.start <= x && x <= b.end);
+            if let Some(b) = hit {
+                let state = r.key.get(b.key).map_or("", |k| k.0.as_str());
+                let end = if b.open {
+                    "still open".to_string()
+                } else {
+                    read(b.end)
+                };
+                text.push_str(&format!(": {state}, {} – {end}", read(b.start)));
+                if let Some(t) = &b.text {
+                    text.push_str(&format!(" · {t}"));
+                }
+            }
+        }
+        JsValue::from_str(&text)
+    });
+    // The row under the cursor: named by what the rows are, in a neutral
+    // colour (the key entries carry the colours).
+    let series = Array::of2(
+        &x_series.into(),
+        &obj(&[
+            ("label", shared.row_label.clone().into()),
+            ("stroke", colors.text.clone().into()),
+            ("paths", no_path(&mut callbacks).into()),
+            ("points", obj(&[("show", false.into())]).into()),
+            ("value", function(&value).into()),
+        ])
+        .into(),
+    );
+    callbacks.push(value);
+    // The colour key: one legend entry per dot colour or state.
+    for (i, (label, color)) in shared.key.iter().enumerate() {
+        let blank =
+            Callback::new(|_: JsValue, _: JsValue, _: JsValue, _: JsValue| JsValue::from_str(""));
+        data.push(&Array::of2(&JsValue::NULL, &JsValue::NULL));
+        series.push(&obj(&[
+            ("label", label.clone().into()),
+            ("stroke", color.resolve(i, options.dark).into()),
+            ("width", 6.into()),
+            ("paths", no_path(&mut callbacks).into()),
+            ("points", obj(&[("show", false.into())]).into()),
+            ("value", function(&blank).into()),
+        ]));
+        callbacks.push(blank);
+    }
+    let annotations = Rc::new(if shared.time {
+        shared.annotations.clone()
+    } else {
+        Vec::new()
+    });
+    if shared.time {
+        annotation_series(
+            &annotations,
+            2,
+            &colors.warning,
+            options.time_zone,
+            &data,
+            &series,
+            &mut callbacks,
+        );
+    }
+
+    // Row labels, top to bottom, in the middle of each row.
+    let labels: Vec<String> = shared.rows.iter().rev().cloned().collect();
+    let splits = Callback::new(move |_u: JsValue, _a: JsValue, _b: JsValue, _c: JsValue| {
+        (0..n)
+            .map(|i| JsValue::from(i as f64 + 0.5))
+            .collect::<Array>()
+            .into()
+    });
+    let row_labels = Callback::new(
+        move |_u: JsValue, splits: JsValue, _a: JsValue, _b: JsValue| {
+            Array::from(&splits)
+                .iter()
+                .map(|v| {
+                    let label = v
+                        .as_f64()
+                        .and_then(|v| labels.get(v.floor() as usize).cloned());
+                    JsValue::from_str(&label.unwrap_or_default())
+                })
+                .collect::<Array>()
+                .into()
+        },
+    );
+    let y_axis = obj(&[
+        ("scale", "y".into()),
+        ("stroke", colors.text.clone().into()),
+        ("grid", obj(&[("show", false.into())]).into()),
+        ("ticks", obj(&[("show", false.into())]).into()),
+        ("splits", function(&splits).into()),
+        ("values", function(&row_labels).into()),
+        ("size", 90.into()),
+    ]);
+    callbacks.push(splits);
+    callbacks.push(row_labels);
+    let x_axis = obj(&[
+        ("stroke", colors.text.clone().into()),
+        (
+            "grid",
+            obj(&[("stroke", colors.grid.clone().into()), ("width", 1.into())]).into(),
+        ),
+        (
+            "ticks",
+            obj(&[("stroke", colors.grid.clone().into()), ("width", 1.into())]).into(),
+        ),
+    ]);
+    if !shared.time {
+        let fmt = shared.format.clone().map(|f| Format {
+            decimals: None,
+            ..f
+        });
+        let ticks = Callback::new(
+            move |_u: JsValue, splits: JsValue, _a: JsValue, _b: JsValue| {
+                let splits = Array::from(&splits);
+                let values: Vec<f64> = splits.iter().filter_map(|v| v.as_f64()).collect();
+                let mut texts = format::ticks(&values, fmt.as_ref()).into_iter();
+                splits
+                    .iter()
+                    .map(|v| match v.as_f64() {
+                        Some(_) => JsValue::from_str(&texts.next().unwrap_or_default()),
+                        None => JsValue::from_str(""),
+                    })
+                    .collect::<Array>()
+                    .into()
+            },
+        );
+        set(&x_axis, "values", function(&ticks));
+        callbacks.push(ticks);
+    }
+    let axes = Array::of2(&x_axis.into(), &y_axis.into());
+
+    let x_scale = obj(&[
+        ("time", shared.time.into()),
+        ("range", Array::of2(&lo.into(), &hi.into()).into()),
+    ]);
+    if shared.log_scale && !shared.time {
+        set(&x_scale, "distr", 3);
+    }
+    let scales = obj(&[
+        ("x", x_scale.into()),
+        (
+            "y",
+            obj(&[("range", Array::of2(&0.into(), &(n as f64).into()).into())]).into(),
+        ),
+    ]);
+
+    let lines: Rc<Vec<(RefLine, &'static str)>> = Rc::new(
+        shared
+            .reference_lines
+            .iter()
+            .map(|l| (l.clone(), "x"))
+            .collect(),
+    );
+    let (fills, line_color, panel) = (lines.clone(), colors.text.clone(), colors.panel.clone());
+    let behind = Callback::new(move |u: JsValue, _a: JsValue, _b: JsValue, _c: JsValue| {
+        draw_reference_lines(&u, &fills, &line_color, &panel, true);
+        JsValue::UNDEFINED
+    });
+    let drawn = shared.clone();
+    let (dark, text, panel) = (options.dark, colors.text.clone(), colors.panel.clone());
+    let warning = colors.warning.clone();
+    let on_top = Callback::new(move |u: JsValue, _a: JsValue, _b: JsValue, _c: JsValue| {
+        draw_rows(&u, &drawn, dark, &text, &panel);
+        draw_reference_lines(&u, &lines, &text, &panel, false);
+        draw_annotations(&u, &annotations, &warning);
+        JsValue::UNDEFINED
+    });
+    let hooks = obj(&[
+        ("drawClear", Array::of1(&function(&behind)).into()),
+        ("draw", Array::of1(&function(&on_top)).into()),
+    ]);
+    callbacks.push(behind);
+    callbacks.push(on_top);
+
+    let opts = obj(&[
+        ("width", options.width.into()),
+        ("height", (options.height - 30.0).max(60.0).into()),
+        ("series", series.into()),
+        ("axes", axes.into()),
+        ("scales", scales.into()),
+        (
+            "padding",
+            Array::of4(&8.into(), &16.into(), &0.into(), &0.into()).into(),
+        ),
+        (
+            "legend",
+            obj(&[("show", true.into()), ("live", true.into())]).into(),
+        ),
+        ("hooks", hooks.clone().into()),
+        (
+            "cursor",
+            obj(&[
+                ("sync", sync(&options).into()),
+                ("points", obj(&[("show", false.into())]).into()),
+                (
+                    "drag",
+                    obj(&[
+                        ("x", shared.time.into()),
+                        ("y", false.into()),
+                        ("setScale", false.into()),
+                    ])
+                    .into(),
+                ),
+            ])
+            .into(),
+        ),
+    ]);
+    if shared.time {
+        time_axis(&opts, options.time_zone, &mut callbacks);
+        if let Some(on_zoom) = options.on_zoom.clone() {
+            zoom_on_select(&hooks, on_zoom, &mut callbacks);
+        }
+    }
+
+    let plot = UPlot::new(&opts, &data, target);
+    let chart = Chart {
+        plot,
+        target: target.clone(),
+        _callbacks: callbacks,
+    };
+    chart.fit(options.width, options.height);
+    chart
+}
+
+/// A colour with an alpha (`#rrggbb` → `#rrggbbaa`); other CSS colours as they are.
+fn with_alpha(color: &str, alpha: f64) -> String {
+    match color.strip_prefix('#') {
+        Some(hex) if hex.len() == 6 => format!("#{hex}{:02x}", (alpha * 255.0).round() as u8),
+        _ => color.to_string(),
+    }
+}
+
+/// Boxes, beeswarm dots and state bars, row by row.
+fn draw_rows(u: &JsValue, r: &Rows, dark: bool, text: &str, background: &str) {
+    let Some(plot) = Plot::of(u) else { return };
+    let dpr = dpr();
+    let n = r.rows.len().max(1);
+    // A row's top and height in canvas pixels (row 0 at the top).
+    let band = |row: usize| -> Option<(f64, f64)> {
+        let top = plot.pos((n - row) as f64, "y")?;
+        let bottom = plot.pos((n - row - 1) as f64, "y")?;
+        Some((top, bottom - top))
+    };
+    let palette = theme::categorical(dark);
+    let box_color = if r.dots.is_empty() {
+        palette[0].to_string()
+    } else {
+        text.to_string()
+    };
+    let ctx = &plot.ctx;
+    plot.clip();
+
+    // Box fills, under the dots.
+    for b in &r.boxes {
+        let (Some((top, h)), Some(x0), Some(x1)) =
+            (band(b.row), plot.pos(b.q1, "x"), plot.pos(b.q3, "x"))
+        else {
+            continue;
+        };
+        ctx.set_fill_style_str(&with_alpha(palette[0], if b.thin { 0.08 } else { 0.18 }));
+        ctx.fill_rect(x0, top + h * 0.25, (x1 - x0).max(dpr), h * 0.5);
+    }
+
+    // Dots: dodged within their row so none hides another.
+    let radius = |h: f64| (h * 0.07).clamp(1.5 * dpr, 3.5 * dpr);
+    for row in 0..r.rows.len() {
+        let Some((top, h)) = band(row) else { continue };
+        let mine: Vec<&super::rows::Dot> = r.dots.iter().filter(|d| d.row == row).collect();
+        if mine.is_empty() {
+            continue;
+        }
+        let rad = radius(h);
+        let xs: Vec<f64> = mine
+            .iter()
+            .map(|d| plot.pos(d.value, "x").unwrap_or(f64::NAN))
+            .collect();
+        let ys = super::rows::dodge(&xs, rad, (h * 0.42 - rad).max(0.0));
+        let middle = top + h / 2.0;
+        for ((d, x), y) in mine.iter().zip(&xs).zip(ys) {
+            if !x.is_finite() {
+                continue;
+            }
+            let color = r
+                .key
+                .get(d.key)
+                .map_or(palette[0].to_string(), |(_, c)| c.resolve(d.key, dark));
+            ctx.set_fill_style_str(&with_alpha(&color, 0.75));
+            ctx.begin_path();
+            let _ = ctx.arc(*x, middle + y, rad, 0.0, std::f64::consts::TAU);
+            ctx.fill();
+        }
+    }
+
+    // Box outlines, medians and whiskers, over the dots.
+    ctx.set_font(&format!("{}px sans-serif", (10.0 * dpr).round()));
+    for b in &r.boxes {
+        let (Some((top, h)), Some(x0), Some(xm), Some(x1)) = (
+            band(b.row),
+            plot.pos(b.q1, "x"),
+            plot.pos(b.median, "x"),
+            plot.pos(b.q3, "x"),
+        ) else {
+            continue;
+        };
+        let middle = top + h / 2.0;
+        let dash: Array = if b.thin {
+            [4.0, 3.0].iter().map(|d| JsValue::from(d * dpr)).collect()
+        } else {
+            Array::new()
+        };
+        let _ = ctx.set_line_dash(&dash);
+        ctx.set_global_alpha(if b.thin { 0.6 } else { 1.0 });
+        ctx.set_stroke_style_str(&box_color);
+        ctx.set_line_width(dpr);
+        ctx.stroke_rect(x0, top + h * 0.25, (x1 - x0).max(dpr), h * 0.5);
+        for (from, to) in [(b.low, x0), (b.high, x1)] {
+            let Some(end) = from.and_then(|v| plot.pos(v, "x")) else {
+                continue;
+            };
+            ctx.begin_path();
+            ctx.move_to(end, middle);
+            ctx.line_to(to, middle);
+            ctx.move_to(end, middle - h * 0.12);
+            ctx.line_to(end, middle + h * 0.12);
+            ctx.stroke();
+        }
+        let _ = ctx.set_line_dash(&Array::new());
+        ctx.set_line_width(2.5 * dpr);
+        ctx.begin_path();
+        ctx.move_to(xm, top + h * 0.25);
+        ctx.line_to(xm, top + h * 0.75);
+        ctx.stroke();
+        // How many documents, so a thin box reads as one.
+        if let Some(count) = b.count {
+            let label = format!("n = {}", format::plain(count));
+            let right = b.high.and_then(|v| plot.pos(v, "x")).unwrap_or(x1).max(x1);
+            let width = ctx.measure_text(&label).map_or(0.0, |m| m.width());
+            let left = b.low.and_then(|v| plot.pos(v, "x")).unwrap_or(x0).min(x0);
+            let x = if right + 6.0 * dpr + width < plot.left + plot.width {
+                right + 6.0 * dpr
+            } else {
+                left - 6.0 * dpr - width
+            };
+            // A backing keeps the count readable over the dots.
+            let alpha = ctx.global_alpha();
+            ctx.set_global_alpha(0.85);
+            ctx.set_fill_style_str(background);
+            ctx.fill_rect(
+                x - 2.0 * dpr,
+                middle - 6.5 * dpr,
+                width + 4.0 * dpr,
+                13.0 * dpr,
+            );
+            ctx.set_global_alpha(alpha);
+            ctx.set_fill_style_str(text);
+            let _ = ctx.fill_text(&label, x, middle + 3.5 * dpr);
+        }
+        ctx.set_global_alpha(1.0);
+    }
+
+    // State bars: one lane per overlap, so concurrent states both show.
+    for bar in &r.bars {
+        let (Some((top, h)), Some(x0), Some(x1)) = (
+            band(bar.row),
+            plot.pos(bar.start, "x"),
+            plot.pos(bar.end, "x"),
+        ) else {
+            continue;
+        };
+        let lanes = r.lanes.get(bar.row).copied().unwrap_or(1).max(1) as f64;
+        let lane_h = h * 0.8 / lanes;
+        let y = top + h * 0.1 + bar.lane as f64 * lane_h;
+        let color = r
+            .key
+            .get(bar.key)
+            .map_or(palette[0].to_string(), |(_, c)| c.resolve(bar.key, dark));
+        ctx.set_fill_style_str(&with_alpha(&color, if bar.open { 0.55 } else { 0.9 }));
+        ctx.fill_rect(
+            x0,
+            y + dpr / 2.0,
+            (x1 - x0).max(1.5 * dpr),
+            (lane_h - dpr).max(dpr),
+        );
+    }
+    ctx.restore();
 }

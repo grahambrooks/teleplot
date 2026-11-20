@@ -8,7 +8,7 @@ against a typical delivery schema:
 |---|---|---|
 | `delivery-deployments` | `deployed_at` | `team`, `repo`, `result` (`success`/`failure`), `is_rework`, `change_lead_time_hours` |
 | `delivery-prs` | `merged_at` | `team`, `repo`, `ai_assisted`, `cycle_time_hours`, `review_hours` |
-| `delivery-incidents` | `created_at` | `team`, `severity`, `recovery_hours`, `resolved_at` |
+| `delivery-incidents` | `created_at` | `team`, `repo`, `severity`, `recovery_hours`, `resolved_at` |
 
 Replace index and field names with what you found in the cluster. Every
 option is described in `docs/dashboards.md`; `teleplot schema` has the full
@@ -22,6 +22,7 @@ format.
 - [Trends over time](#trends-over-time)
 - [Tables](#tables)
 - [Gauges, calendars, shares](#gauges-calendars-shares)
+- [Comparing teams: box plots, beeswarms, state timelines](#comparing-teams)
 - [ES|QL](#esql)
 
 ## The dashboard around the panels
@@ -406,6 +407,79 @@ content:
 ```
 
 `kind: pie`, `donut` and `treemap` (up to two `groups`) take the same encoding.
+
+## Comparing teams
+
+Each team's cycle-time distribution, side by side: every PR as a dot over a
+box of the middle half, whiskers to p5 and p95, and the PR count beside each
+box. Group by team or repo, never by person (lint refuses author fields):
+
+```yaml
+id: cycle-by-team
+title: PR cycle time by team, every PR and the middle half
+description: Each dot is a merged PR; the box is the team's 25th to 75th percentile, the thick line its median. Log scale.
+grid: { x: 0, y: 0, w: 48, h: 16 }
+content:
+  type: chart
+  kind: box_plot
+  query: { language: kql, text: "cycle_time_hours : *" }
+  layers:
+    - id: boxes
+      data_view: { index: delivery-prs, time_field: merged_at }
+      columns:
+        - { id: team, label: Team, op: terms, fields: [team], size: 8, order: { by: column, column: p50 } }
+        - { id: p5, op: percentile, field: cycle_time_hours, percent: 5 }
+        - { id: p25, op: percentile, field: cycle_time_hours, percent: 25 }
+        - { id: p50, label: Median cycle time, op: median, field: cycle_time_hours, format: { kind: number, decimals: 1, suffix: " h" } }
+        - { id: p75, op: percentile, field: cycle_time_hours, percent: 75 }
+        - { id: p95, op: percentile, field: cycle_time_hours, percent: 95 }
+        - { id: n, label: Merged PRs, op: count }
+      encoding: { as: box, group: team, low: p5, q1: p25, median: p50, q3: p75, high: p95, count: n, log_scale: true }
+    - id: prs
+      data_view: { index: delivery-prs, time_field: merged_at }
+      documents: { limit: 3000, sort: merged_at }
+      columns:
+        - { id: team, op: value, field: team }
+        - { id: hours, label: Cycle time, op: value, field: cycle_time_hours }
+        - { id: ai, op: value, field: ai_assisted }
+      encoding:
+        as: swarm
+        group: team
+        value: hours
+        color: ai
+        log_scale: true
+        series_styles: { "true": { label: AI-assisted }, "false": { label: Other PRs, color: neutral } }
+```
+
+Incidents as a state timeline: one row per team, a bar from opened to
+resolved, coloured by severity. Unresolved incidents run to now:
+
+```yaml
+id: incident-timeline
+title: Incidents by team, opened to resolved
+grid: { x: 0, y: 16, w: 48, h: 12 }
+content:
+  type: chart
+  kind: state_timeline
+  layers:
+    - id: incidents
+      data_view: { index: delivery-incidents, time_field: created_at }
+      documents: { limit: 500, sort: created_at }
+      columns:
+        - { id: team, label: Team, op: value, field: team }
+        - { id: opened, op: value, field: created_at }
+        - { id: resolved, op: value, field: resolved_at }
+        - { id: severity, label: Severity, op: value, field: severity }
+        - { id: repo, op: value, field: repo }
+      encoding:
+        as: states
+        row: team
+        start: opened
+        end: resolved
+        state: severity
+        text: repo
+        series_styles: { sev1: { color: critical }, sev2: { color: serious }, sev3: { color: warning } }
+```
 
 ## ES|QL
 

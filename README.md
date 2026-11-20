@@ -118,6 +118,12 @@ file. Drop Kibana exports (Stack Management → Saved Objects → Export) or
 Teleplot YAML into the dashboards directory. Teleplot picks up changes
 without a restart.
 
+Define a metric once in `metrics.yaml` in the dashboards directory, such as
+change fail rate or lead time, and use it by name from any panel
+(`op: metric, name: change_fail_rate`). Every dashboard then computes it the
+same way. `dashboards/metrics.yaml` is an example; see "Shared metrics" in
+`docs/dashboards.md`.
+
 Each chart panel has **Inspect**, which shows the table behind the panel and
 every Elasticsearch search it sent (the request, the response, the time it
 took, and how many documents matched), and **CSV**, which downloads the data.
@@ -145,7 +151,7 @@ any directory. `make smoke` checks exactly that.
 | `teleplot check <export.ndjson>…` | Reports which panels of each dashboard render |
 | `teleplot query <file> --es URL` | Runs a dashboard's queries and prints each panel as a table |
 | `teleplot convert <export.ndjson> --out dir` | Converts Kibana exports to Teleplot YAML |
-| `teleplot lint <files>` | Checks dashboards; exits 1 on errors |
+| `teleplot lint <files>` | Checks dashboards (and `metrics.yaml`); exits 1 on errors |
 | `teleplot mcp` | MCP server over stdio for agents (`serve` also exposes `/mcp`). With `mcp: { edit_dashboards: true }` in `teleplot.yaml`, agents may edit the hand-written YAML dashboards panel by panel (`teleplot_update_panel`, keeping comments and returning the diff) |
 
 Run any of them with `--help` for options.

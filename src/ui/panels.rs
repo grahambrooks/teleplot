@@ -57,7 +57,10 @@ fn drawn_on_canvas(content: &PanelContent) -> bool {
     let PanelContent::Chart(chart) = content else {
         return false;
     };
-    if chart.kind == ChartKind::Heatmap {
+    if matches!(
+        chart.kind,
+        ChartKind::Heatmap | ChartKind::BoxPlot | ChartKind::StateTimeline
+    ) {
         return true;
     }
     if chart.kind != ChartKind::Xy {
@@ -125,8 +128,11 @@ pub fn PanelView(
     let inspect = ctx.inspect;
     let panel_id = panel.id.clone();
     // Charts over time can compare a drag-selected box with the rest (BubbleUp).
+    // (Not state timelines: their rows are documents, not a measure to select.)
     let comparable = matches!(&panel.content, PanelContent::Chart(c)
-        if c.has_time_axis() && c.layers.iter().all(|l| l.esql.is_none()));
+        if c.has_time_axis()
+            && c.kind != ChartKind::StateTimeline
+            && c.layers.iter().all(|l| l.esql.is_none()));
     let comparing = RwSignal::new(false);
     let mut ctx = ctx;
     if comparable {
@@ -270,6 +276,14 @@ fn ChartBody(chart: Chart, data: Signal<Option<PanelData>>, ctx: PanelContext) -
             (ChartKind::Heatmap, _) => {
                 let drawing = Drawing::Heatmap(series::heatmap(&c, &d));
                 view! { <CanvasChart drawing ctx=ctx.clone()/> }.into_any()
+            }
+            (ChartKind::BoxPlot, _) => {
+                let drawing = Drawing::Rows(super::rows::box_plot(&c, &d, min));
+                view! { <CanvasChart drawing ctx=ctx.clone()/> }.into_any()
+            }
+            (ChartKind::StateTimeline, _) => {
+                let rows = super::rows::state_timeline(&c, &d, now());
+                view! { <CanvasChart drawing=Drawing::Rows(rows) ctx=ctx.clone()/> }.into_any()
             }
             (_, Some(Encoding::Band { .. })) => {
                 let xy = series::band(&c, &d, min);
@@ -1112,6 +1126,21 @@ fn CategoryBars(xy: series::Xy, drill_field: Option<String>, ctx: PanelContext) 
 enum Drawing {
     Xy(series::Xy),
     Heatmap(series::Heatmap),
+    Rows(super::rows::Rows),
+}
+
+/// Epoch milliseconds now: where open states end.
+fn now() -> f64 {
+    #[cfg(feature = "hydrate")]
+    {
+        js_sys::Date::now()
+    }
+    #[cfg(not(feature = "hydrate"))]
+    {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0.0, |d| d.as_millis() as f64)
+    }
 }
 
 /// Time and numeric x axes, and heatmaps, drawn by uPlot in the browser.
@@ -1142,7 +1171,7 @@ fn CanvasChart(drawing: Drawing, ctx: PanelContext) -> impl IntoView {
                 let (panel, compare) = (panel.clone(), ctx.compare);
                 let rows = drawing.with_value(|d| match d {
                     Drawing::Heatmap(hm) => Some(hm.y_edges.clone()),
-                    Drawing::Xy(_) => None,
+                    Drawing::Xy(_) | Drawing::Rows(_) => None,
                 });
                 let points = drawing.with_value(|d| matches!(d, Drawing::Xy(xy) if xy.series.iter().any(|s| s.style == series::Style::Points)));
                 let on_box: super::uplot::OnBox = Rc::new(move |x0, x1, y0, y1| {
@@ -1176,6 +1205,7 @@ fn CanvasChart(drawing: Drawing, ctx: PanelContext) -> impl IntoView {
             chart.set_value(Some(drawing.with_value(|d| match d {
                 Drawing::Xy(xy) => super::uplot::draw(&el, xy, options),
                 Drawing::Heatmap(hm) => super::uplot::heatmap(&el, hm, options),
+                Drawing::Rows(rows) => super::uplot::rows(&el, rows, options),
             })));
             // uPlot's legend has no layout until the browser's next frame;
             // fit again then, so the plot takes the space the legend leaves.

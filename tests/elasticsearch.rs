@@ -631,6 +631,17 @@ async fn native_delivery_overview_works_end_to_end() {
             "{version}: sample size"
         );
 
+        // State timeline: every incident in range, including the three the
+        // seed leaves unresolved (no `resolved_at`), which run to now.
+        let resolved = column(&data, "incident-timeline", "resolved");
+        let open = resolved
+            .iter()
+            .filter(|c| matches!(c, teleplot::model::Cell::Null))
+            .count();
+        assert_eq!(open, 3, "{version}: open incidents fetched");
+        // Box plot: a box per team, and the dots for every PR shown.
+        assert_eq!(column(&data, "cycle-by-team", "team").len(), 8, "{version}");
+
         // Scatter: individual PRs, oldest first, with a trend for each.
         let merged = column(&data, "cycle-scatter", "merged");
         let trend = column(&data, "cycle-scatter", "trend");

@@ -435,7 +435,7 @@ panels:
         let mut checked = 0;
         for entry in std::fs::read_dir(&dir).unwrap() {
             let path = entry.unwrap().path();
-            if path.extension().is_none_or(|e| e != "yaml") {
+            if path.extension().is_none_or(|e| e != "yaml") || crate::metrics::is_library(&path) {
                 continue;
             }
             let text = std::fs::read_to_string(&path).unwrap();

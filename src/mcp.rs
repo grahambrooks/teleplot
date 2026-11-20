@@ -35,7 +35,8 @@ const INSTRUCTIONS: &str = "Teleplot draws dashboards over Elasticsearch and ins
 find data with teleplot_list_indices and teleplot_describe_index (insight record types have \
 source: insight and are queried with an `insight:` series request); write the dashboard or panel \
 (format: resource teleplot://docs/dashboards, schema: teleplot://schema/dashboard; read an \
-existing dashboard with teleplot_get_dashboard format=full); check it with \
+existing dashboard with teleplot_get_dashboard format=full; reuse the shared metrics from \
+teleplot_list_metrics with `op: metric` rather than writing a calculation again); check it with \
 teleplot_validate_dashboard; look at the numbers with teleplot_preview and make sure they answer \
 the question; then save. teleplot_save_dashboard creates a dashboard; teleplot_update_panel \
 changes or adds one panel of an existing one, keeping the file's comments and other panels, and \
@@ -210,6 +211,27 @@ pub struct DashboardListing {
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct MetricList {
+    /// The shared metrics, from `metrics.yaml` in the dashboards directory.
+    pub metrics: Vec<MetricListing>,
+    /// Set when `metrics.yaml` exists but can't be read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct MetricListing {
+    /// Use it in a column: `{ id: <your id>, op: metric, name: <name> }`.
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// The definition, as `metrics.yaml` has it.
+    pub definition: Value,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct DashboardDetail {
     pub id: String,
     pub title: String,
@@ -363,8 +385,13 @@ impl TeleplotMcp {
             .map_err(|e| internal(format!("Elasticsearch is not available: {e}")))
     }
 
-    /// Lints against live field caps when Elasticsearch is reachable.
-    async fn check(&self, d: &Dashboard) -> (Vec<Problem>, Option<String>) {
+    /// Expands the dashboard's metric references (the shared `metrics.yaml`
+    /// and its own), then lints the result, against live field caps when
+    /// Elasticsearch is reachable. Returns the expanded dashboard: it's what
+    /// runs. Saving keeps the dashboard as the agent wrote it.
+    async fn check(&self, d: &Dashboard) -> (Dashboard, Vec<Problem>, Option<String>) {
+        let library = crate::metrics::load(self.app.catalog.dir());
+        let library = library.as_ref().map_err(String::as_str);
         let Ok(engine) = &self.app.engine else {
             let note = self
                 .app
@@ -372,7 +399,8 @@ impl TeleplotMcp {
                 .as_ref()
                 .err()
                 .map(|e| format!("fields not checked: {e}"));
-            return (lint::check(d, None), note);
+            let (resolved, problems) = lint::check_with_metrics(d, library, None);
+            return (resolved, problems, note);
         };
         let mut indexes: Vec<String> = d
             .controls
@@ -385,7 +413,8 @@ impl TeleplotMcp {
             }
         }
         let fields = engine.fields_for(&indexes).await;
-        (lint::check(d, Some(&fields)), None)
+        let (resolved, problems) = lint::check_with_metrics(d, library, Some(&fields));
+        (resolved, problems, None)
     }
 
     #[tool(
@@ -599,6 +628,33 @@ impl TeleplotMcp {
     }
 
     #[tool(
+        name = "teleplot_list_metrics",
+        description = "List the shared metrics (metrics.yaml in the dashboards directory): each one's name, label, what it measures, and its definition. Use one in a column with `{ id: <id>, op: metric, name: <name> }` instead of writing the calculation again, so it matches every other dashboard. A column may set its own label, format, time_shift and filter (which narrows the metric's).",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list_metrics(&self) -> Json<MetricList> {
+        match crate::metrics::load(self.app.catalog.dir()) {
+            Ok(library) => Json(MetricList {
+                metrics: library
+                    .metrics
+                    .into_iter()
+                    .map(|(name, m)| MetricListing {
+                        name,
+                        label: m.label.clone(),
+                        description: m.description.clone(),
+                        definition: serde_json::to_value(&m).unwrap_or(Value::Null),
+                    })
+                    .collect(),
+                error: None,
+            }),
+            Err(e) => Json(MetricList {
+                metrics: Vec::new(),
+                error: Some(e),
+            }),
+        }
+    }
+
+    #[tool(
         name = "teleplot_list_dashboards",
         description = "List Teleplot's dashboards: id, title, where it came from (only `agent` dashboards can be replaced by agents), and its URL.",
         annotations(read_only_hint = true, open_world_hint = false)
@@ -640,6 +696,12 @@ impl TeleplotMcp {
         })?;
         let bytes = std::fs::read(&entry.path).map_err(internal)?;
         let d = &entry.dashboard;
+        // In full, the dashboard as its file has it: metric references stay
+        // references, so a panel sent back to teleplot_update_panel keeps them.
+        let written = (p.format == Format::Full && entry.source != Source::Kibana)
+            .then(|| crate::dashboards::read_file(&entry.path).ok())
+            .flatten()
+            .and_then(|all| all.into_iter().find(|w| w.id == d.id));
         let panels = d
             .panels
             .iter()
@@ -687,7 +749,7 @@ impl TeleplotMcp {
             hash: crate::store::hash(&bytes),
             panels,
             dashboard: (p.format == Format::Full)
-                .then(|| serde_json::to_value(d))
+                .then(|| serde_json::to_value(written.as_ref().unwrap_or(d)))
                 .transpose()
                 .map_err(internal)?,
         }))
@@ -709,7 +771,7 @@ impl TeleplotMcp {
                 note: None,
             }),
             Ok(d) => {
-                let (problems, note) = self.check(&d).await;
+                let (_, problems, note) = self.check(&d).await;
                 Json(Validation {
                     valid: !lint::has_errors(&problems),
                     problems,
@@ -728,7 +790,7 @@ impl TeleplotMcp {
         &self,
         Parameters(p): Parameters<PreviewParams>,
     ) -> Result<Json<Preview>, ErrorData> {
-        let mut d = match lint::parse(p.dashboard) {
+        let d = match lint::parse(p.dashboard) {
             Ok(d) => d,
             Err(problem) => {
                 return Ok(Json(Preview {
@@ -738,7 +800,7 @@ impl TeleplotMcp {
                 }));
             }
         };
-        let (problems, _) = self.check(&d).await;
+        let (mut d, problems, _) = self.check(&d).await;
         if lint::has_errors(&problems) {
             return Ok(Json(Preview {
                 problems,
@@ -906,7 +968,7 @@ impl TeleplotMcp {
             Ok(d) => d,
             Err(problem) => return refused(vec![problem]),
         };
-        let (problems, _) = self.check(&d).await;
+        let (_, problems, _) = self.check(&d).await;
         if lint::has_errors(&problems) {
             return refused(problems);
         }
@@ -1014,7 +1076,7 @@ impl TeleplotMcp {
             Ok(x) => x,
             Err(e) => return refused(vec![problem(e)]),
         };
-        let (problems, _) = self.check(&after).await;
+        let (_, problems, _) = self.check(&after).await;
         if lint::has_errors(&problems) {
             return refused(problems);
         }

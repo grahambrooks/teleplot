@@ -183,16 +183,15 @@ fn terms_ordered_by_a_filtered_column_order_through_its_filter() {
     else {
         panic!()
     };
-    // `failed` is a count with its own KQL filter.
-    if let teleplot::model::Operation::Terms { order, .. } = &mut chart.layers[0].columns[0].op {
-        *order = teleplot::model::TermsOrder::Column {
-            column: "failed".into(),
-            ascending: false,
-        };
-    }
+    // `n` is the shared `deployments` metric: a count with its own KQL
+    // filter. The table orders its teams by it.
+    let n = chart.layers[0].column("n").unwrap();
+    assert!(n.filter.is_some(), "{n:?}");
     let s = searches(&d, &HashMap::new());
     let b0 = &s["teams"][0]["body"]["aggs"]["root"]["aggs"]["b0"];
-    assert_eq!(b0["terms"]["order"], json!({ "o>_count": "desc" }), "{b0}");
+    // A filter agg orders by its own name (its document count); Elasticsearch
+    // rejects `o>_count`.
+    assert_eq!(b0["terms"]["order"], json!({ "o": "desc" }), "{b0}");
     assert!(b0["aggs"]["o"]["filter"].is_object(), "{b0}");
 }
 
@@ -224,4 +223,61 @@ fn ordering_terms_by_a_formula_falls_back_to_document_count() {
             .any(|p| p.path.ends_with(".order") && p.message.contains("document count")),
         "{problems:?}"
     );
+}
+
+#[test]
+fn box_plots_search_percentiles_per_team_and_fetch_the_dots() {
+    let s = searches(&native(), &HashMap::new());
+    let searches = s["cycle-by-team"].as_array().unwrap();
+    // The boxes, the beeswarm's documents, and the p85 line.
+    assert_eq!(searches.len(), 3, "{searches:?}");
+    let b0 = &searches[0]["body"]["aggs"]["root"]["aggs"]["b0"];
+    assert_eq!(b0["terms"]["field"], json!("team"));
+    // Slowest median first: ordered through the median's percentiles agg.
+    let order = b0["terms"]["order"].as_object().unwrap();
+    let (path, dir) = order.iter().next().unwrap();
+    assert!(path.ends_with("[50.0]"), "{order:?}");
+    assert_eq!(dir, &json!("desc"));
+    let percents: Vec<f64> = b0["aggs"]
+        .as_object()
+        .unwrap()
+        .values()
+        .filter_map(|a| a["percentiles"]["percents"][0].as_f64())
+        .collect();
+    for p in [5.0, 25.0, 50.0, 75.0, 95.0] {
+        assert!(percents.contains(&p), "{percents:?}");
+    }
+    let dots = &searches[1]["body"];
+    assert_eq!(dots["size"], json!(3000));
+    let fields: Vec<&str> = dots["fields"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert_eq!(fields, ["team", "cycle_time_hours", "ai_assisted"]);
+    // Every dot needs a team and a value; its colour may be missing.
+    let filters = dots["query"]["bool"]["filter"].as_array().unwrap();
+    assert!(filters.contains(&json!({ "exists": { "field": "team" } })));
+    assert!(!filters.contains(&json!({ "exists": { "field": "ai_assisted" } })));
+}
+
+#[test]
+fn state_timelines_fetch_each_document_with_its_start_and_end_as_dates() {
+    let s = searches(&native(), &HashMap::new());
+    let body = &s["incident-timeline"][0]["body"];
+    assert_eq!(body["size"], json!(500));
+    assert_eq!(body["sort"], json!([{ "created_at": { "order": "desc" } }]));
+    let fields = body["fields"].as_array().unwrap();
+    for date in ["created_at", "resolved_at"] {
+        assert!(
+            fields.contains(&json!({ "field": date, "format": "epoch_millis" })),
+            "{fields:?}"
+        );
+    }
+    assert!(body.get("aggs").is_none());
+    // Incidents still open have no resolved_at, and must still be fetched.
+    let filters = body["query"]["bool"]["filter"].as_array().unwrap();
+    assert!(filters.contains(&json!({ "exists": { "field": "team" } })));
+    assert!(!filters.contains(&json!({ "exists": { "field": "resolved_at" } })));
 }

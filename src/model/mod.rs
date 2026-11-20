@@ -9,6 +9,8 @@ mod data;
 mod interval;
 pub mod table;
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -46,7 +48,48 @@ pub struct Dashboard {
     /// Events marked on every time-series chart, e.g. failed deployments.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub annotations: Vec<Annotation>,
+    /// Metrics defined once for this dashboard, by name. A column uses one
+    /// with `op: metric, name: <name>`. Shared definitions go in
+    /// `metrics.yaml` beside the dashboards; one defined here takes
+    /// precedence over a shared one with the same name.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub metrics: BTreeMap<String, Metric>,
     pub panels: Vec<Panel>,
+}
+
+/// A metric defined once and used by name from any panel (`op: metric`),
+/// so "change fail rate" means the same thing everywhere. It is a column
+/// without an id: a metric operation, or a formula over named `inputs`.
+///
+/// A column that uses it may set its own `label`, `format`, `thresholds`,
+/// `per` and `time_shift`, which win over the metric's; its `filter` narrows
+/// the metric's (both apply). A formula's inputs inherit the column's
+/// filter and time shift.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(schemars::JsonSchema))]
+pub struct Metric {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// What the metric measures and how it is computed, for the people (and
+    /// agents) who use it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(flatten)]
+    pub op: Operation,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter: Option<Query>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_shift: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub per: Option<PerUnit>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<Format>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub thresholds: Vec<Threshold>,
+    /// For a formula: the columns its `expr` names, by those names. Each is
+    /// a metric definition too, or `{ op: metric, name: … }`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub inputs: BTreeMap<String, Metric>,
 }
 
 /// Events marked across time-series charts: one search for documents (their
@@ -284,6 +327,7 @@ impl Chart {
                     l.column(x).map(|c| &c.op),
                     Some(Operation::Value { field }) if l.data_view.time_field.as_ref() == Some(field)
                 ),
+                Encoding::States { .. } => self.kind == ChartKind::StateTimeline,
                 _ => false,
             }
         })
@@ -312,6 +356,14 @@ pub enum ChartKind {
     /// The spans of a trace as nested bars on a time axis; a `timeline`
     /// encoding over one row per span.
     Timeline,
+    /// Distributions side by side, one row per team or repo: a `box` layer
+    /// (quartiles from a terms › percentiles search), a `swarm` layer (one
+    /// dot per document), or both on the same value axis.
+    BoxPlot,
+    /// What state each team, service or environment was in over time: one
+    /// bar per document from its start to its end, coloured by its state
+    /// (Grafana's state timeline); a `states` encoding.
+    StateTimeline,
 }
 
 /// One query against one data view, and how its columns are drawn.
@@ -577,6 +629,56 @@ pub enum Encoding {
         label: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         color: Option<String>,
+    },
+    /// One box per `group` value (a terms column): `q1` to `q3`, a line at
+    /// the `median`, and whiskers out to `low` and `high` (e.g. p5 and p95)
+    /// when given. `count`, a document count, is shown beside each box so a
+    /// box over a handful of PRs doesn't look as solid as one over hundreds.
+    #[serde(rename = "box")]
+    Quartiles {
+        group: String,
+        q1: String,
+        median: String,
+        q3: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        low: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        high: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        count: Option<String>,
+        /// A log value axis, for long-tailed durations.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        log_scale: bool,
+    },
+    /// One dot per row (a document layer), in the row of its `group` value,
+    /// dodged so no two overlap: a beeswarm. `color` colours dots by a value
+    /// (e.g. AI-assisted or not). Never grouped or coloured by a person.
+    Swarm {
+        group: String,
+        value: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        color: Option<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        log_scale: bool,
+        /// Per `color` value: a display label and a colour, as on `xy`.
+        #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+        series_styles: std::collections::BTreeMap<String, SeriesStyle>,
+    },
+    /// One bar per row (a document layer) in the row of its `row` value,
+    /// from `start` to `end` (dates), coloured by `state`. A row without an
+    /// end is still open: it runs to the end of the time range. `text` is
+    /// shown with the bar under the cursor.
+    States {
+        row: String,
+        start: String,
+        end: String,
+        state: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+        /// Per state: a display label and a colour (a hex code or a status
+        /// name such as `critical`), as on `xy`.
+        #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+        series_styles: std::collections::BTreeMap<String, SeriesStyle>,
     },
 }
 
@@ -1158,8 +1260,76 @@ impl Encoding {
                 ids.extend([trace, span, parent, start, end, label].map(String::as_str));
                 ids.extend(color.as_deref());
             }
+            Encoding::Quartiles {
+                group,
+                q1,
+                median,
+                q3,
+                low,
+                high,
+                count,
+                ..
+            } => {
+                ids.extend([group, q1, median, q3].map(String::as_str));
+                ids.extend([low, high, count].into_iter().flatten().map(String::as_str));
+            }
+            Encoding::Swarm {
+                group,
+                value,
+                color,
+                ..
+            } => {
+                ids.extend([group.as_str(), value.as_str()]);
+                ids.extend(color.as_deref());
+            }
+            Encoding::States {
+                row,
+                start,
+                end,
+                state,
+                text,
+                ..
+            } => {
+                ids.extend([row, start, end, state].map(String::as_str));
+                ids.extend(text.as_deref());
+            }
         }
         ids
+    }
+
+    /// Columns a document may leave empty and still be drawn: an incident
+    /// not yet resolved, a root span without a parent. Document layers
+    /// otherwise fetch only documents that have every column's field.
+    pub fn optional_columns(&self) -> Vec<&str> {
+        match self {
+            Encoding::States { end, text, .. } => {
+                let mut ids = vec![end.as_str()];
+                ids.extend(text.as_deref());
+                ids
+            }
+            Encoding::Swarm { color, .. } => color.as_deref().into_iter().collect(),
+            Encoding::Timeline { parent, color, .. } => {
+                let mut ids = vec![parent.as_str()];
+                ids.extend(color.as_deref());
+                ids
+            }
+            _ => vec![],
+        }
+    }
+
+    /// The columns that say which team, repo or other group a row belongs
+    /// to, or colour it: Teleplot never lets these be about a person.
+    pub fn grouping_columns(&self) -> Vec<&str> {
+        match self {
+            Encoding::Quartiles { group, .. } => vec![group],
+            Encoding::Swarm { group, color, .. } => {
+                let mut ids = vec![group.as_str()];
+                ids.extend(color.as_deref());
+                ids
+            }
+            Encoding::States { row, .. } => vec![row],
+            _ => vec![],
+        }
     }
 }
 
@@ -1346,6 +1516,11 @@ pub enum Operation {
     },
     /// Milliseconds in the panel's time range.
     TimeRange,
+    /// A metric from the dashboard's `metrics` or the shared `metrics.yaml`,
+    /// by name. Expanded into its definition when the dashboard is loaded.
+    Metric {
+        name: String,
+    },
 
     // Buckets.
     DateHistogram {

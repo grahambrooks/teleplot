@@ -97,6 +97,46 @@ fn deeper(root: &Value, path: &str) -> Option<Problem> {
     ))
 }
 
+/// Parses a metric library (`metrics.yaml`) from JSON, reporting the exact
+/// path of a mistake.
+pub fn parse_library(value: Value) -> Result<crate::metrics::Library, Problem> {
+    serde_path_to_error::deserialize(value).map_err(|e| {
+        let path = e.path().to_string();
+        Problem::error(
+            if path == "." { String::new() } else { path },
+            e.inner().to_string(),
+        )
+    })
+}
+
+/// Expands the dashboard's metric references (from its own `metrics` and
+/// `library`, the shared `metrics.yaml`), then checks the result. Returns
+/// the expanded dashboard, which is what runs.
+pub fn check_with_metrics(
+    d: &Dashboard,
+    library: Result<&crate::metrics::Library, &str>,
+    fields: Fields,
+) -> (Dashboard, Vec<Problem>) {
+    let mut problems = Vec::new();
+    let empty = crate::metrics::Library::default();
+    let library = match library {
+        Ok(l) => l,
+        Err(e) => {
+            if crate::dashboards::uses_metrics(d) {
+                problems.push(Problem::error(
+                    "",
+                    format!("the shared metrics can't be read: {e}"),
+                ));
+            }
+            &empty
+        }
+    };
+    let (resolved, mut found) = crate::metrics::resolve(d, library);
+    problems.append(&mut found);
+    problems.extend(check(&resolved, fields));
+    (resolved, problems)
+}
+
 /// Fields per index pattern. `None` skips the checks that need a cluster.
 pub type Fields<'a> = Option<&'a HashMap<String, Vec<Field>>>;
 
@@ -344,7 +384,11 @@ fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Probl
                     at.clone(),
                     "`value` columns need a document layer (`documents: { limit, sort }`), an `esql` query or an `insight` series",
                 )),
-                (op, true) if op.inputs().is_empty() && !matches!(op, Operation::Value { .. }) => {
+                // (An unexpanded metric reference is reported where it's expanded.)
+                (op, true)
+                    if op.inputs().is_empty()
+                        && !matches!(op, Operation::Value { .. } | Operation::Metric { .. }) =>
+                {
                     problems.push(Problem::error(
                         at.clone(),
                         "document, ES|QL and insight layers can only have `value` and computed columns; aggregate in the ES|QL query or `insight.columns`",
@@ -463,6 +507,13 @@ fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Probl
                 | (Encoding::Heatmap { .. }, ChartKind::Heatmap)
                 | (Encoding::Timeline { .. }, ChartKind::Timeline)
                 | (
+                    Encoding::Quartiles { .. }
+                        | Encoding::Swarm { .. }
+                        | Encoding::ReferenceLines { .. },
+                    ChartKind::BoxPlot
+                )
+                | (Encoding::States { .. }, ChartKind::StateTimeline)
+                | (
                     Encoding::Sparkline { .. },
                     ChartKind::Metric | ChartKind::Table
                 )
@@ -491,6 +542,7 @@ fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Probl
                 "timelines draw one bar per span: they need records (`insight.select`), documents or an ES|QL query",
             ));
         }
+        distribution_layer(layer, &at, problems);
         // One point per row: documents, or the rows an insight or ES|QL
         // query returns.
         if matches!(layer.encoding, Encoding::Scatter { .. })
@@ -619,6 +671,57 @@ fn check_chart(chart: &Chart, at: &str, fields: Fields, problems: &mut Vec<Probl
             problems.push(Problem::warning(
                 format!("{at}.columns"),
                 "no bucket column: the chart will have a single point",
+            ));
+        }
+    }
+}
+
+/// Box plots, beeswarms and state timelines: the right kind of layer, and
+/// never grouped or coloured by a person.
+fn distribution_layer(layer: &crate::model::Layer, at: &str, problems: &mut Vec<Problem>) {
+    let rows = layer.documents.is_some()
+        || layer.esql.is_some()
+        || layer.insight.as_ref().is_some_and(|i| !i.select.is_empty());
+    match &layer.encoding {
+        Encoding::Quartiles { group, .. } => {
+            if rows {
+                problems.push(Problem::error(
+                    format!("{at}.encoding"),
+                    "a box layer aggregates: a terms column and percentile metrics, not documents (add a `swarm` layer for the dots)",
+                ));
+            } else if !layer
+                .column(group)
+                .is_none_or(|c| matches!(c.op, Operation::Terms { .. }))
+            {
+                problems.push(Problem::error(
+                    format!("{at}.encoding.group"),
+                    format!("box group {group:?} must be a terms column: one box per value"),
+                ));
+            }
+        }
+        Encoding::Swarm { .. } | Encoding::States { .. } if !rows => {
+            problems.push(Problem::error(
+                format!("{at}.encoding"),
+                "beeswarms and state timelines draw one mark per row: they need documents (`documents: { limit, sort }`), an ES|QL query or insight records",
+            ));
+        }
+        _ => {}
+    }
+    for id in layer.encoding.grouping_columns() {
+        let Some(column) = layer.column(id) else {
+            continue;
+        };
+        let fields: Vec<&str> = match &column.op {
+            Operation::Terms { fields, .. } => fields.iter().map(String::as_str).collect(),
+            Operation::Value { field } => vec![field],
+            _ => vec![],
+        };
+        if let Some(person) = fields.iter().find(|f| crate::compare::about_people(f)) {
+            problems.push(Problem::error(
+                format!("{at}.encoding"),
+                format!(
+                    "{person:?} is about a person: Teleplot groups and colours by team, repo or service, never by individual"
+                ),
             ));
         }
     }

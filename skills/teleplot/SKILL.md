@@ -91,6 +91,15 @@ Start from a recipe in `references/cookbook.md` — DORA tiles, distributions
 with service-level expectations, heatmaps, annotations, ES|QL, tables, small
 multiples — and adapt field names to the cluster you looked at in step 3.
 
+**Reuse shared metrics.** If the dashboards directory has a `metrics.yaml`
+(over MCP: `teleplot_list_metrics`), use its definitions by name,
+`{ id: rate, op: metric, name: change_fail_rate }`, rather than writing the
+calculation again: then this dashboard's change fail rate matches every
+other's. A column may still set its own label, format, `time_shift` and a
+`filter` that narrows the metric. When several of your panels compute the
+same thing, define it once in `metrics.yaml` (`teleplot lint metrics.yaml`
+checks it).
+
 Keep panels honest: medians and percentiles for durations, `min_samples` so
 small buckets are flagged, a time range wide enough to mean something. Give
 every headline panel a `description` that defines what it counts. "Median

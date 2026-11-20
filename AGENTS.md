@@ -47,7 +47,7 @@ CLI:
 
 * `teleplot check <export.ndjson>...` — reports, per dashboard, which panels render. Exits 1 if an in-scope panel could not be converted
 * `teleplot query <file> --es http://localhost:9208 [--dashboard x] [--from … --to …]` — runs a dashboard's queries and prints each panel's table. `--config teleplot.yaml` for real clusters
-* `teleplot lint <files> [--online --es URL]` — checks dashboards, with exact paths; exits 1 on errors (CI). `teleplot schema` prints the JSON Schema
+* `teleplot lint <files> [--online --es URL]` — checks dashboards, with exact paths; exits 1 on errors (CI). Given `metrics.yaml`, checks the shared metric definitions. `teleplot schema` prints the JSON Schema (`--metrics` for `metrics.yaml`)
 * `teleplot mcp [--es/--config] [--dashboards dir]` — MCP over stdio (`teleplot serve` also serves it at `/mcp`)
 * `teleplot convert <export.ndjson> [--out dir]` — writes Teleplot YAML dashboards. The YAML is the serde form of `src/model`
 
@@ -57,8 +57,10 @@ Code map:
 * `src/kibana/` — Kibana export → model. Panels that can't convert become `Placeholder`s and never fail the dashboard. Each placeholder has a reason: out of scope, broken reference, or unparseable
 * `src/kql/` — KQL parser (rule-for-rule port of Kibana's `grammar.peggy`) and DSL translation (port of Kibana's `kuery/functions`, field-type aware)
 * `src/query/` — chart → searches → tables. Kibana's interval rules (`interval.rs`), and Kibana's pipeline semantics for formulas, moving average and the rest (`compute.rs`)
-* `src/mcp.rs` — the MCP server (rmcp 3.5): seven `teleplot_*` tools and two resources. Agents save only into `dashboards/agents/`, only on localhost, and must quote the hash to overwrite (`src/store.rs`). Plan: `docs/mcp-plan.md`
-* `src/lint/` — dashboard checks shared by `teleplot lint` and MCP validate/save
+* `src/mcp.rs` — the MCP server (rmcp 3.5): nine `teleplot_*` tools and two resources. Agents save only into `dashboards/agents/`, only on localhost, and must quote the hash to overwrite (`src/store.rs`). Plan: `docs/mcp-plan.md`
+* `src/metrics.rs` — the shared metric library: `metrics.yaml` in the dashboards directory, used by name with `op: metric`. References are expanded when a dashboard loads (`dashboards::load_file`); files and MCP `get_dashboard` keep them as written. A panel whose reference can't be expanded becomes a `BrokenReference` placeholder
+* `src/lint/` — dashboard checks shared by `teleplot lint` and MCP validate/save. `lint::check_with_metrics` expands metric references first
+* `src/ui/rows.rs` — box plots, beeswarms and state timelines as plain Rust (the beeswarm dodge and timeline lanes are unit tested); `uplot::rows` draws them on a canvas
 * `src/engine.rs` — runs a whole dashboard in one `_msearch`. Caches field caps and responses
 * `src/yaml.rs` — all YAML reads and writes (serde-saphyr). Use it, not `serde_saphyr` directly: it makes YAML 1.2 booleans strict, so `n` and `y` stay strings
 * `src/es.rs` — small REST client (reqwest/rustls). Not the alpha `elasticsearch` crate

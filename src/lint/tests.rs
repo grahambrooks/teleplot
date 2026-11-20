@@ -109,7 +109,8 @@ fn field_types_must_suit_the_operation() {
 #[test]
 fn references_between_columns_must_resolve() {
     let mut d = reference();
-    let formula = &mut d["panels"][2]["content"]["layers"][0]["columns"][2];
+    // The change-fail-rate tile's rate: the shared formula, expanded.
+    let formula = &mut d["panels"][2]["content"]["layers"][0]["columns"][0];
     formula["expr"]["args"][0] = json!("nope");
     let p = problems(d);
     assert!(
@@ -124,7 +125,7 @@ fn references_between_columns_must_resolve() {
 #[test]
 fn unknown_functions_list_the_known_ones() {
     let mut d = reference();
-    d["panels"][2]["content"]["layers"][0]["columns"][2]["expr"]["call"] = json!("devide");
+    d["panels"][2]["content"]["layers"][0]["columns"][0]["expr"]["call"] = json!("devide");
     let p = problems(d);
     assert!(
         only(&p)

@@ -33,6 +33,12 @@ async fn start(name: &str, es: Option<&str>, advertised: Option<SocketAddr>) -> 
         dir.join("delivery-overview.yaml"),
     )
     .unwrap();
+    // The shared metrics the reference dashboard uses.
+    std::fs::copy(
+        format!("{}/dashboards/metrics.yaml", env!("CARGO_MANIFEST_DIR")),
+        dir.join("metrics.yaml"),
+    )
+    .unwrap();
     let config = match es {
         Some(url) => Config::parse(
             &format!("elasticsearch:\n  url: {url}\ntime_zone: UTC\n"),
@@ -158,12 +164,12 @@ fn cfr_by_team(id: &str) -> Value {
 }
 
 #[tokio::test]
-async fn lists_eight_tools_with_schemas_and_hints() {
+async fn lists_nine_tools_with_schemas_and_hints() {
     let server = start("tools", None, None).await;
     let tools = rpc(&server, "tools/list", None, json!({})).await;
     let tools = tools["tools"].as_array().unwrap();
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
-    assert_eq!(names.len(), 8, "{names:?}");
+    assert_eq!(names.len(), 9, "{names:?}");
     for tool in tools {
         assert!(tool["outputSchema"].is_object(), "{}", tool["name"]);
         let read_only = tool["annotations"]["readOnlyHint"] == json!(true);
@@ -284,7 +290,7 @@ async fn validation_names_the_exact_problem() {
     );
 
     let mut broken = reference();
-    broken["panels"][2]["content"]["layers"][0]["columns"][2]["expr"]["args"][0] = json!("nope");
+    broken["panels"][2]["content"]["layers"][0]["columns"][0]["expr"]["args"][0] = json!("nope");
     let bad = call(
         &server,
         "teleplot_validate_dashboard",
@@ -294,7 +300,7 @@ async fn validation_names_the_exact_problem() {
     assert_eq!(bad["valid"], json!(false));
     assert_eq!(
         bad["problems"][0]["path"],
-        json!("panels[2].content.layers[0].columns[2]")
+        json!("panels[2].content.layers[0].columns[0]")
     );
     assert!(
         bad["problems"][0]["message"]
@@ -610,4 +616,71 @@ async fn hand_written_dashboards_need_edit_dashboards() {
     );
     let list = call(&server, "teleplot_list_dashboards", json!({})).await;
     assert_eq!(list["dashboards"][0]["editable"], json!(false));
+}
+
+#[tokio::test]
+async fn shared_metrics_are_listed_used_by_name_and_kept_as_references() {
+    let server = start("metrics", None, None).await;
+    let listed = call(&server, "teleplot_list_metrics", json!({})).await;
+    let names: Vec<&str> = listed["metrics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["name"].as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"change_fail_rate"), "{listed}");
+    let cfr = listed["metrics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["name"] == "change_fail_rate")
+        .unwrap();
+    assert!(
+        cfr["description"].as_str().unwrap().contains("DORA"),
+        "{cfr}"
+    );
+
+    // A dashboard that uses a metric by name validates; an unknown name is
+    // reported where it's used, with the names that exist.
+    let mut d = cfr_by_team("uses-metrics");
+    d["panels"][0]["content"]["layers"][0]["columns"][3] =
+        json!({ "id": "rate", "op": "metric", "name": "change_fail_rate" });
+    let ok = call(
+        &server,
+        "teleplot_validate_dashboard",
+        json!({ "dashboard": d.clone() }),
+    )
+    .await;
+    assert_eq!(ok["valid"], json!(true), "{ok}");
+    d["panels"][0]["content"]["layers"][0]["columns"][3]["name"] = json!("change_fale_rate");
+    let bad = call(
+        &server,
+        "teleplot_validate_dashboard",
+        json!({ "dashboard": d }),
+    )
+    .await;
+    assert_eq!(bad["valid"], json!(false));
+    assert_eq!(
+        bad["problems"][0]["path"],
+        json!("panels[0].content.layers[0].columns[3]")
+    );
+    assert!(
+        bad["problems"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("change_fail_rate"),
+        "{bad}"
+    );
+
+    // In full, a hand-written dashboard comes back as its file has it, so a
+    // panel sent back keeps its metric references.
+    let got = call(
+        &server,
+        "teleplot_get_dashboard",
+        json!({ "id": "delivery-overview", "format": "full" }),
+    )
+    .await;
+    let tile = &got["dashboard"]["panels"][2]["content"]["layers"][0]["columns"][0];
+    assert_eq!(tile["op"], json!("metric"), "{tile}");
+    assert_eq!(tile["name"], json!("change_fail_rate"), "{tile}");
 }

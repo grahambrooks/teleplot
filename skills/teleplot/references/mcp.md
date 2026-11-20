@@ -37,7 +37,11 @@ a dashboard from scratch.
    commonest cause of empty panels.
 3. **`teleplot_list_dashboards`** / **`teleplot_get_dashboard`**: what
    already exists. Extend an existing dashboard instead of duplicating it.
-   `format: full` returns the whole dashboard plus its `hash`.
+   `format: full` returns the whole dashboard as its file has it (shared
+   metric references stay references) plus its `hash`.
+   **`teleplot_list_metrics`**: the shared metric definitions. Use them by
+   name (`op: metric, name: …`) instead of rewriting a calculation, so your
+   numbers match the other dashboards'.
 4. **`teleplot_validate_dashboard`**: format, column references, KQL, and
    field existence and types against the cluster. Every problem has a path and
    says what to fix. Iterate until it is clean.

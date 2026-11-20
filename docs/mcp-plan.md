@@ -188,7 +188,7 @@ cause.
 | 7 | **Digests and working-agreement alerts** posted to a Slack, Teams or generic webhook | Grafana alerting, Kibana rules, Swarmia digests ([docs](https://help.swarmia.com/notifications/team-notifications)), LinearB WorkerB | Strong, later | Medium | Conflicts with today's "localhost, view-only" scope, and alert fatigue is the top pain in Grafana's 2025 survey. If built, start with a weekly digest, not alerting |
 | 8 | **Joins and transformations across queries**, e.g. deploys ⋈ incidents | Grafana "Join by field" ([docs](https://grafana.com/docs/learning-paths/data-transformation/join-by-field/)); ES\|QL `LOOKUP JOIN` | Nice | Medium | Elasticsearch can't join across indexes. Do this after ES\|QL, which may cover most of it |
 | 9 | **Static snapshot**: self-contained HTML with the data embedded and the queries removed | Grafana snapshots, Evidence static builds | Nice | Medium | The safe way to share beyond PNG/PDF while there is no auth |
-| 10 | **Metric library**: define "lead time" once and reference it from many panels | Lightdash metrics in dbt ([bi-as-code](https://www.lightdash.com/bi-as-code)), Grafana library panels | Nice | Low–Medium | Consistency across dashboards; small extension to the YAML format |
+| 10 | **Metric library**: define "lead time" once and reference it from many panels | Lightdash metrics in dbt ([bi-as-code](https://www.lightdash.com/bi-as-code)), Grafana library panels | Nice | Low–Medium | Consistency across dashboards; small extension to the YAML format. **Done 2026-11-19** (roadmap Phase 9): `metrics.yaml`, `op: metric`, `teleplot_list_metrics` |
 
 Not pursued, and why:
 - **A full Explore/Discover with split view:** the inspector, raw scatter and ES|QL cover most of it.
@@ -203,7 +203,7 @@ Not pursued, and why:
 3. **Annotations (gap 3).** This is the delivery-analytics payoff. Done 2026-10-03.
 4. **ES|QL (gap 4).** It also brings more Kibana dashboards into scope. Panels done 2026-10-03; variable controls not.
 5. **Baseline comparison (gap 6),** the feature that sets Teleplot apart, then chained/ad-hoc variables (gap 5). Both done 2026-10-03.
-6. **Revisit 7–10** once there is a decision about sharing and authentication.
+6. **Revisit 7–9** once there is a decision about sharing and authentication. Gap 10, the metric library, didn't need one and was done 2026-11-19.
 
 ## Decisions (2026-10-03)
 

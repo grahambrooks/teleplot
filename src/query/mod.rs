@@ -689,8 +689,14 @@ fn build_documents(
         })
         .collect();
     let mut query = base_query(chart, layer, ctx, ctx.range)?;
+    // Only documents with every drawn field, except those the encoding
+    // allows to be empty (an incident still open has no end).
+    let optional = layer.encoding.optional_columns();
     if let Some(filter) = query["bool"]["filter"].as_array_mut() {
-        for d in &doc_fields {
+        for d in doc_fields
+            .iter()
+            .filter(|d| !optional.contains(&d.column.as_str()))
+        {
             filter.push(json!({ "exists": { "field": d.field } }));
         }
     }
@@ -1238,10 +1244,12 @@ fn terms_order(
                         (json!({ format!("o[{key}]"): dir(*ascending) }), Some(agg))
                     }
                     // A column with its own filter is a `filter` agg around the
-                    // metric; Elasticsearch orders through it by path.
+                    // metric; Elasticsearch orders through it by path. A
+                    // filtered count orders by the filter agg itself (its
+                    // document count): `o>_count` is not a valid path.
                     (Read::Filtered(inner), Some(agg)) => {
                         let path = match *inner {
-                            Read::DocCount => Some("o>_count".to_string()),
+                            Read::DocCount => Some("o".to_string()),
                             Read::Value => Some("o>v".to_string()),
                             Read::FirstOfValues => {
                                 Some(format!("o>v[{}]", percentile_key(&agg["aggs"]["v"])))
