@@ -1,6 +1,6 @@
 # One compiler for laptops, CI and every release runner.
 # Keep `channel` identical to `rust-version` in Cargo.toml; CI fails if they drift.
 [toolchain]
-channel = "1.99.1"
+channel = "1.100.0"
 targets = ["wasm32-unknown-unknown"]
 components = ["rustfmt", "clippy"]

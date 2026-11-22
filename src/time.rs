@@ -7,7 +7,8 @@
 //! Weeks start on Sunday, Kibana's default (`dateFormat:dow`).
 
 use jiff::{
-    RoundMode, Span, Timestamp, ToSpan, Unit, Zoned, ZonedRound, civil::Weekday, tz::TimeZone,
+    RoundMode, Span, Timestamp, ToSpan, Unit, ZonedDateTime, ZonedDateTimeRound, civil::Weekday,
+    tz::TimeZone,
 };
 
 /// A resolved time range: epoch milliseconds, `from` inclusive, `to` inclusive.
@@ -53,7 +54,7 @@ pub fn resolve(from: &str, to: &str, now: Timestamp, tz: &TimeZone) -> Result<Ra
 pub fn parse(expr: &str, now: Timestamp, tz: &TimeZone, round_up: bool) -> Result<i64, String> {
     let expr = expr.trim();
     let (anchor, math) = if let Some(rest) = expr.strip_prefix("now") {
-        (now.to_zoned(tz.clone()), rest)
+        (now.to_zoned_datetime(tz.clone()), rest)
     } else if let Some((date, rest)) = expr.split_once("||") {
         (parse_date(date, tz)?, rest)
     } else {
@@ -65,20 +66,20 @@ pub fn parse(expr: &str, now: Timestamp, tz: &TimeZone, round_up: bool) -> Resul
 }
 
 /// ISO 8601 with or without offset, or epoch milliseconds.
-fn parse_date(s: &str, tz: &TimeZone) -> Result<Zoned, String> {
+fn parse_date(s: &str, tz: &TimeZone) -> Result<ZonedDateTime, String> {
     let s = s.trim();
     if let Ok(ms) = s.parse::<i64>() {
         let ts = Timestamp::from_millisecond(ms).map_err(|e| e.to_string())?;
-        return Ok(ts.to_zoned(tz.clone()));
+        return Ok(ts.to_zoned_datetime(tz.clone()));
     }
     if let Ok(ts) = s.parse::<Timestamp>() {
-        return Ok(ts.to_zoned(tz.clone()));
+        return Ok(ts.to_zoned_datetime(tz.clone()));
     }
     if let Ok(dt) = s.parse::<jiff::civil::DateTime>() {
-        return dt.to_zoned(tz.clone()).map_err(|e| e.to_string());
+        return dt.to_zoned_datetime(tz.clone()).map_err(|e| e.to_string());
     }
     if let Ok(d) = s.parse::<jiff::civil::Date>() {
-        return d.to_zoned(tz.clone()).map_err(|e| e.to_string());
+        return d.to_zoned_datetime(tz.clone()).map_err(|e| e.to_string());
     }
     Err(format!("not a date: {s:?}"))
 }
@@ -114,7 +115,7 @@ fn unit(chars: &[char], i: &mut usize) -> Result<DateUnit, String> {
     })
 }
 
-fn apply(mut at: Zoned, math: &str, round_up: bool) -> Result<Zoned, String> {
+fn apply(mut at: ZonedDateTime, math: &str, round_up: bool) -> Result<ZonedDateTime, String> {
     let chars: Vec<char> = math.chars().collect();
     let mut i = 0;
     while i < chars.len() {
@@ -156,7 +157,7 @@ fn apply(mut at: Zoned, math: &str, round_up: bool) -> Result<Zoned, String> {
 }
 
 /// Start of the unit containing `at`, or its last millisecond when rounding up.
-fn round(at: &Zoned, unit: DateUnit, round_up: bool) -> Result<Zoned, String> {
+fn round(at: &ZonedDateTime, unit: DateUnit, round_up: bool) -> Result<ZonedDateTime, String> {
     let start = match unit {
         DateUnit::Year => at
             .start_of_day()
@@ -200,9 +201,13 @@ fn round(at: &Zoned, unit: DateUnit, round_up: bool) -> Result<Zoned, String> {
         .map_err(|e| e.to_string())
 }
 
-fn trunc(at: &Zoned, unit: Unit) -> Result<Zoned, String> {
-    at.round(ZonedRound::new().smallest(unit).mode(RoundMode::Trunc))
-        .map_err(|e| e.to_string())
+fn trunc(at: &ZonedDateTime, unit: Unit) -> Result<ZonedDateTime, String> {
+    at.round(
+        ZonedDateTimeRound::new()
+            .smallest(unit)
+            .mode(RoundMode::Trunc),
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

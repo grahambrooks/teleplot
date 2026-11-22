@@ -68,7 +68,7 @@ pub fn local(ms: f64, tz: &str, seconds: bool) -> String {
         "%Y-%m-%d %H:%M %Z"
     };
     jiff::Timestamp::from_millisecond(ms as i64)
-        .map(|t| t.to_zoned(zone).strftime(format).to_string())
+        .map(|t| t.to_zoned_datetime(zone).strftime(format).to_string())
         .unwrap_or_default()
 }
 

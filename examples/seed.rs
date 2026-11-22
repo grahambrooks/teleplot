@@ -13,7 +13,7 @@
 
 use std::collections::HashMap;
 
-use jiff::{Span, Timestamp, ToSpan, Zoned, civil::Date, tz::TimeZone};
+use jiff::{Span, Timestamp, ToSpan, ZonedDateTime, civil::Date, tz::TimeZone};
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use rand_distr::{Distribution, LogNormal, Poisson};
@@ -175,7 +175,7 @@ fn parse_args() -> Args {
     let mut args = Args {
         es: "http://localhost:9208".into(),
         days: 182,
-        end: Zoned::now().date(),
+        end: ZonedDateTime::now().date(),
         seed: 42,
         scale: 1,
         prefix: String::new(),
@@ -219,7 +219,7 @@ fn working_time(rng: &mut ChaCha8Rng, day: Date, tz: &TimeZone) -> Timestamp {
         rng.random_range(0..60),
         0,
     )
-    .to_zoned(tz.clone())
+    .to_zoned_datetime(tz.clone())
     .expect("valid local time")
     .timestamp()
 }
@@ -584,7 +584,7 @@ async fn main() {
         .end
         .tomorrow()
         .expect("valid end")
-        .to_zoned(TimeZone::UTC)
+        .to_zoned_datetime(TimeZone::UTC)
         .expect("valid end")
         .timestamp();
 

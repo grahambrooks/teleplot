@@ -940,7 +940,11 @@ fn bucket_lengths(built: &Built, columns: &HashMap<String, Vec<Cell>>, rows: usi
             };
             let end = jiff::Timestamp::from_millisecond(start)
                 .ok()
-                .and_then(|t| t.to_zoned(built.time_zone.clone()).checked_add(span).ok())
+                .and_then(|t| {
+                    t.to_zoned_datetime(built.time_zone.clone())
+                        .checked_add(span)
+                        .ok()
+                })
                 .map_or(start, |z| z.timestamp().as_millisecond());
             (end.min(to) - start.max(from)) as f64
         })

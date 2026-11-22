@@ -465,7 +465,7 @@ fn weekday(ms: f64, tz: &str) -> usize {
     {
         let zone = jiff::tz::TimeZone::get(tz).unwrap_or(jiff::tz::TimeZone::UTC);
         jiff::Timestamp::from_millisecond(ms as i64)
-            .map(|t| t.to_zoned(zone).weekday().to_monday_zero_offset() as usize)
+            .map(|t| t.to_zoned_datetime(zone).weekday().to_monday_zero_offset() as usize)
             .unwrap_or(0)
     }
 }

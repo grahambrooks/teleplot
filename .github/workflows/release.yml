@@ -105,7 +105,7 @@ jobs:
           tool: cargo-leptos
       - name: Build the WASM client and assets
         run: cargo leptos build --release --frontend-only --precompress
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: site
           path: target/site
@@ -131,7 +131,7 @@ jobs:
         with:
           key: release-${{ matrix.target }}
           workspaces: ${{ matrix.workspace }}
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           name: site
           path: target/site
