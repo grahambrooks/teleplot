@@ -210,6 +210,7 @@ impl Engine {
         let indexes: Vec<String> = chart
             .layers
             .iter()
+            .filter(|l| needs_field_caps(l))
             .map(|l| l.data_view.index.clone())
             .collect();
         let fields = self.fields_for(&indexes).await;
@@ -277,11 +278,17 @@ impl Engine {
             })
             .collect();
 
-        // Field types for every index searched: chart layers and annotations.
+        // Field types for every index searched with query DSL: chart layers
+        // and annotations. Insight and ES|QL layers don't use them, so a
+        // dashboard of those makes no `_field_caps` call at all.
         let indexes: Vec<String> = charts
             .iter()
             .flat_map(|(_, chart)| {
-                let layers = chart.layers.iter().map(|l| &l.data_view.index);
+                let layers = chart
+                    .layers
+                    .iter()
+                    .filter(|l| needs_field_caps(l))
+                    .map(|l| &l.data_view.index);
                 let annotations = chart.annotations.iter().chain(&dashboard.annotations);
                 layers.chain(annotations.filter_map(|a| a.data_view.as_ref().map(|v| &v.index)))
             })
@@ -362,6 +369,9 @@ impl Engine {
 
     /// Fields of each index pattern (cached), for checking dashboards.
     pub async fn fields_for(&self, indexes: &[String]) -> HashMap<String, Vec<Field>> {
+        if indexes.is_empty() {
+            return HashMap::new();
+        }
         let span = spans::step("field caps", "load");
         spans::within(&span, self.fields_of(indexes)).await
     }
@@ -705,6 +715,13 @@ fn data_views(dashboard: &Dashboard) -> Vec<DataView> {
     out
 }
 
+/// Whether a layer's query is built from its index's field types: query DSL
+/// layers (aggregations and documents) are; an insight layer asks insight's
+/// series API, and an ES|QL layer sends its query as written.
+fn needs_field_caps(layer: &crate::model::Layer) -> bool {
+    layer.insight.is_none() && layer.esql.is_none()
+}
+
 #[cfg(test)]
 mod zone_tests {
     use super::*;
@@ -730,5 +747,64 @@ mod zone_tests {
             engine("elasticsearch:\n  url: http://localhost:9200\ntime_zone: Europe/London\n");
         assert_eq!(pinned.zone(&viewer("America/New_York")).1, "Europe/London");
         assert_eq!(pinned.zone(&Request::default()).1, "Europe/London");
+    }
+}
+
+#[cfg(test)]
+mod field_caps_tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// An "Elasticsearch" that counts the requests it gets and answers 503.
+    fn counting_elasticsearch() -> (String, Arc<AtomicUsize>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let hits = Arc::new(AtomicUsize::new(0));
+        let counted = hits.clone();
+        std::thread::spawn(move || {
+            for mut stream in listener.incoming().flatten() {
+                counted.fetch_add(1, Ordering::SeqCst);
+                let _ = stream.read(&mut [0u8; 8192]);
+                let _ = stream.write_all(
+                    b"HTTP/1.1 503 Service Unavailable\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+                );
+            }
+        });
+        (url, hits)
+    }
+
+    /// A one-panel count chart; `insight` makes its layer an insight layer.
+    fn dashboard(insight: bool) -> Dashboard {
+        let layer = if insight {
+            "insight:\n            columns: [{ id: n, op: count }]\n          columns:\n            - { id: n, label: N, op: value, field: n }"
+        } else {
+            "columns:\n            - { id: n, label: N, op: count }"
+        };
+        crate::edit::parse(&format!(
+            "id: d\ntitle: D\npanels:\n  - id: p\n    title: P\n    grid: {{ x: 0, y: 0, w: 12, h: 6 }}\n    content:\n      type: chart\n      kind: metric\n      layers:\n        - id: l\n          data_view: {{ index: invocation, time_field: observed_at }}\n          {layer}\n          encoding: {{ as: metric, value: n }}\n"
+        ))
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn only_query_dsl_layers_ask_for_field_caps() {
+        let (url, hits) = counting_elasticsearch();
+        let config = format!("elasticsearch:\n  url: {url}\ninsight:\n  url: http://127.0.0.1:9\n");
+        let engine = Engine::new(&Config::parse(&config, |_| None).unwrap()).unwrap();
+        let now = Timestamp::now();
+
+        // habit's dashboards are all insight layers: no `_field_caps` call.
+        engine
+            .prepare(&dashboard(true), &Request::default(), now, None)
+            .await
+            .unwrap();
+        assert_eq!(hits.load(Ordering::SeqCst), 0);
+
+        // A query DSL layer still needs its index's field types.
+        let _ = engine
+            .prepare(&dashboard(false), &Request::default(), now, None)
+            .await;
+        assert!(hits.load(Ordering::SeqCst) > 0);
     }
 }
