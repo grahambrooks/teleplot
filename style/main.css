@@ -557,21 +557,36 @@ html.printing .panel { break-inside: avoid; }
 .calendar-svg { width: 100%; max-height: calc(100% - 20px); }
 .calendar-label { font-size: 8px; fill: var(--text-muted); }
 .timeline { height: 100%; display: flex; flex-direction: column; gap: 6px; overflow: auto; }
-.timeline-head { display: flex; align-items: center; gap: 8px; }
-.timeline-head { justify-content: space-between; }
+.timeline-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.timeline-filter { flex: 1 1 220px; min-width: 0; background: var(--panel); color: var(--text); border: 1px solid var(--border-strong); border-radius: 2px; padding: 3px 8px; font-size: 12px; }
+.timeline-filter:focus { outline: none; border-color: var(--accent); }
+.timeline-count { margin-left: auto; font-variant-numeric: tabular-nums; }
 .timeline-sort { display: inline-flex; gap: 2px; }
 .timeline-sort button { background: none; color: var(--text-muted); border: 1px solid var(--border); padding: 2px 8px; font-size: 11px; cursor: pointer; }
 .timeline-sort button.selected { color: var(--text); border-color: var(--border-strong); background: var(--border); }
-.timeline-traces { flex: none; max-height: 132px; overflow: auto; border: 1px solid var(--border); border-radius: 2px; }
+.timeline-sort button:disabled { opacity: 0.4; cursor: default; }
+.timeline-plot { width: 100%; flex: none; }
+.timeline-capped { color: var(--warning); }
+.timeline-dot { fill: var(--accent); fill-opacity: 0.55; cursor: pointer; }
+.timeline-dot:hover { fill-opacity: 1; }
+.timeline-dot.selected { fill-opacity: 1; stroke: var(--text); stroke-width: 1.5; }
+.timeline-traces { flex: none; max-height: 176px; overflow: auto; border: 1px solid var(--border); border-radius: 2px; }
 .timeline-trace { display: grid; grid-template-columns: 185px 1fr 80px 70px; gap: 8px; width: 100%; text-align: left; background: none; color: var(--text); border: 0; border-bottom: 1px solid var(--border); padding: 3px 8px; font-size: 12px; cursor: pointer; }
 .timeline-trace:hover { background: var(--border); }
 .timeline-trace.selected { background: var(--border-strong); box-shadow: inset 3px 0 0 var(--accent); }
 .timeline-trace-length { text-align: right; font-variant-numeric: tabular-nums; }
+.timeline-trace.timeline-name { grid-template-columns: 1fr 50px 120px 100px 110px; }
+.timeline-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; font-size: 12px; }
+.timeline-title strong { font-weight: 600; }
 .timeline-svg { width: 100%; flex: none; }
 .timeline-label { font-size: 11px; fill: var(--text); }
 .timeline-duration, .timeline-tick { font-size: 10px; fill: var(--text-muted); }
 .timeline-grid { stroke: var(--border); stroke-width: 1; }
 .timeline-row:hover rect { opacity: 0.8; }
+.timeline-row.dim { opacity: 0.35; }
+.timeline-row.hit .timeline-label { font-weight: 600; }
+.timeline-fold { font-size: 10px; fill: var(--text-muted); cursor: pointer; user-select: none; }
+.timeline-fold:hover { fill: var(--text); }
 .timeline-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .timeline-key { display: inline-flex; align-items: center; gap: 4px; }
 .timeline-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
