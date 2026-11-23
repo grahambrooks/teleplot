@@ -1,4 +1,4 @@
-//! Vendored from habit-otel 0.2.0 (habit/habit-otel/src/lib.rs). Keep in step with it; don't edit here.
+//! Vendored from habit-otel 0.2.1 (habit/habit-otel/src/lib.rs). Keep in step with it; don't edit here.
 //!
 //! Report a tool's work to habit (design §5.3) as OTLP/JSON traces.
 //!
@@ -39,7 +39,7 @@ const SPOOL_CAP: u64 = 50 * 1024 * 1024;
 /// `habit.dropped_spans`.
 pub const MAX_SPANS: usize = 2000;
 /// The version of this file, for vendored copies.
-pub const VERSION: &str = "0.2.0";
+pub const VERSION: &str = "0.2.1";
 
 /// An attribute value.
 #[derive(Debug, Clone, PartialEq)]
@@ -120,6 +120,9 @@ enum Export {
     Blocking,
     /// On the background exporter thread.
     Background,
+    /// Nowhere: tests, which must never reach a real habit or its spool.
+    #[cfg(test)]
+    Discard,
 }
 
 struct Root {
@@ -410,6 +413,8 @@ impl Drop for Span {
                 match root.export {
                     Export::Blocking => export(&root.endpoint, &body, &spool_dir(), BUDGET),
                     Export::Background => background(root.endpoint, body),
+                    #[cfg(test)]
+                    Export::Discard => drop(body),
                 }
             }
         }
@@ -969,7 +974,7 @@ mod tests {
         // Off: no root, so nothing is open and spans are no-ops.
         assert!(!span("x").enabled());
 
-        let root = Span::new_root("root", test_root(Export::Background)).entered();
+        let root = Span::new_root("root", test_root(Export::Discard)).entered();
         let trace = root.0.as_ref().unwrap().trace.clone();
         let root_id = root.0.as_ref().unwrap().id.clone();
         {
