@@ -581,7 +581,7 @@ content:
   layers:
     - id: spans
       data_view: { index: span, time_field: observed_at }
-      insight: { select: [trace_id, span_id, parent_span_id, observed_at, end_at, label, span_type], complete: trace_id, limit: 5000 }
+      insight: { select: [trace_id, span_id, parent_span_id, observed_at, end_at, label, span_type], complete: trace_id, limit: 20000 }
       columns:
         - { id: trace, op: value, field: trace_id }
         - { id: span, op: value, field: span_id }
@@ -593,11 +593,26 @@ content:
       encoding: { as: timeline, trace: trace, span: span, parent: parent, start: start, end: end, label: label, color: type }
 ```
 
-- **Trace picker.** A picker lists the traces in the range, newest first.
+- **Finding a trace.** Filter by name (a trace's or any of its spans'),
+  set a minimum length, or click a dot in the scatter plot of every trace's
+  length over time. The list shows traces newest first, slowest first, or one
+  row per name with counts and typical lengths.
+- **Limit.** Spans arrive newest first up to `limit`. When more matched (insight
+  reports how many), the panel says which traces were left out. Raise `limit`
+  to cover the range; habit allows up to 20,000.
 - **Nesting.** A span is drawn under the span whose `span` equals its
   `parent`. Spans whose parent is missing are drawn at the top level.
-- **Bars.** Each bar shows its duration; hover for the span's own time and
-  its start offset.
+- **Waterfall or flame graph.** The waterfall has one row per span; traces
+  with more than 50 spans open folded to the levels that fit. The flame graph
+  stacks spans by depth, with extra lanes for siblings that ran side by side.
+- **Scale.** The axis is at least 100 ms long, so short traces look short;
+  "Fit trace" stretches one across the width.
+- **Highlighting.** Click a span to highlight every span with its name.
+- **Critical path.** The chain of spans the trace's end waited on, drawn
+  through the bars, with its time by `color` value. Speeding up a span off
+  the path wouldn't have shortened the trace.
+- **Compare.** Keep one trace as the baseline, then pick another. Both draw
+  on one axis, with the span names whose own time changed most.
 - **Own time.** Below the bars, each `color` value's own time: its spans'
   durations less the time their children cover. For Claude Code that splits
   an interaction into time in the model, waiting for permission, and running

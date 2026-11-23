@@ -7,13 +7,18 @@
 //! over time to click outliers in, and a list that is newest first, slowest
 //! first, or one row per name with counts and typical lengths.
 //!
-//! Reading it: the axis is at least [`MIN_AXIS_MS`] long so short traces
-//! look short ("Fit trace" stretches one). Large traces open folded to the
-//! deepest level that fits in [`FOLD_AT`] rows, and spans matching the
-//! filter are highlighted and never folded away. Below the bars, each
-//! `color` value's own time: a span's duration less the time its children
-//! cover. When sibling spans don't overlap, the totals add up to the
-//! trace's length.
+//! Reading it: a waterfall (one row per span) or a flame graph (spans
+//! stacked by depth, with lanes for siblings that ran side by side). The
+//! axis is at least [`MIN_AXIS_MS`] long so short traces look short ("Fit
+//! trace" stretches one). Large traces open folded to the deepest level that
+//! fits in [`FOLD_AT`] rows. Clicking a span highlights every span named
+//! like it, as the filter does for matching spans; highlighted spans are
+//! never folded away. The critical path (Jaeger's) marks the chain of spans
+//! the trace's end waited on. Below the bars, each `color` value's own time:
+//! a span's duration less the time its children cover.
+//!
+//! Comparing: keep one trace as the baseline and pick another. Both draw
+//! on one axis, with the span names whose own time changed most.
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -321,25 +326,45 @@ pub fn visible(trace: &Trace, folded: &BTreeSet<String>) -> Vec<usize> {
 /// Spans with more rows than this open folded.
 pub const FOLD_AT: usize = 50;
 
+/// Which spans stand out: those named like a clicked span, or those
+/// matching the name filter. The rest are dimmed.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Highlight {
+    None,
+    /// Spans with exactly this label.
+    Label(String),
+    /// Spans whose label contains this lower-case text.
+    Contains(String),
+}
+
+impl Highlight {
+    /// Whether a span stands out; `None` when nothing is highlighted.
+    pub fn hit(&self, label: &str) -> Option<bool> {
+        match self {
+            Highlight::None => None,
+            Highlight::Label(l) => Some(label == l),
+            Highlight::Contains(q) => Some(label.to_lowercase().contains(q.as_str())),
+        }
+    }
+}
+
 /// The spans folded when a trace opens: none if it fits in [`FOLD_AT`]
 /// rows; otherwise every parent from the shallowest depth that does fit,
-/// so as many levels show as fit. Parents of spans matching `query` stay
-/// open, so a match is never hidden.
-pub fn initial_folds(trace: &Trace, query: &str) -> BTreeSet<String> {
+/// so as many levels show as fit. Parents of highlighted spans stay open,
+/// so a highlighted span is never hidden.
+pub fn initial_folds(trace: &Trace, highlight: &Highlight) -> BTreeSet<String> {
     if trace.spans.len() <= FOLD_AT {
         return BTreeSet::new();
     }
     let below = descendants(trace);
     let mut keep = BTreeSet::new();
-    if !query.is_empty() {
-        let mut path: Vec<usize> = vec![];
-        for (i, (s, depth)) in trace.spans.iter().enumerate() {
-            path.truncate(*depth);
-            if s.label.to_lowercase().contains(query) {
-                keep.extend(path.iter().copied());
-            }
-            path.push(i);
+    let mut path: Vec<usize> = vec![];
+    for (i, (s, depth)) in trace.spans.iter().enumerate() {
+        path.truncate(*depth);
+        if highlight.hit(&s.label) == Some(true) {
+            keep.extend(path.iter().copied());
         }
+        path.push(i);
     }
     let deepest = trace.spans.iter().map(|(_, d)| *d).max().unwrap_or(0);
     let fold_from = |level: usize| -> BTreeSet<String> {
@@ -356,6 +381,201 @@ pub fn initial_folds(trace: &Trace, query: &str) -> BTreeSet<String> {
         .map(fold_from)
         .find(|f| visible(trace, f).len() <= FOLD_AT)
         .unwrap_or_else(|| fold_from(0))
+}
+
+/// Jaeger's critical path: the chain of work the trace's end waited on, as
+/// (span index, from, to) segments that don't overlap. Walking back from a
+/// span's end, the child that finished last is on the path; before that
+/// child started, the next child to finish is; and so on. Time in a span
+/// that none of those children covers is the span's own. Siblings that ran
+/// alongside a child on the path are off it: finishing them sooner
+/// wouldn't have finished the trace sooner.
+///
+/// Unlike Jaeger, a child isn't cut off at its parent's end: a Claude Code
+/// interaction can end while the subagents it started work on for an hour.
+/// A span reaches as far as its last descendant, and only time within the
+/// span's own start and end counts as its own.
+pub fn critical_path(trace: &Trace) -> Vec<(usize, f64, f64)> {
+    let spans = &trace.spans;
+    let index: HashMap<&str, usize> = spans
+        .iter()
+        .enumerate()
+        .map(|(i, (s, _))| (s.id.as_str(), i))
+        .collect();
+    let mut kids: Vec<Vec<usize>> = vec![vec![]; spans.len()];
+    let mut roots = vec![];
+    for (i, (s, _)) in spans.iter().enumerate() {
+        match s.parent.as_deref().and_then(|p| index.get(p)) {
+            Some(&p) if p != i => kids[p].push(i),
+            _ => roots.push(i),
+        }
+    }
+    // How far each span's work reaches: its end, or a later descendant's.
+    // Depth-first order puts descendants after their span, so walking it
+    // backwards finishes every child before its parent.
+    let mut reach: Vec<f64> = spans.iter().map(|(s, _)| s.end).collect();
+    for i in (0..spans.len()).rev() {
+        for &k in &kids[i] {
+            reach[i] = reach[i].max(reach[k]);
+        }
+    }
+    struct Walk<'a> {
+        spans: &'a [(Span, usize)],
+        kids: &'a [Vec<usize>],
+        reach: &'a [f64],
+        used: Vec<bool>,
+        out: Vec<(usize, f64, f64)>,
+    }
+    impl Walk<'_> {
+        /// `o`'s own time from `a` to `b`, within its own start and end.
+        fn own(&mut self, o: usize, a: f64, b: f64) {
+            let s = &self.spans[o].0;
+            let (a, b) = (a.max(s.start), b.min(s.end));
+            if b > a {
+                self.out.push((o, a, b));
+            }
+        }
+    }
+    impl Walk<'_> {
+        /// Walks `children` back from `end` down to `start`; `own` is the
+        /// span whose uncovered time is on the path (none for the trace).
+        fn back(&mut self, own: Option<usize>, children: &[usize], start: f64, end: f64) {
+            let mut cursor = end;
+            while cursor > start {
+                let next = children
+                    .iter()
+                    .copied()
+                    .filter(|&k| !self.used[k] && self.spans[k].0.start < cursor)
+                    .max_by(|&a, &b| {
+                        self.reach[a]
+                            .min(cursor)
+                            .total_cmp(&self.reach[b].min(cursor))
+                            .then(self.spans[a].0.start.total_cmp(&self.spans[b].0.start))
+                    });
+                let Some(k) = next else { break };
+                self.used[k] = true;
+                let child_end = self.reach[k].min(cursor);
+                if let Some(o) = own
+                    && cursor > child_end
+                {
+                    self.own(o, child_end, cursor);
+                }
+                let child_start = self.spans[k].0.start.max(start);
+                let grandchildren = self.kids[k].clone();
+                self.back(Some(k), &grandchildren, child_start, child_end);
+                cursor = child_start;
+            }
+            if let Some(o) = own
+                && cursor > start
+            {
+                self.own(o, start, cursor);
+            }
+        }
+    }
+    let mut walk = Walk {
+        spans,
+        kids: &kids,
+        reach: &reach,
+        used: vec![false; spans.len()],
+        out: vec![],
+    };
+    walk.back(None, &roots, trace.start, trace.end);
+    walk.out.sort_by(|a, b| a.1.total_cmp(&b.1));
+    walk.out
+}
+
+/// Time on the critical path per `color` value, largest first.
+pub fn critical_by_color(trace: &Trace, path: &[(usize, f64, f64)]) -> Vec<(String, f64)> {
+    let mut by: HashMap<String, f64> = HashMap::new();
+    for &(i, from, to) in path {
+        let color = trace.spans[i]
+            .0
+            .color
+            .clone()
+            .unwrap_or_else(|| "other".into());
+        *by.entry(color).or_default() += to - from;
+    }
+    let mut out: Vec<(String, f64)> = by.into_iter().collect();
+    out.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    out
+}
+
+/// The flame graph's rows: each depth gets as many lanes as its
+/// overlapping spans need (siblings running side by side stack up), and
+/// deeper levels sit below. Returns each span's row and the row count.
+pub fn flame_rows(trace: &Trace) -> (Vec<usize>, usize) {
+    let spans = &trace.spans;
+    let deepest = spans.iter().map(|(_, d)| *d).max().unwrap_or(0);
+    let mut lanes: Vec<Vec<f64>> = vec![vec![]; deepest + 1];
+    let mut lane = vec![0; spans.len()];
+    let mut order: Vec<usize> = (0..spans.len()).collect();
+    order.sort_by(|&a, &b| {
+        let (sa, sb) = (&spans[a], &spans[b]);
+        sa.1.cmp(&sb.1).then(sa.0.start.total_cmp(&sb.0.start))
+    });
+    for i in order {
+        let (s, depth) = &spans[i];
+        let ends = &mut lanes[*depth];
+        let l = ends
+            .iter()
+            .position(|&end| end <= s.start)
+            .unwrap_or(ends.len());
+        if l == ends.len() {
+            ends.push(s.end);
+        } else {
+            ends[l] = s.end;
+        }
+        lane[i] = l;
+    }
+    let mut offset = vec![0; deepest + 2];
+    for d in 0..=deepest {
+        offset[d + 1] = offset[d] + lanes[d].len();
+    }
+    let rows = spans
+        .iter()
+        .zip(&lane)
+        .map(|((_, d), l)| offset[*d] + l)
+        .collect();
+    (rows, offset[deepest + 1])
+}
+
+/// One span name across two traces, for comparing them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpanDiff {
+    pub label: String,
+    /// Spans with this name in the baseline and in the other trace.
+    pub count: (usize, usize),
+    /// Their own time in each.
+    pub own: (f64, f64),
+}
+
+/// Span names in either trace, the biggest change in own time first.
+pub fn compare(baseline: &Trace, other: &Trace) -> Vec<SpanDiff> {
+    let mut by: HashMap<String, SpanDiff> = HashMap::new();
+    for (side, trace) in [(0, baseline), (1, other)] {
+        for ((s, _), own) in trace.spans.iter().zip(self_times(trace)) {
+            let d = by.entry(s.label.clone()).or_insert_with(|| SpanDiff {
+                label: s.label.clone(),
+                count: (0, 0),
+                own: (0.0, 0.0),
+            });
+            if side == 0 {
+                d.count.0 += 1;
+                d.own.0 += own;
+            } else {
+                d.count.1 += 1;
+                d.own.1 += own;
+            }
+        }
+    }
+    let mut out: Vec<SpanDiff> = by.into_values().collect();
+    out.sort_by(|a, b| {
+        let change = |d: &SpanDiff| (d.own.1 - d.own.0).abs();
+        change(b)
+            .total_cmp(&change(a))
+            .then_with(|| a.label.cmp(&b.label))
+    });
+    out
 }
 
 /// `label`, cut with `…` to `chars` characters.
@@ -412,6 +632,9 @@ const AXIS: f64 = 22.0;
 const PLOT_H: f64 = 110.0;
 const PLOT_LEFT: f64 = 56.0;
 
+/// Traces listed before the rest are summarised; the plot shows them all.
+const LIST_ROWS: usize = 300;
+
 /// How the trace list is ordered, or grouped.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Order {
@@ -459,21 +682,26 @@ pub fn TimelineChart(
     if all.is_empty() {
         return view! { <div class="no-data">"No spans"</div> }.into_any();
     }
-    // Records come newest first up to the layer's limit, so a limit that's
-    // nearly used up means older traces in the range were left out.
-    let capped = layer
-        .insight
-        .as_ref()
-        .and_then(|i| i.limit)
-        .filter(|&limit| d.rows as f64 >= 0.9 * limit as f64)
-        .map(|limit| {
-            let since = all.iter().map(|t| t.start).fold(f64::INFINITY, f64::min);
-            format!(
-                "{} spans, near the layer's limit of {limit}: only traces since {} are here. Raise `limit` for older ones.",
-                d.rows,
-                date_time(since, &time_zone)
-            )
-        });
+    // Records come newest first up to the layer's limit, so when more
+    // matched than arrived, older traces in the range were left out. Without
+    // a count from the backend, a limit that's nearly used up is the sign.
+    let limit = layer.insight.as_ref().and_then(|i| i.limit);
+    let cut = match d.matched {
+        Some(matched) => matched > d.rows,
+        None => limit.is_some_and(|l| d.rows as f64 >= 0.9 * l as f64),
+    };
+    let capped = cut.then(|| {
+        let since = all.iter().map(|t| t.start).fold(f64::INFINITY, f64::min);
+        let of = d.matched.map(|m| format!(" of {m}")).unwrap_or_default();
+        let limit = limit
+            .map(|l| format!(" (`limit: {l}`)"))
+            .unwrap_or_default();
+        format!(
+            "{}{of} spans: the layer's limit{limit} left out traces before {}.",
+            d.rows,
+            date_time(since, &time_zone)
+        )
+    });
     // Colours by value, stable across traces.
     let values: BTreeSet<String> = all
         .iter()
@@ -503,8 +731,14 @@ pub fn TimelineChart(
     let fit = RwSignal::new(false);
     // The selection is a trace id, so re-sorting or filtering keeps it.
     let selected = RwSignal::new(all.with_value(|a| a[0].id.clone()));
-    // Folds the viewer changed, for the trace they were changed in.
-    let folds: RwSignal<Option<(String, BTreeSet<String>)>> = RwSignal::new(None);
+    // Folds the viewer changed, per trace.
+    let folds: RwSignal<HashMap<String, BTreeSet<String>>> = RwSignal::new(HashMap::new());
+    let flame = RwSignal::new(false);
+    let critical = RwSignal::new(false);
+    // A clicked span's label: every span named like it is highlighted.
+    let focus: RwSignal<Option<String>> = RwSignal::new(None);
+    // The trace other traces are compared with.
+    let baseline: RwSignal<Option<String>> = RwSignal::new(None);
     let needle = Memo::new(move |_| query.get().trim().to_lowercase());
 
     // Indices of the traces that pass the filters, newest first.
@@ -530,7 +764,10 @@ pub fn TimelineChart(
             })
         })
     });
-    let pick = move |i: usize| selected.set(all.with_value(|a| a[i].id.clone()));
+    let pick = move |i: usize| {
+        focus.set(None);
+        selected.set(all.with_value(|a| a[i].id.clone()));
+    };
 
     let list = {
         let time_zone = time_zone.clone();
@@ -560,7 +797,8 @@ pub fn TimelineChart(
                     .collect_view()
                     .into_any();
             }
-            let mut rows: Vec<(usize, f64, String, f64, usize)> = all.with_value(|a| {
+            let base = baseline.get();
+            let mut rows: Vec<(usize, f64, String, f64, usize, bool)> = all.with_value(|a| {
                 indices
                     .iter()
                     .map(|&i| {
@@ -571,6 +809,7 @@ pub fn TimelineChart(
                             t.name().to_string(),
                             t.end - t.start,
                             t.spans.len(),
+                            base.as_deref() == Some(t.id.as_str()),
                         )
                     })
                     .collect()
@@ -578,12 +817,18 @@ pub fn TimelineChart(
             if order.get() == Order::Slowest {
                 rows.sort_by(|a, b| b.3.total_cmp(&a.3));
             }
-            rows.into_iter()
-                .map(|(i, start, name, length, spans)| {
-                    let class = if Some(i) == current {
-                        "timeline-trace selected"
-                    } else {
-                        "timeline-trace"
+            let more = rows.len().saturating_sub(LIST_ROWS);
+            let footer = (more > 0).then(|| {
+                view! { <div class="muted small timeline-more">{format!("{more} more: filter or pick from the plot")}</div> }
+            });
+            let rows = rows
+                .into_iter()
+                .take(LIST_ROWS)
+                .map(|(i, start, name, length, spans, is_base)| {
+                    let class = match (Some(i) == current, is_base) {
+                        (true, _) => "timeline-trace selected",
+                        (false, true) => "timeline-trace baseline",
+                        (false, false) => "timeline-trace",
                     };
                     view! {
                         <button class=class on:click=move |_| pick(i)>
@@ -594,8 +839,8 @@ pub fn TimelineChart(
                         </button>
                     }
                 })
-                .collect_view()
-                .into_any()
+                .collect_view();
+            view! { {rows}{footer} }.into_any()
         }
     };
 
@@ -604,6 +849,7 @@ pub fn TimelineChart(
         let time_zone = time_zone.clone();
         move || {
             let current = current.get();
+            let base = baseline.get();
             let (top, bottom) = (8.0, PLOT_H - 18.0);
             let ymax = longest.log10();
             let y = move |ms: f64| bottom - (ms.max(1.0).log10() / ymax) * (bottom - top);
@@ -637,6 +883,11 @@ pub fn TimelineChart(
                         let t = &a[i];
                         let len = t.end - t.start;
                         let chosen = Some(i) == current;
+                        let class = match (chosen, base.as_deref() == Some(t.id.as_str())) {
+                            (true, _) => "timeline-dot selected",
+                            (false, true) => "timeline-dot baseline",
+                            (false, false) => "timeline-dot",
+                        };
                         let title = format!(
                             "{}\n{}\n{} · {} spans",
                             t.name(),
@@ -646,7 +897,7 @@ pub fn TimelineChart(
                         );
                         view! {
                             <circle cx=x(t.start) cy=y(len) r=if chosen { 5.0 } else { 3.0 }
-                                class=if chosen { "timeline-dot selected" } else { "timeline-dot" }
+                                class=class
                                 on:click=move |_| pick(i)>
                                 <title>{title}</title>
                             </circle>
@@ -665,162 +916,100 @@ pub fn TimelineChart(
         }
     };
 
-    let body = move || {
-        let Some(index) = current.get() else {
-            return ().into_any();
-        };
-        let trace = all.with_value(|a| a[index].clone());
-        // Spans are highlighted only when the filter matched inside the
-        // trace: a filter matching the trace's own name says nothing about
-        // its spans.
-        let q = Some(needle.get())
-            .filter(|q| !trace.name().to_lowercase().contains(q.as_str()))
-            .unwrap_or_default();
-        let colors = colors.get_value();
-        let folded = folds
-            .get()
-            .filter(|(id, _)| *id == trace.id)
-            .map(|(_, f)| f)
-            .unwrap_or_else(|| initial_folds(&trace, &q));
-        let below = descendants(&trace);
-        let rows_shown = visible(&trace, &folded);
-        let len = trace.end - trace.start;
-        let axis = axis_ms(len, fit.get());
-        let scale = (WIDTH - LABELS - 10.0) / axis;
-        let step = tick_step(axis);
-        let ticks: Vec<_> = (0..)
-            .map(|i| i as f64 * step)
-            .take_while(|t| *t <= axis * 1.0001)
-            .map(|t| {
-                let x = LABELS + t * scale;
-                // A tick at the right edge is labelled to its left, so it isn't cut off.
-                let anchor = if x > WIDTH - 30.0 { "end" } else { "middle" };
-                view! {
-                    <line x1=x x2=x y1=AXIS - 4.0 y2=AXIS + rows_shown.len() as f64 * ROW class="timeline-grid"/>
-                    <text x=x y=AXIS - 8.0 class="timeline-tick" text-anchor=anchor>{tick_label(t)}</text>
-                }
-            })
-            .collect();
-        let own = self_times(&trace);
-        let rows: Vec<_> = rows_shown
-            .iter()
-            .enumerate()
-            .map(|(row, &i)| {
-                let (s, depth) = &trace.spans[i];
-                let y = AXIS + row as f64 * ROW;
-                let x = LABELS + (s.start - trace.start) * scale;
-                let w = ((s.end - s.start) * scale).max(1.5);
-                let fill = s.color.as_ref().and_then(|c| colors.get(c).copied()).unwrap_or(palette[0]);
-                let title = format!(
-                    "{}\n{} (own time {})\nstarts at +{}{}",
-                    s.label,
-                    duration(s.end - s.start),
-                    duration(own[i]),
-                    duration(s.start - trace.start),
-                    s.color.as_ref().map(|c| format!("\n{c}")).unwrap_or_default()
-                );
-                let indent = 4.0 + *depth as f64 * 12.0;
-                let dur = duration(s.end - s.start);
-                // The duration sits after the bar, or inside it near the right edge.
-                let (tx, anchor) = if x + w + 60.0 < WIDTH { (x + w + 4.0, "start") } else { (x + w - 4.0, "end") };
-                let is_folded = folded.contains(&s.id);
-                let hidden = below[i];
-                let class = match (q.is_empty(), s.label.to_lowercase().contains(&q)) {
-                    (true, _) => "timeline-row",
-                    (false, true) => "timeline-row hit",
-                    (false, false) => "timeline-row dim",
-                };
-                let room = ((LABELS - indent - 14.0) / 6.2).max(4.0) as usize;
-                let label = if is_folded {
-                    format!("{} (+{hidden})", clip(&s.label, room.saturating_sub(7)))
-                } else {
-                    clip(&s.label, room)
-                };
-                let toggle = (hidden > 0).then(|| {
-                    let (span, trace_id, folded) = (s.id.clone(), trace.id.clone(), folded.clone());
+    let body = {
+        let time_zone = time_zone.clone();
+        move || {
+            let Some(index) = current.get() else {
+                return ().into_any();
+            };
+            let trace = all.with_value(|a| a[index].clone());
+            let base = baseline
+                .get()
+                .and_then(|id| all.with_value(|a| a.iter().find(|t| t.id == id).cloned()));
+            let other = base.as_ref().filter(|b| b.id != trace.id);
+            // A clicked span wins over the filter. The filter highlights
+            // spans only when it matched inside the trace: matching the
+            // trace's own name says nothing about its spans.
+            let highlight = match focus.get() {
+                Some(label) => Highlight::Label(label),
+                None => Some(needle.get())
+                    .filter(|q| !q.is_empty() && !trace.name().to_lowercase().contains(q.as_str()))
+                    .map_or(Highlight::None, Highlight::Contains),
+            };
+            let len = other
+                .map_or(0.0, |b| b.end - b.start)
+                .max(trace.end - trace.start);
+            let draw = Draw {
+                colors: colors.get_value(),
+                fallback: palette[0],
+                highlight,
+                critical: critical.get(),
+                flame: flame.get(),
+                axis: axis_ms(len, fit.get()),
+                folds,
+                focus,
+                time_zone: time_zone.clone(),
+            };
+            let pressed = |on: bool| if on { "selected" } else { "" };
+            let compare_controls = match (&base, other) {
+                (None, _) => {
+                    let id = trace.id.clone();
                     view! {
-                        <text x=indent y=y + 14.0 class="timeline-fold"
-                            on:click=move |_| {
-                                let mut f = folded.clone();
-                                if !f.remove(&span) {
-                                    f.insert(span.clone());
-                                }
-                                folds.set(Some((trace_id.clone(), f)));
-                            }>
-                            {if is_folded { "▸" } else { "▾" }}
-                        </text>
+                        <button on:click=move |_| baseline.set(Some(id.clone()))
+                            title="Keep this trace as the baseline, then pick another to compare it with">"Compare…"</button>
                     }
-                });
-                view! {
-                    <g class=class>
-                        <title>{title}</title>
-                        {toggle}
-                        <text x=indent + 12.0 y=y + 14.0 class="timeline-label">{label}</text>
-                        <rect x=x y=y + 3.0 width=w height=ROW - 6.0 rx=2 fill=fill/>
-                        <text x=tx y=y + 14.0 class="timeline-duration" text-anchor=anchor>{dur}</text>
-                    </g>
+                    .into_any()
                 }
-            })
-            .collect();
-        let height = AXIS + rows_shown.len() as f64 * ROW + 4.0;
-        let by_color = time_by_color(&trace);
-        // Shares of all own time, which add up to 100% even when spans ran
-        // side by side and own time adds up to more than the trace's length.
-        let work: f64 = by_color.iter().map(|(_, ms)| ms).sum();
-        let parallel = (len > 0.0 && work > len * 1.05).then(|| {
-            format!(
-                " Spans overlapped: own time adds up to {:.1}× the trace's length.",
-                work / len
-            )
-        });
-        let legend: Vec<_> = by_color
-            .into_iter()
-            .map(|(value, ms)| {
-                let fill = colors.get(&value).copied().unwrap_or(palette[0]);
-                let share = 100.0 * ms / work.max(1e-9);
+                (Some(_), None) => view! {
+                    <span class="muted small">"Baseline set: pick another trace to compare with it"</span>
+                    <button on:click=move |_| baseline.set(None)>"Cancel"</button>
+                }
+                .into_any(),
+                (Some(b), Some(_)) => {
+                    let (this, that) = (trace.id.clone(), b.id.clone());
+                    view! {
+                        <button title="Make this trace the baseline"
+                            on:click=move |_| { baseline.set(Some(this.clone())); selected.set(that.clone()); }>"Swap"</button>
+                        <button on:click=move |_| baseline.set(None)>"Stop comparing"</button>
+                    }
+                    .into_any()
+                }
+            };
+            let focused = focus.get().map(|label| {
                 view! {
-                    <span class="timeline-key">
-                        <span class="timeline-swatch" style=format!("background:{fill}")></span>
-                        {format!("{value} {} ({share:.0}%)", duration(ms))}
+                    <span class="timeline-focus small">
+                        {format!("Highlighting “{label}”")}
+                        <button title="Stop highlighting" on:click=move |_| focus.set(None)>"×"</button>
                     </span>
                 }
-            })
-            .collect();
-        let folded_any = !folded.is_empty();
-        let (trace_id, all_parents): (String, BTreeSet<String>) = (
-            trace.id.clone(),
-            trace
-                .spans
-                .iter()
-                .zip(&below)
-                .filter(|(_, n)| **n > 0)
-                .map(|((s, _), _)| s.id.clone())
-                .collect(),
-        );
-        view! {
-            <div class="timeline-title">
-                <strong>{trace.name().to_string()}</strong>
-                <span class="muted small">{format!("{} · {} · {} spans", date_time(trace.start, &time_zone), duration(len), trace.spans.len())}</span>
-                <span class="timeline-sort">
-                    <button class=move || if fit.get() { "" } else { "selected" } on:click=move |_| fit.set(false)
-                        title=format!("Axis at least {}, so short traces look short", duration(MIN_AXIS_MS))>"True scale"</button>
-                    <button class=move || if fit.get() { "selected" } else { "" } on:click=move |_| fit.set(true)
-                        title="Stretch this trace across the width">"Fit trace"</button>
-                </span>
-                <span class="timeline-sort">
-                    <button on:click={let id = trace_id.clone(); move |_| folds.set(Some((id.clone(), BTreeSet::new())))}
-                        disabled=!folded_any>"Expand all"</button>
-                    <button on:click={let id = trace_id.clone(); move |_| folds.set(Some((id.clone(), all_parents.clone())))}
-                        disabled=all_parents_empty(&below)>"Collapse all"</button>
-                </span>
-            </div>
-            <svg viewBox=format!("0 0 {WIDTH} {height}") class="timeline-svg" preserveAspectRatio="xMinYMin meet">
-                {ticks}
-                {rows}
-            </svg>
-            <div class="timeline-legend muted small">"Own time: "{legend}{parallel}</div>
+            });
+            view! {
+                <div class="timeline-controls">
+                    <span class="timeline-sort">
+                        <button class=pressed(!draw.flame) on:click=move |_| flame.set(false)
+                            title="One row per span, nested">"Waterfall"</button>
+                        <button class=pressed(draw.flame) on:click=move |_| flame.set(true)
+                            title="Spans stacked by depth; siblings that ran side by side get extra lanes">"Flame graph"</button>
+                    </span>
+                    <span class="timeline-sort">
+                        <button class=move || pressed(!fit.get()) on:click=move |_| fit.set(false)
+                            title=format!("Axis at least {}, so short traces look short", duration(MIN_AXIS_MS))>"True scale"</button>
+                        <button class=move || pressed(fit.get()) on:click=move |_| fit.set(true)
+                            title="Stretch the trace across the width">"Fit trace"</button>
+                    </span>
+                    <span class="timeline-sort">
+                        <button class=pressed(draw.critical) on:click=move |_| critical.update(|c| *c = !*c)
+                            title="The chain of spans the trace's end waited on: making anything else faster wouldn't have made the trace shorter">"Critical path"</button>
+                    </span>
+                    <span class="timeline-sort">{compare_controls}</span>
+                    {focused}
+                </div>
+                {other.map(|b| compare_view(b, &trace))}
+                {other.map(|b| trace_block(b, &draw, Some("Baseline")))}
+                {trace_block(&trace, &draw, other.map(|_| "This trace"))}
+            }
+            .into_any()
         }
-        .into_any()
     };
     let total_label = move || {
         let n = shown.with(Vec::len);
@@ -861,9 +1050,394 @@ pub fn TimelineChart(
     .into_any()
 }
 
-/// Whether no span in a trace has children.
-fn all_parents_empty(below: &[usize]) -> bool {
-    below.iter().all(|n| *n == 0)
+/// What traces are drawn with: shared by compared traces, so they use one
+/// scale.
+#[derive(Clone)]
+struct Draw {
+    colors: HashMap<String, &'static str>,
+    fallback: &'static str,
+    highlight: Highlight,
+    critical: bool,
+    flame: bool,
+    /// The axis length in ms.
+    axis: f64,
+    /// Folds the viewer changed, per trace.
+    folds: RwSignal<HashMap<String, BTreeSet<String>>>,
+    focus: RwSignal<Option<String>>,
+    time_zone: String,
+}
+
+impl Draw {
+    fn fill(&self, s: &Span) -> &'static str {
+        s.color
+            .as_ref()
+            .and_then(|c| self.colors.get(c).copied())
+            .unwrap_or(self.fallback)
+    }
+
+    fn class(&self, label: &str) -> &'static str {
+        match self.highlight.hit(label) {
+            None => "timeline-row",
+            Some(true) => "timeline-row hit",
+            Some(false) => "timeline-row dim",
+        }
+    }
+
+    /// Clicking a span highlights every span named like it; clicking one
+    /// of them again stops.
+    fn focus_on(&self, label: &str) -> impl Fn(leptos::ev::MouseEvent) + 'static {
+        let (focus, label) = (self.focus, label.to_string());
+        move |_| {
+            focus.update(|f| {
+                *f = if f.as_deref() == Some(label.as_str()) {
+                    None
+                } else {
+                    Some(label.clone())
+                }
+            })
+        }
+    }
+
+    /// Gridlines and labels from `left`, down to `bottom`.
+    fn ticks(&self, left: f64, scale: f64, bottom: f64) -> Vec<AnyView> {
+        let step = tick_step(self.axis);
+        (0..)
+            .map(|i| i as f64 * step)
+            .take_while(|t| *t <= self.axis * 1.0001)
+            .map(|t| {
+                let x = left + t * scale;
+                // Ticks at the edges are labelled inwards, so they aren't cut off.
+                let anchor = match x {
+                    x if x > WIDTH - 30.0 => "end",
+                    x if x < 30.0 => "start",
+                    _ => "middle",
+                };
+                view! {
+                    <line x1=x x2=x y1=AXIS - 4.0 y2=bottom class="timeline-grid"/>
+                    <text x=x y=AXIS - 8.0 class="timeline-tick" text-anchor=anchor>{tick_label(t)}</text>
+                }
+                .into_any()
+            })
+            .collect()
+    }
+}
+
+/// A span's tooltip.
+fn span_title(trace: &Trace, s: &Span, own: f64) -> String {
+    format!(
+        "{}\n{} (own time {})\nstarts at +{}{}\nClick to highlight spans with this name",
+        s.label,
+        duration(s.end - s.start),
+        duration(own),
+        duration(s.start - trace.start),
+        s.color
+            .as_ref()
+            .map(|c| format!("\n{c}"))
+            .unwrap_or_default()
+    )
+}
+
+/// Critical-path segments by span index.
+fn segments_by_span(path: &[(usize, f64, f64)]) -> HashMap<usize, Vec<(f64, f64)>> {
+    let mut by: HashMap<usize, Vec<(f64, f64)>> = HashMap::new();
+    for &(i, a, b) in path {
+        by.entry(i).or_default().push((a, b));
+    }
+    by
+}
+
+/// The critical path as a line through the bars of one row.
+fn critical_marks(
+    segments: &[(f64, f64)],
+    origin: f64,
+    left: f64,
+    scale: f64,
+    middle: f64,
+) -> Vec<AnyView> {
+    segments
+        .iter()
+        .map(|&(a, b)| {
+            let x = left + (a - origin) * scale;
+            let w = ((b - a) * scale).max(1.0);
+            view! { <rect x=x y=middle - 2.0 width=w height=4.0 rx=1 class="timeline-critical"/> }
+                .into_any()
+        })
+        .collect()
+}
+
+/// One trace: a heading, its waterfall or flame graph, and the time legends.
+fn trace_block(trace: &Trace, draw: &Draw, heading: Option<&'static str>) -> AnyView {
+    let len = trace.end - trace.start;
+    let path = if draw.critical {
+        critical_path(trace)
+    } else {
+        vec![]
+    };
+    let below = descendants(trace);
+    let folded = draw
+        .folds
+        .with(|f| f.get(&trace.id).cloned())
+        .unwrap_or_else(|| initial_folds(trace, &draw.highlight));
+    let chart = if draw.flame {
+        flame_view(trace, draw, &path)
+    } else {
+        waterfall_view(trace, draw, &path, &folded, &below)
+    };
+    let fold_buttons = (!draw.flame && below.iter().any(|n| *n > 0)).then(|| {
+        let (folds, id) = (draw.folds, trace.id.clone());
+        let parents: BTreeSet<String> = trace
+            .spans
+            .iter()
+            .zip(&below)
+            .filter(|(_, n)| **n > 0)
+            .map(|((s, _), _)| s.id.clone())
+            .collect();
+        let (open, shut) = (id.clone(), id);
+        view! {
+            <span class="timeline-sort">
+                <button disabled=folded.is_empty()
+                    on:click=move |_| folds.update(|f| { f.insert(open.clone(), BTreeSet::new()); })>"Expand all"</button>
+                <button on:click=move |_| folds.update(|f| { f.insert(shut.clone(), parents.clone()); })>"Collapse all"</button>
+            </span>
+        }
+    });
+    let key = |value: &str, ms: f64, share: f64| {
+        let fill = draw.colors.get(value).copied().unwrap_or(draw.fallback);
+        view! {
+            <span class="timeline-key">
+                <span class="timeline-swatch" style=format!("background:{fill}")></span>
+                {format!("{value} {} ({share:.0}%)", duration(ms))}
+            </span>
+        }
+    };
+    let by_color = time_by_color(trace);
+    // Shares of all own time, which add up to 100% even when spans ran
+    // side by side and own time adds up to more than the trace's length.
+    let work: f64 = by_color.iter().map(|(_, ms)| ms).sum();
+    let parallel = (len > 0.0 && work > len * 1.05).then(|| {
+        format!(
+            " Spans overlapped: own time adds up to {:.1}× the trace's length.",
+            work / len
+        )
+    });
+    let legend: Vec<_> = by_color
+        .iter()
+        .map(|(value, ms)| key(value, *ms, 100.0 * ms / work.max(1e-9)))
+        .collect();
+    let critical_legend = draw.critical.then(|| {
+        let keys: Vec<_> = critical_by_color(trace, &path)
+            .iter()
+            .map(|(value, ms)| key(value, *ms, 100.0 * ms / len.max(1e-9)))
+            .collect();
+        view! { <div class="timeline-legend muted small">"Critical path: "{keys}</div> }
+    });
+    view! {
+        <div class="timeline-title">
+            {heading.map(|h| view! { <span class="timeline-badge">{h}</span> })}
+            <strong>{trace.name().to_string()}</strong>
+            <span class="muted small">{format!("{} · {} · {} spans", date_time(trace.start, &draw.time_zone), duration(len), trace.spans.len())}</span>
+            {fold_buttons}
+        </div>
+        {chart}
+        <div class="timeline-legend muted small">"Own time: "{legend}{parallel}</div>
+        {critical_legend}
+    }
+    .into_any()
+}
+
+/// One row per span, nested, with folding.
+fn waterfall_view(
+    trace: &Trace,
+    draw: &Draw,
+    path: &[(usize, f64, f64)],
+    folded: &BTreeSet<String>,
+    below: &[usize],
+) -> AnyView {
+    let rows_shown = visible(trace, folded);
+    let scale = (WIDTH - LABELS - 10.0) / draw.axis;
+    let bottom = AXIS + rows_shown.len() as f64 * ROW;
+    let ticks = draw.ticks(LABELS, scale, bottom);
+    let own = self_times(trace);
+    let segments = segments_by_span(path);
+    let rows: Vec<_> = rows_shown
+        .iter()
+        .enumerate()
+        .map(|(row, &i)| {
+            let (s, depth) = &trace.spans[i];
+            let y = AXIS + row as f64 * ROW;
+            let x = LABELS + (s.start - trace.start) * scale;
+            let w = ((s.end - s.start) * scale).max(1.5);
+            let indent = 4.0 + *depth as f64 * 12.0;
+            let dur = duration(s.end - s.start);
+            // The duration sits after the bar, or inside it near the right edge.
+            let (tx, anchor) = if x + w + 60.0 < WIDTH {
+                (x + w + 4.0, "start")
+            } else {
+                (x + w - 4.0, "end")
+            };
+            let is_folded = folded.contains(&s.id);
+            let hidden = below[i];
+            let room = ((LABELS - indent - 14.0) / 6.2).max(4.0) as usize;
+            let label = if is_folded {
+                format!("{} (+{hidden})", clip(&s.label, room.saturating_sub(7)))
+            } else {
+                clip(&s.label, room)
+            };
+            // A folded span carries its hidden descendants' part of the path.
+            let reach = if is_folded { i + hidden } else { i };
+            let marks: Vec<_> = (i..=reach)
+                .filter_map(|k| segments.get(&k))
+                .flat_map(|segs| critical_marks(segs, trace.start, LABELS, scale, y + ROW / 2.0))
+                .collect();
+            let toggle = (hidden > 0).then(|| {
+                let (folds, span, trace_id, folded) =
+                    (draw.folds, s.id.clone(), trace.id.clone(), folded.clone());
+                view! {
+                    <text x=indent y=y + 14.0 class="timeline-fold"
+                        on:click=move |_| {
+                            let mut f = folded.clone();
+                            if !f.remove(&span) {
+                                f.insert(span.clone());
+                            }
+                            folds.update(|all| { all.insert(trace_id.clone(), f); });
+                        }>
+                        {if is_folded { "▸" } else { "▾" }}
+                    </text>
+                }
+            });
+            view! {
+                <g class=draw.class(&s.label)>
+                    <title>{span_title(trace, s, own[i])}</title>
+                    {toggle}
+                    <text x=indent + 12.0 y=y + 14.0 class="timeline-label" on:click=draw.focus_on(&s.label)>{label}</text>
+                    <rect x=x y=y + 3.0 width=w height=ROW - 6.0 rx=2 fill=draw.fill(s) on:click=draw.focus_on(&s.label)/>
+                    {marks}
+                    <text x=tx y=y + 14.0 class="timeline-duration" text-anchor=anchor>{dur}</text>
+                </g>
+            }
+        })
+        .collect();
+    let height = bottom + 4.0;
+    view! {
+        <svg viewBox=format!("0 0 {WIDTH} {height}") class="timeline-svg" preserveAspectRatio="xMinYMin meet">
+            {ticks}
+            {rows}
+        </svg>
+    }
+    .into_any()
+}
+
+const FLAME_ROW: f64 = 18.0;
+const FLAME_LEFT: f64 = 4.0;
+
+/// Spans stacked by depth across the whole width, labelled inside the bars.
+fn flame_view(trace: &Trace, draw: &Draw, path: &[(usize, f64, f64)]) -> AnyView {
+    let (rows, count) = flame_rows(trace);
+    let scale = (WIDTH - 2.0 * FLAME_LEFT) / draw.axis;
+    let bottom = AXIS + count as f64 * FLAME_ROW;
+    let ticks = draw.ticks(FLAME_LEFT, scale, bottom);
+    let own = self_times(trace);
+    let segments = segments_by_span(path);
+    let bars: Vec<_> = trace
+        .spans
+        .iter()
+        .enumerate()
+        .map(|(i, (s, _))| {
+            let y = AXIS + rows[i] as f64 * FLAME_ROW;
+            let x = FLAME_LEFT + (s.start - trace.start) * scale;
+            let w = ((s.end - s.start) * scale).max(1.0);
+            let label = (w > 30.0).then(|| {
+                view! {
+                    <text x=x + 4.0 y=y + 12.0 class="timeline-flame-label">{clip(&s.label, ((w - 8.0) / 6.0) as usize)}</text>
+                }
+            });
+            let marks = segments
+                .get(&i)
+                .map(|segs| critical_marks(segs, trace.start, FLAME_LEFT, scale, y + FLAME_ROW - 4.0));
+            view! {
+                <g class=draw.class(&s.label)>
+                    <title>{span_title(trace, s, own[i])}</title>
+                    <rect x=x y=y + 1.0 width=w height=FLAME_ROW - 2.0 rx=1 fill=draw.fill(s)
+                        class="timeline-flame-bar" on:click=draw.focus_on(&s.label)/>
+                    {label}
+                    {marks}
+                </g>
+            }
+        })
+        .collect();
+    let height = bottom + 4.0;
+    view! {
+        <svg viewBox=format!("0 0 {WIDTH} {height}") class="timeline-svg" preserveAspectRatio="xMinYMin meet">
+            {ticks}
+            {bars}
+        </svg>
+    }
+    .into_any()
+}
+
+/// Rows of the comparison table before the rest are summarised.
+const DIFF_ROWS: usize = 12;
+
+/// `+1.20 s` or `−850 ms`.
+fn signed(ms: f64) -> String {
+    let sign = if ms < 0.0 { "−" } else { "+" };
+    format!("{sign}{}", duration(ms.abs()))
+}
+
+/// How a trace differs from the baseline: its length, and the span names
+/// whose own time changed most.
+fn compare_view(baseline: &Trace, other: &Trace) -> AnyView {
+    let (was, is) = (baseline.end - baseline.start, other.end - other.start);
+    let pct = if was > 0.0 {
+        format!(" ({:+.0}%)", 100.0 * (is - was) / was).replace('-', "−")
+    } else {
+        String::new()
+    };
+    let verdict = if is > was { "slower" } else { "faster" };
+    let diff = compare(baseline, other);
+    let more = diff.len().saturating_sub(DIFF_ROWS);
+    let rows: Vec<_> = diff
+        .into_iter()
+        .take(DIFF_ROWS)
+        .map(|d| {
+            let change = d.own.1 - d.own.0;
+            let class = match change {
+                c if c > 1.0 => "slower",
+                c if c < -1.0 => "faster",
+                _ => "muted",
+            };
+            let count = if d.count.0 == d.count.1 {
+                d.count.0.to_string()
+            } else {
+                format!("{} → {}", d.count.0, d.count.1)
+            };
+            view! {
+                <tr>
+                    <td>{d.label}</td>
+                    <td class="num">{count}</td>
+                    <td class="num">{duration(d.own.0)}</td>
+                    <td class="num">{duration(d.own.1)}</td>
+                    <td class=format!("num {class}")>{signed(change)}</td>
+                </tr>
+            }
+        })
+        .collect();
+    view! {
+        <div class="timeline-compare">
+            <div class="small">
+                {format!("This trace took {} against the baseline's {}: ", duration(is), duration(was))}
+                <strong class=verdict>{format!("{}{pct}", signed(is - was))}</strong>
+            </div>
+            <table class="timeline-diff small">
+                <thead>
+                    <tr><th>"Span"</th><th class="num">"Count"</th><th class="num">"Own time, baseline"</th><th class="num">"Own time, this trace"</th><th class="num">"Change"</th></tr>
+                </thead>
+                <tbody>{rows}</tbody>
+            </table>
+            {(more > 0).then(|| view! { <div class="muted small">{format!("and {more} more span names with smaller changes")}</div> })}
+        </div>
+    }
+    .into_any()
 }
 
 /// A short id for a set of names, so two timeline panels' datalists don't clash.
@@ -1049,7 +1623,7 @@ mod tests {
     #[test]
     fn small_traces_open_unfolded() {
         let t = fan_out(2, 3);
-        assert!(initial_folds(&t, "").is_empty());
+        assert!(initial_folds(&t, &Highlight::None).is_empty());
         assert_eq!(visible(&t, &BTreeSet::new()).len(), 9);
     }
 
@@ -1057,7 +1631,7 @@ mod tests {
     fn large_traces_fold_to_the_deepest_level_that_fits() {
         let t = fan_out(6, 70);
         assert_eq!(descendants(&t)[0], 6 * 71);
-        let folds = initial_folds(&t, "");
+        let folds = initial_folds(&t, &Highlight::None);
         assert_eq!(folds.len(), 6, "every step folds, the root stays open");
         assert_eq!(visible(&t, &folds).len(), 7);
     }
@@ -1065,11 +1639,136 @@ mod tests {
     #[test]
     fn folds_never_hide_a_span_matching_the_filter() {
         let t = fan_out(6, 70);
-        let folds = initial_folds(&t, "step3-leaf42");
+        let folds = initial_folds(&t, &Highlight::Contains("step3-leaf42".into()));
         assert!(!folds.contains("step3"));
         let shown = visible(&t, &folds);
         assert!(shown.iter().any(|&i| t.spans[i].0.id == "step3-leaf42"));
         assert_eq!(shown.len(), 7 + 70);
+    }
+
+    #[test]
+    fn clicking_a_span_highlights_its_namesakes_and_keeps_them_unfolded() {
+        let t = fan_out(6, 70);
+        let h = Highlight::Label("step5-leaf3".into());
+        assert_eq!(h.hit("step5-leaf3"), Some(true));
+        assert_eq!(h.hit("step5-leaf30"), Some(false), "exact, not a prefix");
+        assert_eq!(Highlight::None.hit("x"), None);
+        assert!(!initial_folds(&t, &h).contains("step5"));
+    }
+
+    /// The critical path of `trace` as (span id, from, to).
+    fn path(t: &Trace) -> Vec<(&str, f64, f64)> {
+        critical_path(t)
+            .into_iter()
+            .map(|(i, a, b)| (t.spans[i].0.id.as_str(), a, b))
+            .collect()
+    }
+
+    #[test]
+    fn the_critical_path_follows_the_last_child_to_finish() {
+        // root 0–100: llm 0–40, then two tools side by side, 40–90 and 45–70.
+        let t = &traces(vec![
+            span("a", "root", None, 0.0, 100.0, "interaction"),
+            span("a", "llm", Some("root"), 0.0, 40.0, "llm"),
+            span("a", "slow", Some("root"), 40.0, 90.0, "tool"),
+            span("a", "fast", Some("root"), 45.0, 70.0, "tool"),
+            span("a", "exec", Some("slow"), 50.0, 80.0, "exec"),
+        ])[0];
+        assert_eq!(
+            path(t),
+            [
+                ("llm", 0.0, 40.0),
+                ("slow", 40.0, 50.0),
+                ("exec", 50.0, 80.0),
+                ("slow", 80.0, 90.0),
+                ("root", 90.0, 100.0),
+            ],
+            "`fast` ran alongside `slow`, so it isn't on the path"
+        );
+        let total: f64 = critical_path(t).iter().map(|(_, a, b)| b - a).sum();
+        assert_eq!(total, 100.0, "the path covers the whole trace");
+        assert_eq!(
+            critical_by_color(t, &critical_path(t)),
+            [
+                ("llm".into(), 40.0),
+                ("exec".into(), 30.0),
+                ("tool".into(), 20.0),
+                ("interaction".into(), 10.0)
+            ]
+        );
+    }
+
+    #[test]
+    fn work_that_outlives_its_parent_stays_on_the_critical_path() {
+        // The interaction ends at 10, but the subagent it started runs to 100.
+        let t = &traces(vec![
+            span("a", "interaction", None, 0.0, 10.0, "interaction"),
+            span("a", "agent", Some("interaction"), 5.0, 8.0, "tool"),
+            span("a", "model", Some("agent"), 20.0, 100.0, "llm"),
+        ])[0];
+        assert_eq!(
+            path(t),
+            [
+                ("interaction", 0.0, 5.0),
+                ("agent", 5.0, 8.0),
+                ("model", 20.0, 100.0),
+            ],
+            "only time inside a span counts as its own; 8–20 waited on nothing recorded"
+        );
+    }
+
+    #[test]
+    fn a_gap_between_children_is_the_parents_own_time() {
+        let t = &traces(vec![
+            span("a", "root", None, 0.0, 30.0, "r"),
+            span("a", "x", Some("root"), 0.0, 10.0, "c"),
+            span("a", "y", Some("root"), 20.0, 30.0, "c"),
+        ])[0];
+        assert_eq!(
+            path(t),
+            [("x", 0.0, 10.0), ("root", 10.0, 20.0), ("y", 20.0, 30.0)]
+        );
+    }
+
+    #[test]
+    fn flame_rows_stack_parallel_siblings_into_lanes() {
+        let t = &traces(vec![
+            span("a", "root", None, 0.0, 100.0, "r"),
+            span("a", "p1", Some("root"), 0.0, 50.0, "c"),
+            span("a", "p2", Some("root"), 10.0, 60.0, "c"),
+            span("a", "after", Some("root"), 60.0, 90.0, "c"),
+            span("a", "leaf", Some("p1"), 5.0, 6.0, "c"),
+        ])[0];
+        let (rows, n) = flame_rows(t);
+        let row = |id: &str| rows[t.spans.iter().position(|(s, _)| s.id == id).unwrap()];
+        assert_eq!(
+            (row("root"), row("p1"), row("p2"), row("after")),
+            (0, 1, 2, 1)
+        );
+        assert_eq!(row("leaf"), 3, "the next depth sits below both lanes");
+        assert_eq!(n, 4);
+    }
+
+    #[test]
+    fn comparing_traces_ranks_span_names_by_change_in_own_time() {
+        let a = &traces(vec![
+            span("a", "root", None, 0.0, 100.0, "r"),
+            span("a", "git", Some("root"), 0.0, 10.0, "c"),
+            span("a", "gh", Some("root"), 10.0, 40.0, "c"),
+        ])[0];
+        let mut b = traces(vec![
+            span("b", "root", None, 0.0, 200.0, "r"),
+            span("b", "git", Some("root"), 0.0, 12.0, "c"),
+            span("b", "gh", Some("root"), 12.0, 140.0, "c"),
+            span("b", "gh2", Some("root"), 140.0, 150.0, "c"),
+        ]);
+        // Same label for both gh spans, as in a fan-out.
+        b[0].spans[3].0.label = "gh".into();
+        let diff = compare(a, &b[0]);
+        assert_eq!(diff[0].label, "gh");
+        assert_eq!((diff[0].count, diff[0].own), ((1, 2), (30.0, 138.0)));
+        let names: Vec<&str> = diff.iter().map(|d| d.label.as_str()).collect();
+        assert_eq!(names, ["gh", "root", "git"]);
     }
 
     #[test]

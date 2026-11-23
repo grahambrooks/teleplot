@@ -567,6 +567,24 @@ html.printing .panel { break-inside: avoid; }
 .timeline-sort button:disabled { opacity: 0.4; cursor: default; }
 .timeline-plot { width: 100%; flex: none; }
 .timeline-capped { color: var(--warning); }
+.timeline-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.timeline-focus { display: inline-flex; align-items: center; gap: 4px; }
+.timeline-focus button { background: none; border: 0; color: var(--text-muted); cursor: pointer; font-size: 14px; line-height: 1; }
+.timeline-badge { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); border: 1px solid var(--border-strong); border-radius: 2px; padding: 0 4px; }
+.timeline-dot.baseline { fill: var(--warning); fill-opacity: 1; }
+.timeline-trace.baseline { box-shadow: inset 3px 0 0 var(--warning); }
+.timeline-more { padding: 3px 8px; }
+.timeline-row rect, .timeline-row .timeline-label { cursor: pointer; }
+.timeline-critical { fill: var(--text); fill-opacity: 0.9; pointer-events: none; }
+.timeline-flame-bar { cursor: pointer; }
+.timeline-flame-label { font-size: 10px; fill: #fff; pointer-events: none; paint-order: stroke; stroke: rgba(0, 0, 0, 0.35); stroke-width: 2px; }
+.timeline-compare { display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--border); border-radius: 2px; padding: 6px 8px; }
+.timeline-diff { width: 100%; border-collapse: collapse; }
+.timeline-diff th, .timeline-diff td { text-align: left; padding: 2px 6px; border-bottom: 1px solid var(--border); }
+.timeline-diff th { color: var(--text-muted); font-weight: normal; }
+.timeline-diff .num { text-align: right; font-variant-numeric: tabular-nums; }
+.timeline-compare .slower { color: var(--bad); }
+.timeline-compare .faster { color: var(--good); }
 .timeline-dot { fill: var(--accent); fill-opacity: 0.55; cursor: pointer; }
 .timeline-dot:hover { fill-opacity: 1; }
 .timeline-dot.selected { fill-opacity: 1; stroke: var(--text); stroke-width: 1.5; }

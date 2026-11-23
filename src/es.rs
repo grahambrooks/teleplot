@@ -492,6 +492,10 @@ pub fn series_as_esql(series: &Value) -> Value {
     if let Some(buckets) = series.get("buckets") {
         esql["buckets"] = buckets.clone();
     }
+    // Every record that matched, before a records query's limit.
+    if let Some(matched) = series["coverage"]["matched"].as_u64() {
+        esql["matched"] = json!(matched);
+    }
     esql
 }
 

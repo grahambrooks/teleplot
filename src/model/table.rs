@@ -176,6 +176,7 @@ mod tests {
             error: None,
             dates: Vec::new(),
             buckets: Vec::new(),
+            matched: None,
         };
         let table = layer_table(&layer, &data);
         assert_eq!(

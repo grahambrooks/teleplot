@@ -1456,6 +1456,7 @@ fn evaluate_layer(
         error: None,
         dates: Vec::new(),
         buckets: Vec::new(),
+        matched: None,
     })
 }
 
@@ -1570,6 +1571,7 @@ fn evaluate_documents(
         error: None,
         dates: Vec::new(),
         buckets: Vec::new(),
+        matched: None,
     })
 }
 
@@ -1645,6 +1647,7 @@ fn evaluate_esql(
         counts: Vec::new(),
         error: None,
         dates,
+        matched: response["matched"].as_u64().map(|m| m as usize),
     })
 }
 
@@ -2439,6 +2442,7 @@ mod tests {
             let layer = &data.layers[0];
             assert_eq!(layer.error, None);
             assert_eq!(layer.dates, ["week"]);
+            assert_eq!(layer.matched, Some(4), "coverage.matched is kept");
             assert_eq!(
                 layer.series("week").unwrap().values,
                 [

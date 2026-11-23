@@ -69,6 +69,10 @@ pub struct LayerData {
     /// when only a few buckets have data.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub buckets: Vec<f64>,
+    /// Records that matched before the layer's limit (insight records
+    /// layers): more than `rows` means the limit left some out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub matched: Option<usize>,
 }
 
 impl LayerData {

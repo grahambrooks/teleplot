@@ -1644,6 +1644,7 @@ mod tests {
                 error: None,
                 dates: Vec::new(),
                 buckets: Vec::new(),
+                matched: None,
             }],
             warnings: vec![],
             annotations: vec![],
