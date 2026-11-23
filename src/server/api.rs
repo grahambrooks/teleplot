@@ -12,6 +12,7 @@ use crate::model::api::{
     FieldList,
 };
 use crate::model::{Dashboard, TimeRange};
+use crate::spans;
 
 /// `now`, rounded down to 30 seconds. Ranges ending "now" then produce the
 /// same searches for half a minute, so Elasticsearch's request cache and
@@ -20,6 +21,18 @@ fn cache_friendly_now() -> jiff::Timestamp {
     let ms = jiff::Timestamp::now().as_millisecond();
     jiff::Timestamp::from_millisecond(ms - ms.rem_euclid(30_000))
         .unwrap_or_else(|_| jiff::Timestamp::now())
+}
+
+/// A dashboard from the catalog, as a step of the request's trace.
+fn load(state: &AppState, id: &str) -> Option<Dashboard> {
+    let _span = spans::step("load dashboard", "load");
+    state.app.catalog.get(id)
+}
+
+/// A JSON response, its serialization a step of the request's trace.
+fn respond(value: impl serde::Serialize) -> Response {
+    let _span = spans::step("serialize response", "render");
+    Json(value).into_response()
 }
 
 fn error(status: StatusCode, message: impl Into<String>) -> Response {
@@ -52,8 +65,8 @@ pub async fn list(State(state): State<AppState>) -> Json<Catalog> {
 }
 
 pub async fn dashboard(State(state): State<AppState>, Path(id): Path<String>) -> Response {
-    match state.app.catalog.get(&id) {
-        Some(d) => Json(d).into_response(),
+    match load(&state, &id) {
+        Some(d) => respond(d),
         None => error(StatusCode::NOT_FOUND, format!("no dashboard {id}")),
     }
 }
@@ -92,7 +105,7 @@ pub async fn data(
     Path(id): Path<String>,
     Json(body): Json<DataRequest>,
 ) -> Response {
-    let Some(d) = state.app.catalog.get(&id) else {
+    let Some(d) = load(&state, &id) else {
         return error(StatusCode::NOT_FOUND, format!("no dashboard {id}"));
     };
     let engine = match &state.app.engine {
@@ -106,13 +119,12 @@ pub async fn data(
         Err(e) => return error(StatusCode::BAD_REQUEST, e),
     };
     match engine.dashboard_data(&d, &request, now).await {
-        Ok(panels) => Json(DataResponse {
+        Ok(panels) => respond(DataResponse {
             from_ms: range.from_ms,
             to_ms: range.to_ms,
             time_zone: engine.zone(&request).1,
             panels,
-        })
-        .into_response(),
+        }),
         Err(e) => error(StatusCode::BAD_GATEWAY, e),
     }
 }
@@ -122,7 +134,7 @@ pub async fn inspect(
     Path((id, panel)): Path<(String, String)>,
     Json(body): Json<DataRequest>,
 ) -> Response {
-    let Some(d) = state.app.catalog.get(&id) else {
+    let Some(d) = load(&state, &id) else {
         return error(StatusCode::NOT_FOUND, format!("no dashboard {id}"));
     };
     if !d.panels.iter().any(|p| p.id == panel) {
@@ -137,7 +149,7 @@ pub async fn inspect(
         .inspect_panel(&d, &panel, &request, cache_friendly_now())
         .await
     {
-        Ok(inspection) => Json(inspection).into_response(),
+        Ok(inspection) => respond(inspection),
         Err(e) => error(StatusCode::BAD_GATEWAY, e),
     }
 }
@@ -147,7 +159,7 @@ pub async fn control_values(
     Path((id, control)): Path<(String, String)>,
     Json(body): Json<DataRequest>,
 ) -> Response {
-    let Some(d) = state.app.catalog.get(&id) else {
+    let Some(d) = load(&state, &id) else {
         return error(StatusCode::NOT_FOUND, format!("no dashboard {id}"));
     };
     let Some(control) = d.controls.iter().find(|c| c.id == control).cloned() else {
@@ -162,24 +174,22 @@ pub async fn control_values(
         .control_values(&d, &control, &request, cache_friendly_now())
         .await
     {
-        Ok(values) => Json(ControlValues { values }).into_response(),
+        Ok(values) => respond(ControlValues { values }),
         Err(e) => error(StatusCode::BAD_GATEWAY, e),
     }
 }
 
 /// `GET /api/dashboards/{id}/fields`: what an ad-hoc filter can use.
 pub async fn fields(State(state): State<AppState>, Path(id): Path<String>) -> Response {
-    let Some(d) = state.app.catalog.get(&id) else {
+    let Some(d) = load(&state, &id) else {
         return error(StatusCode::NOT_FOUND, format!("no dashboard {id}"));
     };
     let engine = match &state.app.engine {
         Ok(e) => e,
         Err(problem) => return error(StatusCode::SERVICE_UNAVAILABLE, problem.clone()),
     };
-    Json(FieldList {
-        fields: engine.filterable_fields(&d).await,
-    })
-    .into_response()
+    let fields = engine.filterable_fields(&d).await;
+    respond(FieldList { fields })
 }
 
 /// `POST /api/dashboards/{id}/fields/{field}/values`: values to suggest for
@@ -189,7 +199,7 @@ pub async fn field_values(
     Path((id, field)): Path<(String, String)>,
     Json(body): Json<DataRequest>,
 ) -> Response {
-    let Some(d) = state.app.catalog.get(&id) else {
+    let Some(d) = load(&state, &id) else {
         return error(StatusCode::NOT_FOUND, format!("no dashboard {id}"));
     };
     let engine = match &state.app.engine {
@@ -201,7 +211,7 @@ pub async fn field_values(
         .field_values(&d, &field, &request, cache_friendly_now())
         .await
     {
-        Ok(values) => Json(ControlValues { values }).into_response(),
+        Ok(values) => respond(ControlValues { values }),
         Err(e) => error(StatusCode::BAD_REQUEST, e),
     }
 }
@@ -213,7 +223,7 @@ pub async fn compare(
     Path((id, panel)): Path<(String, String)>,
     Json(body): Json<CompareRequest>,
 ) -> Response {
-    let Some(d) = state.app.catalog.get(&id) else {
+    let Some(d) = load(&state, &id) else {
         return error(StatusCode::NOT_FOUND, format!("no dashboard {id}"));
     };
     let engine = match &state.app.engine {
@@ -225,7 +235,7 @@ pub async fn compare(
         .compare(&d, &panel, &request, &body.selection, cache_friendly_now())
         .await
     {
-        Ok(comparison) => Json(comparison).into_response(),
+        Ok(comparison) => respond(comparison),
         Err(e) => error(StatusCode::BAD_REQUEST, e),
     }
 }

@@ -46,7 +46,10 @@ async fn start(name: &str, es: Option<&str>, advertised: Option<SocketAddr>) -> 
         ),
         None => Err("no Elasticsearch in this test".into()),
     };
-    let app = Arc::new(Teleplot::new(config, Some(dir.clone())));
+    let mut teleplot = Teleplot::new(config, Some(dir.clone()));
+    // Never report test requests to the developer's habit.
+    teleplot.telemetry = false;
+    let app = Arc::new(teleplot);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let router = teleplot::server::router(advertised.unwrap_or(addr), app);

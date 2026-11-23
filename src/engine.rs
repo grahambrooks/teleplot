@@ -21,6 +21,7 @@ use crate::model::{
     Control, Dashboard, DataView, Filter, PanelContent, PanelData, Query, TimeRange,
 };
 use crate::query::{self, Context, Settings};
+use crate::spans;
 use crate::time;
 
 #[derive(Clone)]
@@ -106,14 +107,18 @@ impl Engine {
         let searches: Vec<Search> = prepared
             .plans
             .iter()
-            .flat_map(|(_, p)| p.searches())
+            .flat_map(|(id, p)| p.searches().into_iter().map(move |s| s.for_panel(id)))
             .collect();
-        let mut responses = self.search(&searches).await?.into_iter();
+        let mut responses = self.search("panel searches", &searches).await?.into_iter();
 
         let mut out = HashMap::new();
         for (id, plan) in prepared.plans {
             let mine: Vec<_> = responses.by_ref().take(plan.searches().len()).collect();
-            out.insert(id, plan.evaluate(&mine));
+            let mut span = spans::step("evaluate panel", "render");
+            span.attr("panel", id.as_str());
+            let data = plan.evaluate(&mine);
+            drop(span);
+            out.insert(id, data);
         }
         Ok(out)
     }
@@ -133,9 +138,15 @@ impl Engine {
             return Err(format!("no chart panel {panel}"));
         };
         let described = plan.described_searches();
-        let searches: Vec<Search> = described.iter().map(|(_, s)| s.clone()).collect();
+        let searches: Vec<Search> = described
+            .iter()
+            .map(|(_, s)| s.clone().for_panel(panel))
+            .collect();
         let responses = self.client.msearch_full(&searches).await?;
+        let mut span = spans::step("evaluate panel", "render");
+        span.attr("panel", panel);
         let data = plan.evaluate(&responses);
+        drop(span);
 
         let inspected = |description: String, search: &Search, response: Result<Value, String>| {
             let (response, error) = match response {
@@ -220,7 +231,10 @@ impl Engine {
             annotations: &[],
         };
         let plan = crate::compare::plan(chart, selection, &ctx)?;
-        let mut responses = self.search(&plan.searches).await?.into_iter();
+        let mut responses = self
+            .search("compare searches", &plan.searches)
+            .await?
+            .into_iter();
         let selected = responses.next().ok_or("no response")??;
         let baseline = responses.next().ok_or("no response")??;
         Ok(crate::compare::rank(&plan, &selected, &baseline))
@@ -229,6 +243,22 @@ impl Engine {
     /// Plans the chart panels (all, or `only` one): field caps, time ranges,
     /// and the min/max pre-pass that automatic histogram intervals need.
     async fn prepare(
+        &self,
+        dashboard: &Dashboard,
+        request: &Request,
+        now: Timestamp,
+        only: Option<&str>,
+    ) -> Result<Prepared, String> {
+        let mut span = spans::step("plan panels", "parse");
+        let prepared = spans::within(&span, self.plan_panels(dashboard, request, now, only)).await;
+        match &prepared {
+            Ok(p) => span.attr("panels", p.plans.len()),
+            Err(_) => span.fail("plan"),
+        };
+        prepared
+    }
+
+    async fn plan_panels(
         &self,
         dashboard: &Dashboard,
         request: &Request,
@@ -294,7 +324,7 @@ impl Engine {
                 stat_searches.push(search);
             }
         }
-        let stat_responses = self.search(&stat_searches).await?;
+        let stat_responses = self.search("interval pre-pass", &stat_searches).await?;
         let mut stats = HashMap::new();
         let mut described = Vec::new();
         for (((layer, column), search), response) in
@@ -332,6 +362,11 @@ impl Engine {
 
     /// Fields of each index pattern (cached), for checking dashboards.
     pub async fn fields_for(&self, indexes: &[String]) -> HashMap<String, Vec<Field>> {
+        let span = spans::step("field caps", "load");
+        spans::within(&span, self.fields_of(indexes)).await
+    }
+
+    async fn fields_of(&self, indexes: &[String]) -> HashMap<String, Vec<Field>> {
         let mut out = HashMap::new();
         for index in indexes {
             if !out.contains_key(index) {
@@ -545,7 +580,7 @@ impl Engine {
             annotations: &[],
         };
         let search = query::terms_search(view, field, 100, &ctx)?;
-        let response = self.search(&[search]).await?.remove(0)?;
+        let response = self.search("values search", &[search]).await?.remove(0)?;
         Ok(response["aggregations"]["values"]["buckets"]
             .as_array()
             .into_iter()
@@ -579,7 +614,29 @@ impl Engine {
     /// `_msearch` with a short-lived cache in front: only misses go to
     /// Elasticsearch, and a search repeated in one batch (the same
     /// annotation on several charts) is sent once.
-    async fn search(&self, searches: &[Search]) -> Result<Vec<Result<Value, String>>, String> {
+    async fn search(
+        &self,
+        what: &str,
+        searches: &[Search],
+    ) -> Result<Vec<Result<Value, String>>, String> {
+        if searches.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut span = spans::step(what, "query");
+        span.attr("searches", searches.len());
+        let parent = span.handle();
+        let results = spans::under(parent, self.cached_search(searches, &mut span)).await;
+        if results.is_err() {
+            span.fail("search");
+        }
+        results
+    }
+
+    async fn cached_search(
+        &self,
+        searches: &[Search],
+        span: &mut crate::telemetry::Span,
+    ) -> Result<Vec<Result<Value, String>>, String> {
         let keys: Vec<String> = searches
             .iter()
             .map(|s| format!("{:?}\n{}\n{}", s.endpoint, s.index, s.body))
@@ -595,6 +652,7 @@ impl Engine {
                 }
             }
         }
+        span.attr("cached", searches.len() - misses.len());
         if !misses.is_empty() {
             // The first of each distinct missed search, and who else wants it.
             let mut unique: Vec<usize> = Vec::new();

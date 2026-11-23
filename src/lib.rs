@@ -34,8 +34,13 @@ pub mod metrics;
 pub mod query;
 #[cfg(feature = "ssr")]
 pub mod report;
+#[cfg(all(feature = "ssr", not(target_arch = "wasm32")))]
+pub mod spans;
 #[cfg(feature = "ssr")]
 pub mod store;
+/// Reports requests and CLI runs to habit as traces (server only).
+#[cfg(all(feature = "ssr", not(target_arch = "wasm32")))]
+pub mod telemetry;
 #[cfg(feature = "ssr")]
 pub mod time;
 #[cfg(feature = "ssr")]

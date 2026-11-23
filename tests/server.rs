@@ -11,7 +11,9 @@ use tower::ServiceExt;
 /// A server over the 8.19 delivery fixtures, with no Elasticsearch configured.
 fn app() -> axum::Router {
     let dir = format!("{}/fixtures/kibana/8.19", env!("CARGO_MANIFEST_DIR"));
-    let teleplot = Teleplot::new(Err("no Elasticsearch configured".into()), Some(dir.into()));
+    let mut teleplot = Teleplot::new(Err("no Elasticsearch configured".into()), Some(dir.into()));
+    // Never report test requests to the developer's habit.
+    teleplot.telemetry = false;
     teleplot::server::router("127.0.0.1:0".parse().unwrap(), Arc::new(teleplot))
 }
 

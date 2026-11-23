@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 
 use crate::config::Elasticsearch;
 use crate::kql::Field;
+use crate::spans;
 
 #[derive(Clone)]
 pub struct Client {
@@ -82,12 +83,15 @@ impl Client {
             .insight
             .as_deref()
             .ok_or("teleplot.yaml has no `insight: { url }`")?;
-        let response = self
-            .http
-            .get(format!("{base}/api/series/schema"))
-            .send()
-            .await
-            .map_err(|e| format!("insight unreachable: {e}"))?;
+        let mut span = spans::backend("GET /api/series/schema", "GET", host(base).as_deref());
+        let response = sent(
+            &mut span,
+            self.http
+                .get(format!("{base}/api/series/schema"))
+                .send()
+                .await,
+        )
+        .map_err(|e| format!("insight unreachable: {e}"))?;
         if !response.status().is_success() {
             return Err(format!("/api/series/schema failed: {}", response.status()));
         }
@@ -103,17 +107,18 @@ impl Client {
             .insight
             .as_deref()
             .ok_or("teleplot.yaml has no `insight: { url }`")?;
-        let response = self
-            .http
-            .post(format!("{base}/api/series"))
-            .json(body)
-            .send()
-            .await
-            .map_err(|e| format!("insight unreachable: {e}"))?;
+        let mut span = spans::backend("POST /api/series", "POST", host(base).as_deref());
+        let response = sent(
+            &mut span,
+            self.http
+                .post(format!("{base}/api/series"))
+                .json(body)
+                .send()
+                .await,
+        )
+        .map_err(|e| format!("insight unreachable: {e}"))?;
         let status = response.status();
-        let value: Value = response
-            .json()
-            .await
+        let value: Value = read(&mut span, response.json().await)
             .map_err(|e| format!("bad /api/series response: {e}"))?;
         if status.is_success() {
             Ok(value)
@@ -128,21 +133,30 @@ impl Client {
     /// Run a series request on insight and reshape the response like an
     /// ES|QL one: `{columns: [{name, type}], values: [[...]]}`.
     pub async fn insight_series(&self, body: &Value) -> Result<Value, String> {
+        self.insight_series_for(body, None).await
+    }
+
+    /// [`Client::insight_series`], its span labelled with the panel it is for.
+    async fn insight_series_for(&self, body: &Value, panel: Option<&str>) -> Result<Value, String> {
         let base = self
             .insight
             .as_deref()
             .ok_or("this layer queries insight, but teleplot.yaml has no `insight: { url }`")?;
-        let response = self
-            .http
-            .post(format!("{base}/api/series"))
-            .json(body)
-            .send()
-            .await
-            .map_err(|e| format!("insight unreachable: {e}"))?;
+        let mut span = spans::backend("POST /api/series", "POST", host(base).as_deref());
+        if let Some(panel) = panel {
+            span.attr("panel", panel);
+        }
+        let response = sent(
+            &mut span,
+            self.http
+                .post(format!("{base}/api/series"))
+                .json(body)
+                .send()
+                .await,
+        )
+        .map_err(|e| format!("insight unreachable: {e}"))?;
         let status = response.status();
-        let value: Value = response
-            .json()
-            .await
+        let value: Value = read(&mut span, response.json().await)
             .map_err(|e| format!("bad /api/series response: {e}"))?;
         if !status.is_success() {
             return Err(value["error"]
@@ -191,13 +205,17 @@ impl Client {
             let client = self.clone();
             let body = searches[i].body.clone();
             let endpoint = searches[i].endpoint;
-            queries.spawn(async move {
+            let panel = searches[i].panel.clone();
+            // A spawned task starts outside the request's trace: carry it over.
+            let parent = spans::current();
+            queries.spawn(spans::under(parent, async move {
+                let panel = panel.as_deref();
                 let response = match endpoint {
-                    Endpoint::Insight => client.insight_series(&body).await,
-                    _ => client.esql(&body).await,
+                    Endpoint::Insight => client.insight_series_for(&body, panel).await,
+                    _ => client.esql_for(&body, panel).await,
                 };
                 (i, response)
-            });
+            }));
         }
         let only_dsl: Vec<Search> = dsl.iter().map(|&i| searches[i].clone()).collect();
         let dsl_responses = self.msearch_only(&only_dsl, filter_path).await?;
@@ -217,17 +235,26 @@ impl Client {
 
     /// One ES|QL query (`POST /_query`): columns and rows, or the reason it failed.
     pub async fn esql(&self, body: &Value) -> Result<Value, String> {
-        let response = self
-            .http
-            .post(format!("{}/_query", self.base))
-            .json(body)
-            .send()
-            .await
-            .map_err(|e| format!("Elasticsearch unreachable: {e}"))?;
+        self.esql_for(body, None).await
+    }
+
+    /// [`Client::esql`], its span labelled with the panel it is for.
+    async fn esql_for(&self, body: &Value, panel: Option<&str>) -> Result<Value, String> {
+        let mut span = spans::backend("POST /_query", "POST", host(&self.base).as_deref());
+        if let Some(panel) = panel {
+            span.attr("panel", panel);
+        }
+        let response = sent(
+            &mut span,
+            self.http
+                .post(format!("{}/_query", self.base))
+                .json(body)
+                .send()
+                .await,
+        )
+        .map_err(|e| format!("Elasticsearch unreachable: {e}"))?;
         let status = response.status();
-        let value: Value = response
-            .json()
-            .await
+        let value: Value = read(&mut span, response.json().await)
             .map_err(|e| format!("bad _query response: {e}"))?;
         match error_reason(&value) {
             Some(reason) => Err(reason),
@@ -257,18 +284,20 @@ impl Client {
         } else {
             format!("{}/_msearch?filter_path={filter_path}", self.base)
         };
-        let response = self
-            .http
-            .post(url)
-            .header(CONTENT_TYPE, "application/x-ndjson")
-            .body(body)
-            .send()
-            .await
-            .map_err(|e| format!("Elasticsearch unreachable: {e}"))?;
+        let mut span = spans::backend("POST /_msearch", "POST", host(&self.base).as_deref());
+        span.attr("searches", searches.len());
+        let response = sent(
+            &mut span,
+            self.http
+                .post(url)
+                .header(CONTENT_TYPE, "application/x-ndjson")
+                .body(body)
+                .send()
+                .await,
+        )
+        .map_err(|e| format!("Elasticsearch unreachable: {e}"))?;
         let status = response.status();
-        let value: Value = response
-            .json()
-            .await
+        let value: Value = read(&mut span, response.json().await)
             .map_err(|e| format!("bad _msearch response: {e}"))?;
         if !status.is_success() {
             return Err(
@@ -298,16 +327,11 @@ impl Client {
             "{}/_cat/indices?format=json&h=index,docs.count&s=index&expand_wildcards=open",
             self.base
         );
-        let response = self
-            .http
-            .get(url)
-            .send()
-            .await
+        let mut span = spans::backend("GET /_cat/indices", "GET", host(&self.base).as_deref());
+        let response = sent(&mut span, self.http.get(url).send().await)
             .map_err(|e| format!("Elasticsearch unreachable: {e}"))?;
         let status = response.status();
-        let value: Value = response
-            .json()
-            .await
+        let value: Value = read(&mut span, response.json().await)
             .map_err(|e| format!("bad _cat/indices response: {e}"))?;
         if !status.is_success() {
             return Err(
@@ -336,16 +360,16 @@ impl Client {
             self.base,
             encode_path(index)
         );
-        let response = self
-            .http
-            .get(url)
-            .send()
-            .await
+        // Named for the API, not the index pattern in its path.
+        let mut span = spans::backend(
+            "GET /{index}/_field_caps",
+            "GET",
+            host(&self.base).as_deref(),
+        );
+        let response = sent(&mut span, self.http.get(url).send().await)
             .map_err(|e| format!("Elasticsearch unreachable: {e}"))?;
         let status = response.status();
-        let value: Value = response
-            .json()
-            .await
+        let value: Value = read(&mut span, response.json().await)
             .map_err(|e| format!("bad _field_caps response: {e}"))?;
         if !status.is_success() {
             return Err(
@@ -363,6 +387,8 @@ pub struct Search {
     pub index: String,
     pub body: Value,
     pub endpoint: Endpoint,
+    /// The panel the search is for, to label its span. Never sent.
+    pub panel: Option<String>,
 }
 
 /// Where a [`Search`] is sent.
@@ -384,8 +410,48 @@ impl Search {
             index: index.into(),
             body,
             endpoint: Endpoint::Search,
+            panel: None,
         }
     }
+
+    /// This search, labelled with the panel it is for.
+    pub fn for_panel(mut self, panel: &str) -> Self {
+        self.panel = Some(panel.to_string());
+        self
+    }
+}
+
+/// A backend's host name, for `server.address`: never its path or query.
+fn host(base: &str) -> Option<String> {
+    reqwest::Url::parse(base)
+        .ok()?
+        .host_str()
+        .map(str::to_string)
+}
+
+/// Records a sent request's status on its span, or fails the span.
+fn sent(
+    span: &mut crate::telemetry::Span,
+    result: reqwest::Result<reqwest::Response>,
+) -> reqwest::Result<reqwest::Response> {
+    match &result {
+        Ok(response) => spans::status(span, response.status().as_u16()),
+        Err(e) if e.is_timeout() => {
+            span.fail("timeout");
+        }
+        Err(_) => {
+            span.fail("unreachable");
+        }
+    }
+    result
+}
+
+/// Fails a span whose response body could not be read.
+fn read<T>(span: &mut crate::telemetry::Span, result: reqwest::Result<T>) -> reqwest::Result<T> {
+    if result.is_err() {
+        span.fail("bad_response");
+    }
+    result
 }
 
 /// `_field_caps` → fields, skipping metadata (`_id`, ...) and object fields.

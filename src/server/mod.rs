@@ -3,6 +3,7 @@
 mod api;
 mod assets;
 mod catalog;
+mod traced;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -31,6 +32,10 @@ pub struct Teleplot {
     pub engine: Result<Engine, String>,
     /// Agents may edit the YAML dashboards in the dashboards directory.
     pub edit_dashboards: bool,
+    /// Report each request to habit as a trace, when habit's endpoint is
+    /// configured (see [`crate::telemetry`]). On by default; tests turn it
+    /// off, since `~/.config/habit/client.toml` enables every process.
+    pub telemetry: bool,
 }
 
 impl Teleplot {
@@ -44,6 +49,7 @@ impl Teleplot {
             catalog: Catalog::load(dir),
             engine,
             edit_dashboards,
+            telemetry: true,
         }
     }
 }
@@ -71,12 +77,13 @@ pub fn router(addr: SocketAddr, app: Arc<Teleplot>) -> Router {
         .build();
     let routes = generate_route_list(App);
     let mcp = mcp_service(addr, app.clone());
+    let telemetry = app.telemetry;
     let state = AppState {
         leptos: leptos.clone(),
         app,
     };
 
-    Router::new()
+    let router = Router::new()
         .nest_service("/mcp", mcp)
         .route("/api/dashboards", get(api::list))
         .route("/api/dashboards/{id}", get(api::dashboard))
@@ -101,9 +108,17 @@ pub fn router(addr: SocketAddr, app: Arc<Teleplot>) -> Router {
         .leptos_routes(&state, routes, {
             let leptos = leptos.clone();
             move || shell(leptos.clone())
-        })
-        .fallback(assets::serve)
-        .with_state(state)
+        });
+    // Routed requests only: the asset fallback below is not traced.
+    let router = if telemetry {
+        router.route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            traced::traced,
+        ))
+    } else {
+        router
+    };
+    router.fallback(assets::serve).with_state(state)
 }
 
 /// The MCP endpoint. Agents may save dashboards only while Teleplot is bound

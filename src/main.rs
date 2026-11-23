@@ -6,6 +6,8 @@ use clap::{Parser, Subcommand};
 use teleplot::config::Config;
 use teleplot::engine::{Engine, Request};
 use teleplot::model::{Cell, Dashboard, PanelContent, TimeRange};
+use teleplot::spans::{self, step};
+use teleplot::telemetry;
 use tracing_subscriber::EnvFilter;
 
 /// Localhost only by default: Teleplot has no auth.
@@ -131,6 +133,7 @@ async fn main() -> ExitCode {
         .with_writer(std::io::stderr)
         .init();
 
+    let args: Vec<String> = std::env::args().skip(1).collect();
     let command = Cli::parse().command.unwrap_or(Command::Serve {
         addr: DEFAULT_ADDR.parse().expect("valid default address"),
         dashboards: None,
@@ -140,7 +143,38 @@ async fn main() -> ExitCode {
             time_zone: None,
         },
     });
-    let result = match command {
+    // One trace per CLI run. `serve` and `mcp` are long-running: their
+    // requests are traced one by one instead.
+    let subcommand = match &command {
+        Command::Serve { .. } | Command::Mcp { .. } => None,
+        Command::Check { .. } => Some("check"),
+        Command::Query { .. } => Some("query"),
+        Command::Lint { .. } => Some("lint"),
+        Command::Schema { .. } => Some("schema"),
+        Command::Convert { .. } => Some("convert"),
+    };
+    let mut run = subcommand.map(|sc| {
+        // Flag names only: the library drops values and positionals.
+        let flags: Vec<&str> = args.iter().map(String::as_str).collect();
+        telemetry::run("teleplot", env!("CARGO_PKG_VERSION"), Some(sc), &flags)
+    });
+    let parent = run.as_mut().and_then(|r| r.span().handle());
+    let result = spans::under(parent, execute(command)).await;
+    let code = match result {
+        Ok(code) => code,
+        Err(message) => {
+            eprintln!("teleplot: {message}");
+            ExitCode::FAILURE
+        }
+    };
+    if let Some(run) = &mut run {
+        run.exit_code(if code == ExitCode::SUCCESS { 0 } else { 1 });
+    }
+    code
+}
+
+async fn execute(command: Command) -> Result<ExitCode, String> {
+    match command {
         Command::Serve {
             addr,
             dashboards,
@@ -184,26 +218,36 @@ async fn main() -> ExitCode {
             to,
             connection,
         } => query(&file, dashboard.as_deref(), from.zip(to), &connection).await,
-    };
-    match result {
-        Ok(code) => code,
-        Err(message) => {
-            eprintln!("teleplot: {message}");
-            ExitCode::FAILURE
-        }
     }
 }
 
 fn read_export(path: &Path) -> Result<Vec<Dashboard>, String> {
-    let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let text = read_file(path)?;
+    let _span = step("parse export", "parse");
     teleplot::kibana::read(&text).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+fn read_file(path: &Path) -> Result<String, String> {
+    let mut span = step("read file", "io");
+    std::fs::read_to_string(path).map_err(|e| {
+        span.fail("io");
+        format!("{}: {e}", path.display())
+    })
+}
+
+/// The config and its engine, as a step of the run.
+fn engine(connection: &Connection) -> Result<Engine, String> {
+    let _span = step("load config", "load");
+    Engine::new(&connection.config()?)
 }
 
 fn check(exports: &[PathBuf]) -> Result<ExitCode, String> {
     let mut failed = false;
     for path in exports {
         let dashboards = read_export(path)?;
+        let span = step("check export", "parse");
         let (report, total) = teleplot::report::check(&dashboards);
+        drop(span);
         println!("{} — {} dashboards", path.display(), dashboards.len());
         print!("{report}");
         failed |= total.unparseable > 0;
@@ -227,8 +271,9 @@ fn convert(export: &Path, out: Option<&Path>) -> Result<ExitCode, String> {
             std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
             for d in &dashboards {
                 let path = dir.join(format!("{}.yaml", slug(&d.title)));
-                std::fs::write(&path, to_yaml(d)?)
-                    .map_err(|e| format!("{}: {e}", path.display()))?;
+                let yaml = to_yaml(d)?;
+                let _span = step("write file", "io");
+                std::fs::write(&path, yaml).map_err(|e| format!("{}: {e}", path.display()))?;
                 eprintln!("wrote {}", path.display());
             }
         }
@@ -242,12 +287,14 @@ async fn query(
     time: Option<(String, String)>,
     connection: &Connection,
 ) -> Result<ExitCode, String> {
-    let engine = Engine::new(&connection.config()?)?;
+    let engine = engine(connection)?;
     let request = Request {
         time: time.map(|(from, to)| TimeRange { from, to }),
         ..Default::default()
     };
+    let span = step("load dashboards", "load");
     let dashboards = teleplot::dashboards::load_file(file)?;
+    drop(span);
     let chosen: Vec<&Dashboard> = dashboards
         .iter()
         .filter(|d| {
@@ -259,9 +306,15 @@ async fn query(
     }
     for d in chosen {
         println!("== {}", d.title);
-        let data = engine
-            .dashboard_data(d, &request, jiff::Timestamp::now())
-            .await?;
+        let mut span = step("query dashboard", "query");
+        span.attr("dashboard", d.id.as_str());
+        let data = spans::within(
+            &span,
+            engine.dashboard_data(d, &request, jiff::Timestamp::now()),
+        )
+        .await?;
+        drop(span);
+        let _print = step("print panels", "io");
         for panel in &d.panels {
             let PanelContent::Chart(chart) = &panel.content else {
                 continue;
@@ -324,9 +377,7 @@ fn cell(c: &Cell) -> String {
 
 async fn lint(files: &[PathBuf], online: Option<&Connection>) -> Result<ExitCode, String> {
     use teleplot::lint;
-    let engine = online
-        .map(|c| c.config().and_then(|c| Engine::new(&c)))
-        .transpose()?;
+    let engine = online.map(engine).transpose()?;
     let mut errors = 0;
     let print = |file: &Path, name: &str, problems: &[lint::Problem]| {
         for p in problems {
@@ -352,8 +403,9 @@ async fn lint(files: &[PathBuf], online: Option<&Connection>) -> Result<ExitCode
             .count()
     };
     for file in files {
-        let text = std::fs::read_to_string(file).map_err(|e| format!("{}: {e}", file.display()))?;
+        let text = read_file(file)?;
         if teleplot::metrics::is_library(file) {
+            let _span = step("lint metrics", "parse");
             let problems = match teleplot::yaml::from_str::<serde_json::Value>(&text) {
                 Err(e) => vec![lint::Problem {
                     path: String::new(),
@@ -368,10 +420,13 @@ async fn lint(files: &[PathBuf], online: Option<&Connection>) -> Result<ExitCode
             errors += print(file, "metrics", &problems);
             continue;
         }
+        let span = step("load metrics", "load");
         let library = teleplot::metrics::load(&teleplot::metrics::library_dir(file));
+        drop(span);
         let library = library.as_ref().map_err(String::as_str);
         let is_yaml = file.extension().is_some_and(|e| e == "yaml" || e == "yml");
         // YAML is parsed from raw values so problems carry exact paths.
+        let span = step("parse dashboards", "parse");
         let parsed: Vec<Result<Dashboard, lint::Problem>> = if is_yaml {
             match teleplot::yaml::from_multiple::<serde_json::Value>(&text) {
                 Ok(docs) => docs.into_iter().map(lint::parse).collect(),
@@ -388,10 +443,13 @@ async fn lint(files: &[PathBuf], online: Option<&Connection>) -> Result<ExitCode
                 .map(Ok)
                 .collect()
         };
+        drop(span);
         for result in parsed {
             let (name, problems) = match result {
                 Err(p) => ("(unparsed)".to_string(), vec![p]),
                 Ok(d) => {
+                    let mut span = step("lint dashboard", "parse");
+                    span.attr("dashboard", d.id.as_str());
                     let fields = match &engine {
                         Some(engine) => {
                             let indexes: Vec<String> = d
@@ -406,7 +464,7 @@ async fn lint(files: &[PathBuf], online: Option<&Connection>) -> Result<ExitCode
                                 .flatten()
                                 .chain(d.controls.iter().map(|c| c.data_view.index.clone()))
                                 .collect();
-                            Some(engine.fields_for(&indexes).await)
+                            Some(spans::within(&span, engine.fields_for(&indexes)).await)
                         }
                         None => None,
                     };
