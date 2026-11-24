@@ -1044,7 +1044,7 @@ pub fn TimelineChart(
             {capped.map(|note| view! { <div class="timeline-capped small">{note}</div> })}
             {plot}
             <div class="timeline-traces">{list}</div>
-            {body}
+            <div class="timeline-detail">{body}</div>
         </div>
     }
     .into_any()

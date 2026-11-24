@@ -556,7 +556,11 @@ html.printing .panel { break-inside: avoid; }
 .calendar { height: 100%; display: flex; flex-direction: column; gap: 4px; overflow: auto; }
 .calendar-svg { width: 100%; max-height: calc(100% - 20px); }
 .calendar-label { font-size: 8px; fill: var(--text-muted); }
-.timeline { height: 100%; display: flex; flex-direction: column; gap: 6px; overflow: auto; }
+/* The head, plot and trace list keep their place; only the selected trace
+   (.timeline-detail) scrolls, in the space left below them, so the panel
+   never nests one scroll area inside another. */
+.timeline { height: 100%; display: flex; flex-direction: column; gap: 6px; overflow: hidden; }
+.timeline-detail { flex: 1 1 0; min-height: 120px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
 .timeline-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .timeline-filter { flex: 1 1 220px; min-width: 0; background: var(--panel); color: var(--text); border: 1px solid var(--border-strong); border-radius: 2px; padding: 3px 8px; font-size: 12px; }
 .timeline-filter:focus { outline: none; border-color: var(--accent); }
@@ -588,7 +592,7 @@ html.printing .panel { break-inside: avoid; }
 .timeline-dot { fill: var(--accent); fill-opacity: 0.55; cursor: pointer; }
 .timeline-dot:hover { fill-opacity: 1; }
 .timeline-dot.selected { fill-opacity: 1; stroke: var(--text); stroke-width: 1.5; }
-.timeline-traces { flex: none; max-height: 176px; overflow: auto; border: 1px solid var(--border); border-radius: 2px; }
+.timeline-traces { flex: none; max-height: clamp(150px, 24%, 320px); overflow: auto; border: 1px solid var(--border); border-radius: 2px; }
 .timeline-trace { display: grid; grid-template-columns: 185px 1fr 80px 70px; gap: 8px; width: 100%; text-align: left; background: none; color: var(--text); border: 0; border-bottom: 1px solid var(--border); padding: 3px 8px; font-size: 12px; cursor: pointer; }
 .timeline-trace:hover { background: var(--border); }
 .timeline-trace.selected { background: var(--border-strong); box-shadow: inset 3px 0 0 var(--accent); }
